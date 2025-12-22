@@ -7,7 +7,7 @@
 # Commands:
 #   (none)              Interactive menu
 #   install [hostname]  Fresh NixOS installation
-#   update              Update flake & rebuild system
+#   update              Update flake, rebuild system, and update CLI tools
 #
 # Run fresh installs from the official NixOS minimal ISO.
 #
@@ -69,7 +69,7 @@ show_menu() {
     echo "=============================================="
     echo ""
     echo -e "  ${GREEN}1)${NC} Install NixOS (fresh installation)"
-    echo -e "  ${GREEN}2)${NC} Update system (flake update + rebuild)"
+    echo -e "  ${GREEN}2)${NC} Update system (flake + rebuild + CLI tools)"
     echo -e "  ${GREEN}3)${NC} Exit"
     echo ""
 
@@ -177,7 +177,7 @@ validate_hostname() {
     return 1
 }
 
-# Update system (flake update + rebuild)
+# Update system (flake update + rebuild + CLI tools)
 do_update() {
     CURRENT_HOST=$(hostname)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -201,12 +201,28 @@ do_update() {
     # Save current system for comparison
     OLD_SYSTEM=$(readlink -f /run/current-system)
 
-    log_info "Step 1/2: Updating flake inputs..."
+    log_info "Step 1/4: Updating flake inputs..."
     nix flake update
 
     echo ""
-    log_info "Step 2/2: Rebuilding system (requires sudo)..."
+    log_info "Step 2/4: Rebuilding system (requires sudo)..."
     sudo nixos-rebuild switch --flake ".#${CURRENT_HOST}"
+
+    echo ""
+    log_info "Step 3/4: Updating Claude Code..."
+    if [[ -x "$HOME/.local/bin/claude" ]]; then
+        "$HOME/.local/bin/claude" update || log_warn "Claude Code update failed (may already be latest)"
+    else
+        log_warn "Claude Code not installed, skipping"
+    fi
+
+    echo ""
+    log_info "Step 4/4: Updating Codex CLI..."
+    if [[ -x "$HOME/.npm-global/bin/codex" ]]; then
+        npm update -g @openai/codex || log_warn "Codex CLI update failed"
+    else
+        log_warn "Codex CLI not installed, skipping"
+    fi
 
     echo ""
     log_success "System updated successfully!"
