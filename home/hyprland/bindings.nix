@@ -6,7 +6,7 @@
   # Variables
   $mainMod = SUPER
   $terminal = ghostty
-  $browser = chromium
+  $browser = google-chrome-stable
 
   # Application launchers
   bind = $mainMod, Return, exec, $terminal

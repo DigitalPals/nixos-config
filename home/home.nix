@@ -79,9 +79,6 @@
     # Theming
     nwg-look
 
-    # Browser
-    chromium
-
     # Media control
     brightnessctl
     playerctl
@@ -107,6 +104,23 @@
     nerd-fonts.jetbrains-mono
     nerd-fonts.fira-code
   ];
+
+  # Web browsers
+  programs.google-chrome.enable = true;
+
+  programs.firefox.enable = true;
+
+  # Set Google Chrome as default browser
+  xdg.mimeApps = {
+    enable = true;
+    defaultApplications = {
+      "text/html" = "google-chrome.desktop";
+      "x-scheme-handler/http" = "google-chrome.desktop";
+      "x-scheme-handler/https" = "google-chrome.desktop";
+      "x-scheme-handler/about" = "google-chrome.desktop";
+      "x-scheme-handler/unknown" = "google-chrome.desktop";
+    };
+  };
 
   # GTK theming
   gtk = {
@@ -153,7 +167,7 @@
   # Environment variables
   home.sessionVariables = {
     EDITOR = "nvim";
-    BROWSER = "chromium";
+    BROWSER = "google-chrome-stable";
     TERMINAL = "ghostty";
 
     # Wayland-specific (NIXOS_OZONE_WL is set in configuration.nix)

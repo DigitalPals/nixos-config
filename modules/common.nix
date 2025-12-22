@@ -127,7 +127,18 @@
 
   # Programs and packages
   services.printing.enable = true;
-  programs.firefox.enable = true;
+  programs.firefox = {
+    enable = true;
+    policies = {
+      ExtensionSettings = {
+        # 1Password
+        "{d634138d-c276-4fc8-924b-40a0ea21d284}" = {
+          install_url = "https://addons.mozilla.org/firefox/downloads/latest/1password-x-password-manager/latest.xpi";
+          installation_mode = "force_installed";
+        };
+      };
+    };
+  };
 
   nixpkgs.config.allowUnfree = true;
 
@@ -135,6 +146,13 @@
   programs._1password-gui = {
     enable = true;
     polkitPolicyOwners = [ "john" ];
+  };
+
+  # Google Chrome extension policies (force-install 1Password)
+  environment.etc."opt/chrome/policies/managed/extensions.json".text = builtins.toJSON {
+    ExtensionInstallForcelist = [
+      "aeblfdkhhhdcdjpifhhbdiojplfjncoa;https://clients2.google.com/service/update2/crx"
+    ];
   };
 
   environment.systemPackages = with pkgs; [
