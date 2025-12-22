@@ -25,7 +25,7 @@
   bind = $mainMod, F, togglefloating,
   bind = $mainMod, P, pseudo,
   bind = $mainMod, J, togglesplit,
-  bind = $mainMod, BACKSPACE, exec, hyprctl dispatch setprop address:$(hyprctl activewindow -j | jq -r '.address') alpha 0.98 toggle
+  bind = $mainMod, BACKSPACE, exec, hyprctl dispatch setprop address:$(hyprctl activewindow -j | jq -r '.address') alpha 0.85 toggle
 
   # Exit Hyprland
   bind = $mainMod SHIFT, M, exit,
