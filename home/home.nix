@@ -90,6 +90,8 @@
     lazydocker
     btop
     gnome-calculator
+    gnome-text-editor
+    fastfetch
     jq
     nodejs
     termius
