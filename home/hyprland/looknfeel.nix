@@ -15,6 +15,14 @@ let
       single_window_aspect_ratio = 1 1
     }
   '' else "";
+
+  masterConfig = if hostname != "kraken" then ''
+    # Master layout for laptop
+    # https://wiki.hyprland.org/Configuring/Master-Layout/
+    master {
+      mfact = 0.5  # 50/50 split between master and stack
+    }
+  '' else "";
 in
 ''
   # General appearance
@@ -63,6 +71,7 @@ in
   }
 
 ${dwindleConfig}
+${masterConfig}
   # Misc settings
   misc {
     force_default_wallpaper = 0

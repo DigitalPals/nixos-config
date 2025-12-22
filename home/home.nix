@@ -152,15 +152,25 @@
   # Install Claude Code native binary if not present
   home.activation.installClaudeCode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     if [ ! -x "$HOME/.local/bin/claude" ]; then
-      PATH="${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnutar}/bin:${pkgs.gzip}/bin:$PATH" \
-        $DRY_RUN_CMD ${pkgs.bash}/bin/bash -c "curl -fsSL https://claude.ai/install.sh | bash"
+      if ${pkgs.curl}/bin/curl -fsSL https://claude.ai/ >/dev/null 2>&1; then
+        PATH="${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnutar}/bin:${pkgs.gzip}/bin:$PATH" \
+          $DRY_RUN_CMD ${pkgs.bash}/bin/bash -c "curl -fsSL https://claude.ai/install.sh | bash" || \
+          echo "Claude Code install failed (offline or installer issue)"
+      else
+        echo "Claude Code install skipped (offline)"
+      fi
     fi
   '';
 
   # Install OpenAI Codex CLI via npm if not present
   home.activation.installCodexCLI = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     if [ ! -x "$HOME/.npm-global/bin/codex" ]; then
-      $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm install -g @openai/codex
+      if ${pkgs.curl}/bin/curl -fsSL https://registry.npmjs.org/ >/dev/null 2>&1; then
+        $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm install -g @openai/codex || \
+          echo "Codex CLI install failed (offline or npm issue)"
+      else
+        echo "Codex CLI install skipped (offline)"
+      fi
     fi
   '';
 

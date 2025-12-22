@@ -387,7 +387,7 @@ do_install() {
 
     # Pre-fetch disko to ensure stable TTY when prompting for LUKS passphrase
     log_info "Preparing disko (this may take a moment on first run)..."
-    nix build github:nix-community/disko --no-link 2>/dev/null || true
+    nix build "$TEMP_CONFIG#disko" --no-link 2>/dev/null || true
 
     echo ""
     log_warn "You will be prompted to enter the LUKS encryption passphrase."
@@ -395,7 +395,7 @@ do_install() {
     echo ""
     read -p "Press Enter to continue with disk partitioning..."
 
-    nix run github:nix-community/disko -- \
+    nix run "$TEMP_CONFIG#disko" -- \
         --mode destroy,format,mount \
         --flake "$TEMP_CONFIG#$HOSTNAME"
 

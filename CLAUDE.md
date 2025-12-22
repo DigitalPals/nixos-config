@@ -52,6 +52,32 @@ boot.initrd.systemd.services.plymouth-start = {
 - **kraken (NVIDIA RTX 5090)**: Requires the udev-settle workaround
 - **G1a (AMD Strix Halo)**: Uses `hardware.amdgpu.initrd.enable = true`, no timing issues
 
+## Plymouth Resolution on Limine (NixOS Module Limitation)
+
+### Problem
+
+Plymouth displays at low resolution (~1080p) on G1a despite having a 2880x1800 native display.
+
+### Root Cause
+
+Plymouth uses `simpledrm` by default on UEFI systems, which inherits the EFI framebuffer resolution set by the bootloader. Limine has a per-entry `resolution:` option that controls this, but the **NixOS Limine module doesn't expose it**.
+
+The module only exposes `boot.loader.limine.style.interface.resolution`, which affects the Limine menu appearance, NOT the framebuffer passed to Linux.
+
+### What Doesn't Work
+
+- **`video=2880x1800@60` kernel parameter** - Only affects GPU drivers, not simpledrm (which can't change modes)
+- **`plymouth.use-simpledrm=0`** - Disables simpledrm but causes black screen if GPU driver isn't ready in time
+- **`interface.resolution` change** - Only affects Limine's menu, not the Linux framebuffer
+
+### Current Status
+
+Accepted limitation. Plymouth displays at whatever resolution the EFI firmware provides (typically 1024x768 or 1920x1080).
+
+### Potential Fix
+
+File a feature request at [nixpkgs](https://github.com/NixOS/nixpkgs/issues) to add `boot.loader.limine.resolution` option that sets the per-entry `resolution:` field in `limine.conf`.
+
 ## Home Manager Backup File Conflicts
 
 ### Problem

@@ -119,6 +119,12 @@ reboot
    passwd
    ```
 
+### CLI Tool Installs (Codex + Claude)
+
+Codex CLI (npm) and Claude Code are installed via Home Manager activation. This is best-effort:
+- If online, they are installed on first activation.
+- If offline, installation is skipped and retried on the next activation.
+
 ### Clone Your Configuration
 
 For future modifications:

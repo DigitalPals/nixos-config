@@ -51,6 +51,11 @@
     };
   in
   {
+    apps.${system}.disko = {
+      type = "app";
+      program = "${disko.packages.${system}.disko}/bin/disko";
+    };
+
     nixosConfigurations = {
       # Desktop with NVIDIA RTX 5090
       kraken = nixpkgs.lib.nixosSystem {
@@ -92,5 +97,7 @@
         ];
       };
     };
+
+    packages.${system}.disko = disko.packages.${system}.disko;
   };
 }

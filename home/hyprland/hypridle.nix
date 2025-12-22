@@ -3,10 +3,10 @@
 { config, pkgs, lib, hostname, ... }:
 
 let
-  isLaptop = hostname == "G1a";
+  shouldAutoSuspend = hostname == "G1a" || hostname == "kraken";
 
-  # Laptop-specific suspend listener
-  suspendListener = if isLaptop then ''
+  # Auto-suspend listener
+  suspendListener = if shouldAutoSuspend then ''
 
     listener {
       timeout = 1800                   # 30 minutes
