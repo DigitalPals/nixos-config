@@ -1,0 +1,76 @@
+# G1a configuration - HP ZBook Ultra G1a (Strix Halo)
+{ config, pkgs, lib, ... }:
+
+{
+  imports = [
+    ./hardware-configuration.nix
+    ../../modules/boot/limine-plymouth.nix
+  ];
+
+  networking.hostName = "G1a";
+
+  # === AMD Strix Halo (RDNA 3.5) GPU Configuration ===
+  # Enable official amdgpu initrd support for early KMS and Plymouth
+  hardware.amdgpu.initrd.enable = true;
+
+  # Battery/power management (disable power-profiles-daemon, use TLP instead)
+  services.power-profiles-daemon.enable = false;
+  services.tlp = {
+    enable = true;
+    settings = {
+      # CPU scaling
+      CPU_SCALING_GOVERNOR_ON_AC = "performance";
+      CPU_SCALING_GOVERNOR_ON_BAT = "powersave";
+      CPU_ENERGY_PERF_POLICY_ON_AC = "performance";
+      CPU_ENERGY_PERF_POLICY_ON_BAT = "power";
+
+      # Turbo boost
+      CPU_BOOST_ON_AC = 1;
+      CPU_BOOST_ON_BAT = 0;
+
+      # Platform profile
+      PLATFORM_PROFILE_ON_AC = "performance";
+      PLATFORM_PROFILE_ON_BAT = "low-power";
+
+      # Battery charge thresholds (if supported by hardware)
+      START_CHARGE_THRESH_BAT0 = 20;
+      STOP_CHARGE_THRESH_BAT0 = 80;
+
+      # WiFi power saving
+      WIFI_PWR_ON_AC = "off";
+      WIFI_PWR_ON_BAT = "on";
+
+      # Runtime PM for PCIe devices
+      RUNTIME_PM_ON_AC = "auto";
+      RUNTIME_PM_ON_BAT = "auto";
+
+      # USB autosuspend
+      USB_AUTOSUSPEND = 1;
+    };
+  };
+
+  # Override shared config: set GPU + HID modules for early boot
+  boot.initrd.kernelModules = lib.mkForce [
+    "amdgpu"       # AMD GPU for early KMS/Plymouth
+    "hid-generic"  # Generic HID for keyboard
+    "usbhid"       # USB HID for keyboard
+  ];
+
+  # AMD GPU Configuration
+  # Note: We do NOT add libva-mesa-driver or amdvlk to extraPackages because:
+  # - libva-mesa-driver: VA-API is already included in Mesa by default
+  # - amdvlk: Being discontinued, and Mesa RADV is faster and more stable
+  # Mesa RADV (Vulkan) and radeonsi (VA-API) are automatically available via hardware.graphics.enable
+  #
+  # If you need explicit VA-API driver selection, set environment variable:
+  # environment.sessionVariables.LIBVA_DRIVER_NAME = "radeonsi";
+
+  # AMD GPU power management and display initialization
+  boot.kernelParams = [
+    "amdgpu.ppfeaturemask=0xffffffff"
+    "amdgpu.dcdebugmask=0x10"  # Helps with display init on new AMD APUs
+  ];
+
+  # LUKS configuration is handled by disko (modules/disko/G1a.nix)
+  # Disko sets allowDiscards and bypassWorkqueues automatically
+}
