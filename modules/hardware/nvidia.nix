@@ -1,6 +1,9 @@
 # NVIDIA GPU configuration
 { config, pkgs, lib, ... }:
 
+let
+  nvidia-sleep = config.hardware.nvidia.package + "/bin/nvidia-sleep.sh";
+in
 {
   # NVIDIA driver
   services.xserver.videoDrivers = [ "nvidia" ];
@@ -34,5 +37,18 @@
     GBM_BACKEND = "nvidia-drm";
     __GLX_VENDOR_LIBRARY_NAME = "nvidia";
     NIXOS_OZONE_WL = "1";
+  };
+
+  # Fix NVIDIA suspend/resume: Add system-sleep hook (like Arch has)
+  # This ensures nvidia-sleep.sh resume is called after waking from sleep
+  powerManagement.powerDownCommands = "";
+  powerManagement.resumeCommands = ''
+    ${nvidia-sleep} resume
+  '';
+
+  # Ensure nvidia-resume also handles suspend-then-hibernate
+  systemd.services.nvidia-resume = {
+    after = [ "systemd-suspend-then-hibernate.service" ];
+    requiredBy = [ "systemd-suspend-then-hibernate.service" ];
   };
 }
