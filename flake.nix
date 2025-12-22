@@ -28,15 +28,9 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    # Claude Code (latest version, auto-updated hourly)
-    claude-code = {
-      url = "github:sadjow/claude-code-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, home-manager, noctalia, disko, claude-code, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, noctalia, disko, ... }@inputs:
   let
     system = "x86_64-linux";
     pkgs = nixpkgs.legacyPackages.${system};
@@ -55,16 +49,13 @@
         noctalia.homeModules.default
       ];
     };
-
-    # Claude Code package
-    claude-code-pkg = claude-code.packages.${system}.claude-code;
   in
   {
     nixosConfigurations = {
       # Desktop with NVIDIA RTX 5090
       kraken = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex claude-code-pkg; };
+        specialArgs = { inherit inputs plymouth-cybex; };
         modules = [
           # Disko for declarative disk partitioning
           disko.nixosModules.disko
@@ -84,7 +75,7 @@
       # HP ZBook Ultra G1a
       G1a = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex claude-code-pkg; };
+        specialArgs = { inherit inputs plymouth-cybex; };
         modules = [
           # Disko for declarative disk partitioning
           disko.nixosModules.disko

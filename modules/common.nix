@@ -1,5 +1,5 @@
 # Common NixOS configuration shared across all machines
-{ config, pkgs, lib, claude-code-pkg, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   # Enable flakes
@@ -140,7 +140,6 @@
     efibootmgr
     lm_sensors
     powertop
-    claude-code-pkg
   ];
 
   # Security

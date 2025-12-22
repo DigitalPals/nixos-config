@@ -120,8 +120,19 @@
     gtk.enable = true;
   };
 
-  # Add npm global bin to PATH
-  home.sessionPath = [ "$HOME/.npm-global/bin" ];
+  # Add npm global bin and Claude Code to PATH
+  home.sessionPath = [
+    "$HOME/.npm-global/bin"
+    "$HOME/.local/bin"
+  ];
+
+  # Install Claude Code native binary if not present
+  home.activation.installClaudeCode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ ! -x "$HOME/.local/bin/claude" ]; then
+      PATH="${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnutar}/bin:${pkgs.gzip}/bin:$PATH" \
+        $DRY_RUN_CMD ${pkgs.bash}/bin/bash -c "curl -fsSL https://claude.ai/install.sh | bash"
+    fi
+  '';
 
   # Environment variables
   home.sessionVariables = {
