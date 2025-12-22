@@ -1,7 +1,21 @@
 # Look and feel configuration
 # Animations, decorations, layout, and window rules
-{ }:
+{ hostname }:
 
+let
+  # Dwindle layout only for desktop (kraken) - wide monitors benefit from aspect ratio control
+  layoutType = if hostname == "kraken" then "dwindle" else "master";
+  dwindleConfig = if hostname == "kraken" then ''
+    # Layout
+    # https://wiki.hyprland.org/Configuring/Dwindle-Layout/
+    dwindle {
+      pseudotile = true
+      preserve_split = true
+      # Avoid overly wide single-window layouts on wide screens
+      single_window_aspect_ratio = 1 1
+    }
+  '' else "";
+in
 ''
   # General appearance
   # https://wiki.hyprland.org/Configuring/Variables/#general
@@ -11,7 +25,7 @@
     border_size = 2
     col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
     col.inactive_border = rgba(595959aa)
-    layout = dwindle
+    layout = ${layoutType}
   }
 
   # Decorations
@@ -48,15 +62,7 @@
     animation = workspaces, 1, 6, default
   }
 
-  # Layout
-  # https://wiki.hyprland.org/Configuring/Dwindle-Layout/
-  dwindle {
-    pseudotile = true
-    preserve_split = true
-    # Avoid overly wide single-window layouts on wide screens
-    single_window_aspect_ratio = 1 1
-  }
-
+${dwindleConfig}
   # Misc settings
   misc {
     force_default_wallpaper = 0

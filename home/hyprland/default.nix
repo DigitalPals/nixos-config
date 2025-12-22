@@ -6,7 +6,7 @@ let
   # Import config generators
   monitorsConfig = import ./monitors.nix { inherit hostname; };
   inputConfig = import ./input.nix {};
-  looknfeelConfig = import ./looknfeel.nix {};
+  looknfeelConfig = import ./looknfeel.nix { inherit hostname; };
   bindingsConfig = import ./bindings.nix {};
   autostartConfig = import ./autostart.nix {};
 
