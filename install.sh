@@ -7,7 +7,7 @@
 # Commands:
 #   (none)              Interactive menu
 #   install [hostname]  Fresh NixOS installation
-#   update              Update flake, rebuild system, and update CLI tools
+#   update              Pull config, update flake, smart rebuild, update CLI tools
 #
 # Run fresh installs from the official NixOS minimal ISO.
 #
@@ -48,7 +48,7 @@ usage() {
     echo "Commands:"
     echo "  (none)              Interactive menu"
     echo "  install [hostname]  Fresh NixOS installation"
-    echo "  update              Update flake & rebuild system"
+    echo "  update              Pull config, update flake, smart rebuild"
     echo ""
     echo "Examples:"
     echo "  $0                  # Show interactive menu"
@@ -69,7 +69,7 @@ show_menu() {
     echo "=============================================="
     echo ""
     echo -e "  ${GREEN}1)${NC} Install NixOS (fresh installation)"
-    echo -e "  ${GREEN}2)${NC} Update system (flake + rebuild + CLI tools)"
+    echo -e "  ${GREEN}2)${NC} Update system (git pull + flake + rebuild + CLI tools)"
     echo -e "  ${GREEN}3)${NC} Exit"
     echo ""
 
@@ -177,7 +177,7 @@ validate_hostname() {
     return 1
 }
 
-# Update system (flake update + rebuild + CLI tools)
+# Update system (git pull + flake update + smart rebuild + CLI tools)
 do_update() {
     CURRENT_HOST=$(hostname)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -185,6 +185,11 @@ do_update() {
     # Validate hostname matches known hosts
     if ! validate_hostname "$CURRENT_HOST"; then
         log_error "Unknown hostname: $CURRENT_HOST. Expected one of: ${VALID_HOSTS[*]}"
+    fi
+
+    # Don't run as root (git operations should be as normal user)
+    if [[ $EUID -eq 0 ]]; then
+        log_error "Don't run update as root. Run as normal user (sudo is used only for rebuild)."
     fi
 
     echo ""
@@ -198,26 +203,81 @@ do_update() {
 
     cd "$SCRIPT_DIR"
 
+    # Check for uncommitted changes
+    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+        log_error "You have uncommitted changes. Please commit or stash them first."
+    fi
+
+    # Ensure we're on main branch
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [[ -z "$CURRENT_BRANCH" ]]; then
+        log_error "Detached HEAD state. Please checkout main branch first: git checkout main"
+    elif [[ "$CURRENT_BRANCH" != "main" ]]; then
+        log_error "Not on main branch (currently on '$CURRENT_BRANCH'). Please switch: git checkout main"
+    fi
+
     # Save current system for comparison
     OLD_SYSTEM=$(readlink -f /run/current-system)
+    NEEDS_REBUILD=false
 
-    log_info "Step 1/4: Updating flake inputs..."
+    # Step 1: Git pull
+    log_info "Step 1/5: Pulling latest config..."
+    HEAD_BEFORE=$(git rev-parse HEAD)
+    git pull --ff-only origin main || log_error "Git pull failed (diverged history?). Please resolve manually."
+    HEAD_AFTER=$(git rev-parse HEAD)
+
+    if [[ "$HEAD_BEFORE" != "$HEAD_AFTER" ]]; then
+        NEEDS_REBUILD=true
+        log_success "Config updated from remote"
+    else
+        log_info "Config already up to date"
+    fi
+
+    # Step 2: Flake update
+    echo ""
+    log_info "Step 2/5: Updating flake inputs..."
+    LOCK_BEFORE=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1)
     nix flake update
+    LOCK_AFTER=$(sha256sum flake.lock | cut -d' ' -f1)
 
-    echo ""
-    log_info "Step 2/4: Rebuilding system (requires sudo)..."
-    sudo nixos-rebuild switch --flake ".#${CURRENT_HOST}"
+    if [[ "$LOCK_BEFORE" != "$LOCK_AFTER" ]]; then
+        NEEDS_REBUILD=true
+        log_success "Flake inputs updated"
+    else
+        log_info "Flake inputs already up to date"
+    fi
 
+    # Step 3: Rebuild (only if needed)
     echo ""
-    log_info "Step 3/4: Updating Claude Code..."
+    if [[ "$NEEDS_REBUILD" == "true" ]]; then
+        log_info "Step 3/5: Rebuilding system..."
+        sudo nixos-rebuild switch --flake ".#${CURRENT_HOST}"
+
+        # Auto-commit flake.lock if it changed
+        if ! git diff --quiet flake.lock 2>/dev/null; then
+            log_info "Committing updated flake.lock..."
+            if git add flake.lock && git commit -m "Update flake.lock"; then
+                git push || log_warn "Failed to push flake.lock update (you can push manually later)"
+            else
+                log_warn "Failed to commit flake.lock (you can commit manually later)"
+            fi
+        fi
+    else
+        log_info "Step 3/5: Skipping rebuild (no changes detected)"
+    fi
+
+    # Step 4: Update Claude Code
+    echo ""
+    log_info "Step 4/5: Updating Claude Code..."
     if [[ -x "$HOME/.local/bin/claude" ]]; then
         "$HOME/.local/bin/claude" update || log_warn "Claude Code update failed (may already be latest)"
     else
         log_warn "Claude Code not installed, skipping"
     fi
 
+    # Step 5: Update Codex CLI
     echo ""
-    log_info "Step 4/4: Updating Codex CLI..."
+    log_info "Step 5/5: Updating Codex CLI..."
     if [[ -x "$HOME/.npm-global/bin/codex" ]]; then
         npm update -g @openai/codex || log_warn "Codex CLI update failed"
     else
@@ -225,7 +285,7 @@ do_update() {
     fi
 
     echo ""
-    log_success "System updated successfully!"
+    log_success "System update complete!"
 
     # Show package changes using nvd
     NEW_SYSTEM=$(readlink -f /run/current-system)
@@ -233,9 +293,9 @@ do_update() {
         echo ""
         log_info "Package changes:"
         nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM"
-    else
+    elif [[ "$NEEDS_REBUILD" == "false" ]]; then
         echo ""
-        log_info "No package changes (system unchanged)"
+        log_info "No changes - system is up to date"
     fi
 }
 
