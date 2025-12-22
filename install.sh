@@ -200,6 +200,11 @@ fi
 
 # Step 5: Run disko to partition and format
 log_info "Step 5/6: Running disko to partition and format..."
+
+# Pre-fetch disko to ensure stable TTY when prompting for LUKS passphrase
+log_info "Preparing disko (this may take a moment on first run)..."
+nix build github:nix-community/disko --no-link 2>/dev/null || true
+
 echo ""
 log_warn "You will be prompted to enter the LUKS encryption passphrase."
 log_warn "Choose a strong passphrase - you will need it every time you boot."
