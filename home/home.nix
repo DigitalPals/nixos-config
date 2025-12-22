@@ -35,6 +35,11 @@
   # Ensure custom directories exist
   home.file."Code/.keep".text = "";
 
+  # npm config for global packages (avoids permission issues)
+  home.file.".npmrc".text = ''
+    prefix=''${HOME}/.npm-global
+  '';
+
   # Desktop entry overrides for Wayland
   xdg.desktopEntries.termius-app = {
     name = "Termius";
@@ -131,6 +136,13 @@
     if [ ! -x "$HOME/.local/bin/claude" ]; then
       PATH="${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnutar}/bin:${pkgs.gzip}/bin:$PATH" \
         $DRY_RUN_CMD ${pkgs.bash}/bin/bash -c "curl -fsSL https://claude.ai/install.sh | bash"
+    fi
+  '';
+
+  # Install OpenAI Codex CLI via npm if not present
+  home.activation.installCodexCLI = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ ! -x "$HOME/.npm-global/bin/codex" ]; then
+      $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm install -g @openai/codex
     fi
   '';
 
