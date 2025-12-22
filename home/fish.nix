@@ -17,7 +17,7 @@
       end
 
       # VISUAL for programs that distinguish from EDITOR
-      set -gx VISUAL nano
+      set -gx VISUAL nvim
     '';
 
     # Shell aliases
@@ -43,6 +43,7 @@
       gc = "git commit";
       gp = "git push";
       gl = "git log --oneline";
+      lg = "lazygit";
 
       # Hyprland shortcuts
       hypr-reload = "hyprctl reload";

@@ -7,6 +7,7 @@
     ./fish.nix
     ./noctalia.nix
     ./ghostty.nix
+    ./neovim.nix      # Neovim with LazyVim dependencies
   ];
 
   home.username = "john";
@@ -95,6 +96,9 @@
     jq
     nodejs
     termius
+    lazygit
+    ripgrep
+    fd
 
     # Fonts
     font-awesome
@@ -148,7 +152,7 @@
 
   # Environment variables
   home.sessionVariables = {
-    EDITOR = "nano";
+    EDITOR = "nvim";
     BROWSER = "chromium";
     TERMINAL = "ghostty";
 

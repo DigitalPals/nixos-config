@@ -2,6 +2,10 @@
 { config, pkgs, lib, ... }:
 
 {
+  imports = [
+    ./gaming.nix      # Steam and gaming tools
+  ];
+
   # Enable flakes
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
