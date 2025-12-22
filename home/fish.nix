@@ -49,6 +49,9 @@
       hypr-reload = "hyprctl reload";
       hypr-monitors = "hyprctl monitors";
       hypr-workspaces = "hyprctl workspaces";
+
+      # System info
+      fastfetch = "fastfetch -c archey";
     };
 
     # Fish functions
