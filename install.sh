@@ -353,9 +353,9 @@ do_install() {
     mkdir -p "$(dirname "$SYMLINK_PATH")"
     ln -sf /home/john/nixos-config "$SYMLINK_PATH"
 
-    # Initialize git repo (as root, then fix ownership)
+    # Initialize git repo with remote origin (as root, then fix ownership)
     cd "$CONFIG_DIR"
-    nix-shell -p git --run "git init && git add -A && git -c user.name='NixOS Install' -c user.email='install@localhost' commit -m 'Initial configuration'"
+    nix-shell -p git --run "git init -b main && git remote add origin $REPO_URL && git add -A && git -c user.name='NixOS Install' -c user.email='install@localhost' commit -m 'Initial configuration' && git fetch origin && git branch --set-upstream-to=origin/main main"
     cd - >/dev/null
 
     # Set ownership to john (uid 1000, gid 100)
