@@ -198,6 +198,9 @@ do_update() {
 
     cd "$SCRIPT_DIR"
 
+    # Save current system for comparison
+    OLD_SYSTEM=$(readlink -f /run/current-system)
+
     log_info "Step 1/2: Updating flake inputs..."
     nix flake update
 
@@ -207,6 +210,17 @@ do_update() {
 
     echo ""
     log_success "System updated successfully!"
+
+    # Show package changes using nvd
+    NEW_SYSTEM=$(readlink -f /run/current-system)
+    if [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
+        echo ""
+        log_info "Package changes:"
+        nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM"
+    else
+        echo ""
+        log_info "No package changes (system unchanged)"
+    fi
 }
 
 # Fresh NixOS installation
