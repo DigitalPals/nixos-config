@@ -90,6 +90,7 @@ let
     };
     "options.bar.weather.city" = "Emmen, Drenthe, Netherlands";
     "options.bar.weather.enableGPS" = false;
+    "options.screenSnip.savePath" = "/home/john/Pictures/Screenshots";
   };
 in
 {
@@ -122,6 +123,15 @@ in
       run ${pkgs.jq}/bin/jq '. * ${builtins.toJSON quickshellSettings}' "$statesFile" > "$statesFile.tmp" && run mv "$statesFile.tmp" "$statesFile"
     else
       run echo '${builtins.toJSON quickshellSettings}' > "$statesFile"
+    fi
+
+    # Fix screenshot command being killed when panel closes (upstream bug)
+    # The issue: snipProc.startDetached() + immediate dismiss() kills the process
+    # The fix: Use Quickshell.execDetached() which is component-independent
+    regionSelectionFile="$HOME/.config/quickshell/ii/modules/ii/regionSelector/RegionSelection.qml"
+    if [ -f "$regionSelectionFile" ] && grep -q "snipProc.startDetached" "$regionSelectionFile"; then
+      run ${pkgs.gnused}/bin/sed -i 's/snipProc.startDetached();/Quickshell.execDetached(command);/' "$regionSelectionFile"
+      run ${pkgs.gnused}/bin/sed -i 's/snipProc.command = command;//' "$regionSelectionFile"
     fi
   '';
 }
