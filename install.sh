@@ -32,6 +32,62 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# Spinner for background processes
+spin() {
+    local pid=$1 msg=$2
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    tput civis 2>/dev/null  # Hide cursor
+    while kill -0 "$pid" 2>/dev/null; do
+        for ((i=0; i<${#spinstr}; i++)); do
+            printf "\r  ${BLUE}%s${NC} %s" "${spinstr:$i:1}" "$msg"
+            sleep 0.1
+        done
+    done
+    tput cnorm 2>/dev/null  # Show cursor
+    printf "\r\033[K"  # Clear the line
+}
+
+# Run command quietly with spinner, log errors
+run_quiet() {
+    local msg="$1" log_file="$2"
+    shift 2
+
+    "$@" >"$log_file" 2>&1 &
+    local pid=$!
+    spin "$pid" "$msg"
+    wait "$pid"
+    local status=$?
+
+    if [[ $status -eq 0 ]]; then
+        printf "  ${GREEN}✓${NC} %s\n" "$msg"
+    else
+        printf "  ${RED}✗${NC} %s\n" "$msg"
+        echo "" >> "$ERROR_LOG"
+        echo "=== $msg ===" >> "$ERROR_LOG"
+        cat "$log_file" >> "$ERROR_LOG"
+        echo ""
+        cat "$log_file"
+    fi
+    return $status
+}
+
+# Parse flake.lock changes to show version updates
+parse_flake_changes() {
+    local old_lock="$1" new_lock="$2"
+    if command -v jq &>/dev/null && [[ -f "$old_lock" ]] && [[ -f "$new_lock" ]]; then
+        local inputs
+        inputs=$(jq -r '.nodes | keys[]' "$new_lock" | grep -v root)
+        for input in $inputs; do
+            local old_rev new_rev
+            old_rev=$(jq -r ".nodes.\"$input\".locked.rev // empty" "$old_lock" 2>/dev/null | head -c7)
+            new_rev=$(jq -r ".nodes.\"$input\".locked.rev // empty" "$new_lock" 2>/dev/null | head -c7)
+            if [[ -n "$old_rev" ]] && [[ -n "$new_rev" ]] && [[ "$old_rev" != "$new_rev" ]]; then
+                echo "    $input: $old_rev → $new_rev"
+            fi
+        done
+    fi
+}
+
 # Configuration
 REPO_URL="https://github.com/DigitalPals/nixos-config.git"
 TEMP_CONFIG="/tmp/nixos-config"
@@ -197,9 +253,6 @@ do_update() {
     echo "  NixOS System Update"
     echo "=============================================="
     echo ""
-    log_info "Detected hostname: $CURRENT_HOST"
-    log_info "Config directory: $SCRIPT_DIR"
-    echo ""
 
     cd "$SCRIPT_DIR"
 
@@ -216,87 +269,159 @@ do_update() {
         log_error "Not on main branch (currently on '$CURRENT_BRANCH'). Please switch: git checkout main"
     fi
 
+    # Cache sudo credentials upfront (needed for backgrounded commands)
+    sudo -v || log_error "Failed to authenticate with sudo"
+
+    # Initialize logging
+    ERROR_LOG="$HOME/update-errors.log"
+    LOG_DIR=$(mktemp -d)
+    trap "rm -rf $LOG_DIR; tput cnorm 2>/dev/null" EXIT
+    : > "$ERROR_LOG"  # Clear error log
+
+    # Track what was updated for summary
+    GIT_COMMITS=""
+    FLAKE_CHANGES=""
+    CLAUDE_OLD=""
+    CLAUDE_NEW=""
+    CODEX_OLD=""
+    CODEX_NEW=""
+
     # Save current system for comparison
     OLD_SYSTEM=$(readlink -f /run/current-system)
     NEEDS_REBUILD=false
 
+    # Save flake.lock before update for comparison
+    cp flake.lock "$LOG_DIR/flake.lock.old" 2>/dev/null || true
+
     # Step 1: Git pull
-    log_info "Step 1/5: Pulling latest config..."
     HEAD_BEFORE=$(git rev-parse HEAD)
-    git pull --ff-only origin main || log_error "Git pull failed (diverged history?). Please resolve manually."
+    run_quiet "Pulling latest config" "$LOG_DIR/git.log" git pull --ff-only origin main || log_error "Git pull failed. Check $ERROR_LOG"
     HEAD_AFTER=$(git rev-parse HEAD)
 
     if [[ "$HEAD_BEFORE" != "$HEAD_AFTER" ]]; then
         NEEDS_REBUILD=true
-        log_success "Config updated from remote"
-    else
-        log_info "Config already up to date"
+        GIT_COMMITS=$(git log --oneline "$HEAD_BEFORE".."$HEAD_AFTER" | sed 's/^/    /')
     fi
 
     # Step 2: Flake update
-    echo ""
-    log_info "Step 2/5: Updating flake inputs..."
-    LOCK_BEFORE=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1)
-    nix flake update
-    LOCK_AFTER=$(sha256sum flake.lock | cut -d' ' -f1)
+    LOCK_BEFORE=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1 || echo "")
+    if ! run_quiet "Updating flake inputs" "$LOG_DIR/flake.log" nix flake update; then
+        log_error "Flake update failed. Check $ERROR_LOG"
+    fi
+    LOCK_AFTER=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1 || echo "")
 
     if [[ "$LOCK_BEFORE" != "$LOCK_AFTER" ]]; then
         NEEDS_REBUILD=true
-        log_success "Flake inputs updated"
-    else
-        log_info "Flake inputs already up to date"
+        FLAKE_CHANGES=$(parse_flake_changes "$LOG_DIR/flake.lock.old" flake.lock)
     fi
 
     # Step 3: Rebuild (only if needed)
-    echo ""
+    REBUILD_FAILED=false
     if [[ "$NEEDS_REBUILD" == "true" ]]; then
-        log_info "Step 3/5: Rebuilding system..."
-        sudo nixos-rebuild switch --flake ".#${CURRENT_HOST}"
-
-        # Auto-commit flake.lock if it changed
-        if ! git diff --quiet flake.lock 2>/dev/null; then
-            log_info "Committing updated flake.lock..."
-            if git add flake.lock && git commit -m "Update flake.lock"; then
-                git push || log_warn "Failed to push flake.lock update (you can push manually later)"
-            else
-                log_warn "Failed to commit flake.lock (you can commit manually later)"
+        if ! run_quiet "Rebuilding system" "$LOG_DIR/rebuild.log" sudo nixos-rebuild switch --flake ".#${CURRENT_HOST}"; then
+            REBUILD_FAILED=true
+        else
+            # Auto-commit flake.lock if it changed (quietly)
+            if ! git diff --quiet flake.lock 2>/dev/null; then
+                if git add flake.lock && git commit -m "Update flake.lock" >/dev/null 2>&1; then
+                    git push >/dev/null 2>&1 || true
+                fi
             fi
         fi
     else
-        log_info "Step 3/5: Skipping rebuild (no changes detected)"
+        printf "  ${BLUE}-${NC} Skipping rebuild (no changes)\n"
     fi
 
     # Step 4: Update Claude Code
-    echo ""
-    log_info "Step 4/5: Updating Claude Code..."
     if [[ -x "$HOME/.local/bin/claude" ]]; then
-        "$HOME/.local/bin/claude" update || log_warn "Claude Code update failed (may already be latest)"
+        CLAUDE_OLD=$("$HOME/.local/bin/claude" --version 2>/dev/null | head -1 || echo "")
+        run_quiet "Updating Claude Code" "$LOG_DIR/claude.log" "$HOME/.local/bin/claude" update || true
+        CLAUDE_NEW=$("$HOME/.local/bin/claude" --version 2>/dev/null | head -1 || echo "")
     else
-        log_warn "Claude Code not installed, skipping"
+        printf "  ${BLUE}-${NC} Claude Code not installed\n"
     fi
 
     # Step 5: Update Codex CLI
-    echo ""
-    log_info "Step 5/5: Updating Codex CLI..."
     if [[ -x "$HOME/.npm-global/bin/codex" ]]; then
-        npm update -g @openai/codex || log_warn "Codex CLI update failed"
+        CODEX_OLD=$(npm list -g @openai/codex 2>/dev/null | grep -o '@[0-9.]*' | tail -1 | tr -d '@' || echo "")
+        run_quiet "Updating Codex CLI" "$LOG_DIR/codex.log" npm update -g @openai/codex || true
+        CODEX_NEW=$(npm list -g @openai/codex 2>/dev/null | grep -o '@[0-9.]*' | tail -1 | tr -d '@' || echo "")
     else
-        log_warn "Codex CLI not installed, skipping"
+        printf "  ${BLUE}-${NC} Codex CLI not installed\n"
     fi
 
-    echo ""
-    log_success "System update complete!"
-
-    # Show package changes using nvd
+    # Get new system path for comparison
     NEW_SYSTEM=$(readlink -f /run/current-system)
+
+    # Summary section
+    echo ""
+    echo "=============================================="
+    echo "  Update Summary"
+    echo "=============================================="
+    echo ""
+
+    # Git
+    if [[ -n "$GIT_COMMITS" ]]; then
+        echo -e "  Git config:     ${GREEN}Updated${NC}"
+        echo "$GIT_COMMITS"
+    else
+        echo "  Git config:     Up to date"
+    fi
+
+    # Flake inputs
+    if [[ -n "$FLAKE_CHANGES" ]]; then
+        echo -e "  Flake inputs:   ${GREEN}Updated${NC}"
+        echo "$FLAKE_CHANGES"
+    else
+        echo "  Flake inputs:   Up to date"
+    fi
+
+    # System
+    if [[ "$REBUILD_FAILED" == "true" ]]; then
+        echo -e "  System:         ${RED}Rebuild failed${NC}"
+    elif [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
+        echo -e "  System:         ${GREEN}Rebuilt${NC}"
+    else
+        echo "  System:         No changes"
+    fi
+
+    # Claude
+    if [[ -n "$CLAUDE_OLD" ]]; then
+        if [[ "$CLAUDE_OLD" != "$CLAUDE_NEW" ]] && [[ -n "$CLAUDE_NEW" ]]; then
+            echo -e "  Claude Code:    ${GREEN}$CLAUDE_OLD → $CLAUDE_NEW${NC}"
+        else
+            echo "  Claude Code:    Up to date ($CLAUDE_OLD)"
+        fi
+    else
+        echo "  Claude Code:    Not installed"
+    fi
+
+    # Codex
+    if [[ -n "$CODEX_OLD" ]]; then
+        if [[ "$CODEX_OLD" != "$CODEX_NEW" ]] && [[ -n "$CODEX_NEW" ]]; then
+            echo -e "  Codex CLI:      ${GREEN}$CODEX_OLD → $CODEX_NEW${NC}"
+        else
+            echo "  Codex CLI:      Up to date ($CODEX_OLD)"
+        fi
+    else
+        echo "  Codex CLI:      Not installed"
+    fi
+
+    # Show error log location if errors occurred
+    if [[ -s "$ERROR_LOG" ]]; then
+        echo ""
+        echo -e "  ${YELLOW}Errors saved to: $ERROR_LOG${NC}"
+    fi
+
+    # Package changes (keep nvd diff - it's already a good summary)
     if [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
         echo ""
-        log_info "Package changes:"
-        nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM"
-    elif [[ "$NEEDS_REBUILD" == "false" ]]; then
-        echo ""
-        log_info "No changes - system is up to date"
+        echo "  Package changes:"
+        nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM" 2>/dev/null | sed 's/^/  /'
     fi
+
+    echo ""
+    echo "=============================================="
 }
 
 # Fresh NixOS installation
