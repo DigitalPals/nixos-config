@@ -35,6 +35,29 @@ Configuration details and solutions to issues in this NixOS setup.
     └── hyprland-sessions/          # Session desktop entries
 ```
 
+## Rebuilding the System
+
+Each host+shell combination has its own flake configuration. Always specify the correct one when rebuilding:
+
+| Config Name | Host | Shell |
+|-------------|------|-------|
+| `kraken` | kraken | Noctalia (default) |
+| `kraken-illogical` | kraken | Illogical Impulse |
+| `kraken-caelestia` | kraken | Caelestia |
+| `G1a` | G1a | Noctalia (default) |
+| `G1a-illogical` | G1a | Illogical Impulse |
+| `G1a-caelestia` | G1a | Caelestia |
+
+```bash
+# Rebuild with specific config (recommended)
+sudo nixos-rebuild switch --flake .#kraken-illogical
+
+# Without specifying config, uses current hostname (defaults to Noctalia)
+sudo nixos-rebuild switch --flake .
+```
+
+**Important:** Running without `#config-name` selects by hostname, which always maps to Noctalia. To rebuild with a different shell, you must explicitly specify the configuration name.
+
 ## Plymouth + NVIDIA Issue
 
 **Problem:** Plymouth doesn't display on NVIDIA systems due to framebuffer timing race - `simpledrm` initializes first, Plymouth attaches, then NVIDIA takes over fb0.

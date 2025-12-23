@@ -98,6 +98,17 @@
     ripgrep
     fd
 
+    # CLI enhancements
+    bat              # cat with syntax highlighting
+
+    # Media
+    mpv              # video player
+    imv              # image viewer
+
+    # Productivity
+    evince           # document/PDF viewer
+    localsend        # local file sharing
+
     # Fonts
     font-awesome
     noto-fonts
@@ -154,6 +165,13 @@
       fi
     fi
   '';
+
+  # GTK theme settings (affects Nautilus and other GTK apps)
+  dconf.settings = {
+    "org/gnome/desktop/interface" = {
+      color-scheme = "prefer-dark";
+    };
+  };
 
   # Environment variables
   home.sessionVariables = {
