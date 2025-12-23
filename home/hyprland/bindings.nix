@@ -74,9 +74,7 @@
 
   # App launchers
   bind = $mainMod, M, exec, spotify
-  bind = $mainMod SHIFT, G, exec, signal-desktop
   bind = $mainMod SHIFT, SLASH, exec, 1password
-  bind = $mainMod SHIFT, O, exec, obsidian --disable-gpu --enable-wayland-ime
   bind = $mainMod, D, exec, $terminal -e lazydocker
   bind = $mainMod SHIFT, T, exec, $terminal -e btop
 
@@ -84,8 +82,6 @@
   bind = $mainMod, W, exec, $browser --app=https://web.whatsapp.com/
   bind = $mainMod, Y, exec, $browser --app=https://youtube.com/
   bind = $mainMod SHIFT, A, exec, $browser --app=https://chatgpt.com/
-  bind = $mainMod SHIFT, C, exec, $browser --app=https://app.hey.com/calendar/weeks/
-  bind = $mainMod SHIFT, E, exec, $browser --app=https://app.hey.com/
   bind = $mainMod SHIFT, P, exec, $browser --app=https://photos.google.com/
   bind = $mainMod SHIFT, X, exec, $browser --app=https://x.com/
 

@@ -84,8 +84,6 @@
     playerctl
 
     # Applications
-    signal-desktop
-    obsidian
     spotify
     lazydocker
     btop
