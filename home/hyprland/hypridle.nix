@@ -1,9 +1,17 @@
 # Hypridle configuration
-# Screen locking and power management
+# Screen locking and power management (shell-aware)
+{ shell ? "noctalia" }:
+
 { config, pkgs, lib, hostname, ... }:
 
 let
-  shouldAutoSuspend = hostname == "G1a" || hostname == "kraken";
+  # Check base hostname (strip -illogical suffix if present)
+  shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname;
+
+  # Shell-specific lock command
+  lockCmd = if shell == "illogical"
+    then "hyprlock"
+    else "pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock";
 
   # Auto-suspend listener
   suspendListener = if shouldAutoSuspend then ''
@@ -21,14 +29,14 @@ in
   # Generate config file matching Arch style
   xdg.configFile."hypr/hypridle.conf".text = ''
     general {
-      lock_cmd = pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock
-      before_sleep_cmd = pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock
+      lock_cmd = ${lockCmd}
+      before_sleep_cmd = ${lockCmd}
       after_sleep_cmd = hyprctl dispatch dpms on
     }
 
     listener {
       timeout = 300                    # 5 minutes
-      on-timeout = pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock
+      on-timeout = ${lockCmd}
     }
 
     listener {

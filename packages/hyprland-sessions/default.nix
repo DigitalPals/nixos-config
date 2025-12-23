@@ -14,7 +14,24 @@ let
     echo "noctalia" > "$XDG_RUNTIME_DIR/desktop-shell"
 
     # Launch Hyprland (uses default ~/.config/hypr/hyprland.conf)
-    exec Hyprland "$@"
+    # Redirect output to log file for quiet startup
+    exec Hyprland "$@" &> "$HOME/.hyprland.log"
+  '';
+
+  # Wrapper script for Hyprland with Illogical Impulse Desktop Shell
+  hyprland-illogical-bin = pkgs.writeShellScriptBin "hyprland-illogical" ''
+    # Required environment variables for Wayland session
+    export XDG_SESSION_TYPE=wayland
+    export XDG_CURRENT_DESKTOP=Hyprland
+    export DESKTOP_SHELL=illogical
+
+    # Create runtime directory and mark desktop shell
+    mkdir -p "$XDG_RUNTIME_DIR"
+    echo "illogical" > "$XDG_RUNTIME_DIR/desktop-shell"
+
+    # Launch Hyprland (uses default ~/.config/hypr/hyprland.conf)
+    # Redirect output to log file for quiet startup
+    exec Hyprland "$@" &> "$HOME/.hyprland.log"
   '';
 
   # Session package with .desktop file for Noctalia
@@ -44,13 +61,45 @@ let
     '';
   };
 
+  # Session package with .desktop file for Illogical Impulse
+  hyprland-illogical-session = pkgs.stdenvNoCC.mkDerivation {
+    pname = "hyprland-illogical-session";
+    version = "1.0.0";
+    dontUnpack = true;
+
+    passthru.providedSessions = [ "hyprland-illogical" ];
+
+    installPhase = ''
+      mkdir -p $out/share/wayland-sessions
+      mkdir -p $out/bin
+
+      # Symlink the wrapper script
+      ln -s ${hyprland-illogical-bin}/bin/hyprland-illogical $out/bin/hyprland-illogical
+
+      # Create .desktop file
+      cat > $out/share/wayland-sessions/hyprland-illogical.desktop << EOF
+      [Desktop Entry]
+      Name=Hyprland (Illogical Impulse)
+      Comment=Hyprland with Illogical Impulse Desktop Shell
+      Exec=$out/bin/hyprland-illogical
+      Type=Application
+      DesktopNames=Hyprland
+      EOF
+    '';
+  };
+
 in {
-  # Session package for display manager registration
+  # Session packages for display manager registration
   noctalia = hyprland-noctalia-session;
+  illogical = hyprland-illogical-session;
 
   # All session packages as a list
-  sessions = [ hyprland-noctalia-session ];
+  sessions = [ hyprland-noctalia-session hyprland-illogical-session ];
 
-  # Wrapper script for PATH
+  # Wrapper scripts for PATH
+  noctaliaScript = hyprland-noctalia-bin;
+  illogicalScript = hyprland-illogical-bin;
+
+  # Default script (backwards compatibility)
   script = hyprland-noctalia-bin;
 }

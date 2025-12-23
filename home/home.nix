@@ -1,14 +1,16 @@
 # Home Manager configuration for john
-{ config, pkgs, inputs, lib, ... }:
+{ config, pkgs, inputs, lib, shell ? "noctalia", ... }:
 
 {
   imports = [
     ./hyprland        # Modular Hyprland config (includes hypridle)
-    ./fish.nix
-    ./noctalia.nix
     ./ghostty.nix
     ./neovim.nix      # Neovim with LazyVim dependencies
-  ];
+  ] ++ (if shell == "illogical" then [
+    ./shells/illogical
+  ] else [
+    ./shells/noctalia
+  ]);
 
   home.username = "john";
   home.homeDirectory = "/home/john";
@@ -65,9 +67,6 @@
 
   # User packages
   home.packages = with pkgs; [
-    # Quickshell (for Noctalia IPC commands)
-    quickshell
-
     # Screenshot tools
     grim
     slurp
@@ -122,26 +121,6 @@
     };
   };
 
-  # GTK theming
-  gtk = {
-    enable = true;
-    theme = {
-      name = "Adwaita-dark";
-      package = pkgs.gnome-themes-extra;
-    };
-    iconTheme = {
-      name = "Adwaita";
-      package = pkgs.adwaita-icon-theme;
-    };
-  };
-
-  # Cursor theme
-  home.pointerCursor = {
-    name = "Adwaita";
-    package = pkgs.adwaita-icon-theme;
-    size = 24;
-    gtk.enable = true;
-  };
 
   # Add npm global bin and Claude Code to PATH
   home.sessionPath = [

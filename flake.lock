@@ -20,6 +20,22 @@
         "type": "github"
       }
     },
+    "dots-hyprland": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1766477466,
+        "narHash": "sha256-36KklvC7WvqcNZVElUtEKgJCsw/5UoNRQc6+SizKVVo=",
+        "owner": "end-4",
+        "repo": "dots-hyprland",
+        "rev": "ec7d6fd66b4069f75dd4c64931495dd10756eeec",
+        "type": "github"
+      },
+      "original": {
+        "owner": "end-4",
+        "repo": "dots-hyprland",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -79,6 +95,7 @@
     "root": {
       "inputs": {
         "disko": "disko",
+        "dots-hyprland": "dots-hyprland",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
         "noctalia": "noctalia"

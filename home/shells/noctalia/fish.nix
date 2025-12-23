@@ -1,5 +1,5 @@
-# Fish shell configuration
-# Migrated from Arch Linux installation
+# Fish shell configuration for Noctalia
+# Custom prompt theme and shell tools
 { config, pkgs, lib, ... }:
 
 {
@@ -82,7 +82,7 @@
       };
     };
 
-    # Fish plugins (using zoxide instead of z, starship instead of pure)
+    # Fish plugins
     plugins = [
       {
         name = "colored-man-pages";
@@ -91,7 +91,7 @@
     ];
   };
 
-  # Starship prompt (replaces pure)
+  # Starship prompt - Noctalia custom theme
   programs.starship = {
     enable = true;
     enableFishIntegration = true;

@@ -3,11 +3,12 @@
 
 let
   # Load base settings from JSON
-  baseSettings = builtins.fromJSON (builtins.readFile ./noctalia/settings.json);
+  baseSettings = builtins.fromJSON (builtins.readFile ./settings.json);
 
   # Filter out Battery widget for hosts without a battery (desktop PCs)
+  # Use hasPrefix to handle hostname variants (e.g., kraken-illogical)
   hostsWithoutBattery = [ "kraken" ];
-  hasBattery = !builtins.elem hostname hostsWithoutBattery;
+  hasBattery = !builtins.any (host: lib.hasPrefix host hostname) hostsWithoutBattery;
 
   # Generate host-specific settings
   settings = baseSettings // {
@@ -28,15 +29,20 @@ in
   programs.noctalia-shell = {
     enable = true;
 
-    # Disable automatic systemd service - we control startup via DESKTOP_SHELL env var
+    # Disable automatic systemd service - we control startup via Hyprland autostart
     systemd.enable = false;
   };
 
   # Noctalia configuration files
   xdg.configFile = {
     "noctalia/settings.json".source = settingsJson;
-    "noctalia/gui-settings.json".source = ./noctalia/gui-settings.json;
-    "noctalia/colors.json".source = ./noctalia/colors.json;
-    "noctalia/plugins.json".source = ./noctalia/plugins.json;
+    "noctalia/gui-settings.json".source = ./gui-settings.json;
+    "noctalia/colors.json".source = ./colors.json;
+    "noctalia/plugins.json".source = ./plugins.json;
   };
+
+  # Noctalia-specific packages
+  home.packages = with pkgs; [
+    quickshell  # For Noctalia IPC commands
+  ];
 }

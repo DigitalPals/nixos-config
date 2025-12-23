@@ -1,11 +1,14 @@
 # Look and feel configuration
 # Animations, decorations, layout, and window rules
-{ hostname }:
+{ hostname, lib ? builtins }:
 
 let
+  # Check base hostname (handles -illogical suffix)
+  isKraken = lib.hasPrefix "kraken" hostname;
+
   # Dwindle layout only for desktop (kraken) - wide monitors benefit from aspect ratio control
-  layoutType = if hostname == "kraken" then "dwindle" else "master";
-  dwindleConfig = if hostname == "kraken" then ''
+  layoutType = if isKraken then "dwindle" else "master";
+  dwindleConfig = if isKraken then ''
     # Layout
     # https://wiki.hyprland.org/Configuring/Dwindle-Layout/
     dwindle {
@@ -16,7 +19,7 @@ let
     }
   '' else "";
 
-  masterConfig = if hostname != "kraken" then ''
+  masterConfig = if !isKraken then ''
     # Master layout for laptop
     # https://wiki.hyprland.org/Configuring/Master-Layout/
     master {

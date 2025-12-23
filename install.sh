@@ -7,7 +7,7 @@
 # Commands:
 #   (none)              Interactive menu
 #   install [hostname]  Fresh NixOS installation
-#   update              Pull config, update flake, smart rebuild, update CLI tools
+#   update              Update flake inputs, smart rebuild, update CLI tools
 #
 # Run fresh installs from the official NixOS minimal ISO.
 #
@@ -95,7 +95,12 @@ REPO_URL="https://github.com/DigitalPals/nixos-config.git"
 TEMP_CONFIG="/tmp/nixos-config"
 CONFIG_DIR="/mnt/home/john/nixos-config"
 SYMLINK_PATH="/mnt/etc/nixos"
-VALID_HOSTS=("kraken" "G1a")
+
+# Base hosts (hardware configurations)
+BASE_HOSTS=("kraken" "G1a")
+
+# Available desktop shells
+SHELLS=("noctalia" "illogical")
 
 # Show usage
 usage() {
@@ -106,15 +111,18 @@ usage() {
     echo "Commands:"
     echo "  (none)              Interactive menu"
     echo "  install [hostname]  Fresh NixOS installation"
-    echo "  update              Pull config, update flake, smart rebuild"
+    echo "  update              Update flake inputs, smart rebuild"
+    echo "  switch [shell]      Switch desktop shell (noctalia or illogical)"
     echo ""
     echo "Examples:"
     echo "  $0                  # Show interactive menu"
     echo "  $0 install          # Install with hostname selection"
     echo "  $0 install kraken   # Install directly to kraken"
     echo "  $0 update           # Update current system"
+    echo "  $0 switch illogical # Switch to Illogical Impulse shell"
     echo ""
-    echo "Available hosts: ${VALID_HOSTS[*]}"
+    echo "Available hosts: ${BASE_HOSTS[*]}"
+    echo "Available shells: ${SHELLS[*]}"
     echo ""
     exit 1
 }
@@ -127,22 +135,24 @@ show_menu() {
     echo "=============================================="
     echo ""
     echo -e "  ${GREEN}1)${NC} Install NixOS (fresh installation)"
-    echo -e "  ${GREEN}2)${NC} Update system (git pull + flake + rebuild + CLI tools)"
-    echo -e "  ${GREEN}3)${NC} Exit"
+    echo -e "  ${GREEN}2)${NC} Update system (flake inputs + rebuild + CLI tools)"
+    echo -e "  ${GREEN}3)${NC} Switch desktop shell"
+    echo -e "  ${GREEN}4)${NC} Exit"
     echo ""
 
     while true; do
-        read -p "Select option (1-3): " choice
+        read -p "Select option (1-4): " choice
         case $choice in
             1) do_install; break ;;
             2) do_update; break ;;
-            3) echo "Goodbye!"; exit 0 ;;
-            *) echo "Invalid option. Please enter 1, 2, or 3." ;;
+            3) do_switch_shell; break ;;
+            4) echo "Goodbye!"; exit 0 ;;
+            *) echo "Invalid option. Please enter 1, 2, 3, or 4." ;;
         esac
     done
 }
 
-# Interactive hostname selection
+# Interactive hostname selection (selects base host)
 select_hostname() {
     echo ""
     log_info "Available hosts:"
@@ -154,13 +164,61 @@ select_hostname() {
     while true; do
         read -p "Select host (1-2): " choice
         case $choice in
-            1) HOSTNAME="kraken"; break ;;
-            2) HOSTNAME="G1a"; break ;;
+            1) BASE_HOST="kraken"; break ;;
+            2) BASE_HOST="G1a"; break ;;
             *) echo "Invalid selection. Please enter 1 or 2." ;;
         esac
     done
 
-    log_success "Selected hostname: $HOSTNAME"
+    log_success "Selected host: $BASE_HOST"
+}
+
+# Interactive shell selection
+select_shell() {
+    echo ""
+    log_info "Available desktop shells:"
+    echo ""
+    echo -e "  ${GREEN}1)${NC} Noctalia          - Modern Qt6/QML desktop shell (default)"
+    echo -e "  ${GREEN}2)${NC} Illogical Impulse - Material Design 3 Quickshell-based shell"
+    echo ""
+
+    while true; do
+        read -p "Select shell (1-2) [1]: " choice
+        choice=${choice:-1}  # Default to Noctalia
+        case $choice in
+            1) SHELL_CHOICE="noctalia"; break ;;
+            2) SHELL_CHOICE="illogical"; break ;;
+            *) echo "Invalid selection. Please enter 1 or 2." ;;
+        esac
+    done
+
+    log_success "Selected shell: $SHELL_CHOICE"
+}
+
+# Build full config name from base host + shell
+get_config_name() {
+    local host="$1"
+    local shell="$2"
+    if [[ "$shell" == "illogical" ]]; then
+        echo "${host}-illogical"
+    else
+        echo "$host"
+    fi
+}
+
+# Detect current shell from runtime file
+# The active desktop shell writes its name to $XDG_RUNTIME_DIR/desktop-shell at startup
+# Sets SHELL_DETECTED=true if detected from runtime file, false if assumed
+get_current_shell() {
+    local runtime_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/desktop-shell"
+    if [[ -f "$runtime_file" ]]; then
+        SHELL_DETECTED=true
+        cat "$runtime_file"
+    else
+        # Default to noctalia if no runtime file exists (not in a graphical session)
+        SHELL_DETECTED=false
+        echo "noctalia"
+    fi
 }
 
 # Get list of available disks (excluding loop, ram, rom, zram devices)
@@ -224,10 +282,10 @@ select_disk() {
     log_success "Selected disk: $DISK_DEVICE"
 }
 
-# Validate hostname
-validate_hostname() {
+# Validate base hostname (hardware config)
+validate_base_host() {
     local host="$1"
-    for valid in "${VALID_HOSTS[@]}"; do
+    for valid in "${BASE_HOSTS[@]}"; do
         if [[ "$host" == "$valid" ]]; then
             return 0
         fi
@@ -235,15 +293,137 @@ validate_hostname() {
     return 1
 }
 
-# Update system (git pull + flake update + smart rebuild + CLI tools)
-do_update() {
-    CURRENT_HOST=$(hostname)
+# Validate shell name
+validate_shell() {
+    local shell="$1"
+    for valid in "${SHELLS[@]}"; do
+        if [[ "$shell" == "$valid" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Switch desktop shell
+do_switch_shell() {
+    BASE_HOST=$(hostname)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # Validate hostname matches known hosts
-    if ! validate_hostname "$CURRENT_HOST"; then
-        log_error "Unknown hostname: $CURRENT_HOST. Expected one of: ${VALID_HOSTS[*]}"
+    # Validate hostname (hostname is always base, no suffix)
+    if ! validate_base_host "$BASE_HOST"; then
+        log_error "Unknown hostname: $BASE_HOST. Expected one of: ${BASE_HOSTS[*]}"
     fi
+
+    # Detect current shell from runtime file
+    CURRENT_SHELL=$(get_current_shell)
+
+    # Don't run as root
+    if [[ $EUID -eq 0 ]]; then
+        log_error "Don't run as root. Run as normal user (sudo is used only for rebuild)."
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo "  Switch Desktop Shell"
+    echo "=============================================="
+    echo ""
+    log_info "Host: $BASE_HOST"
+    if [[ "$SHELL_DETECTED" == "true" ]]; then
+        log_info "Current shell: $CURRENT_SHELL"
+    else
+        log_warn "Current shell: $CURRENT_SHELL (assumed - not in graphical session)"
+    fi
+    echo ""
+
+    # If shell was passed as argument, use it; otherwise prompt
+    if [[ -n "${SHELL_CHOICE:-}" ]]; then
+        if ! validate_shell "$SHELL_CHOICE"; then
+            log_error "Invalid shell: $SHELL_CHOICE. Must be one of: ${SHELLS[*]}"
+        fi
+    else
+        select_shell
+    fi
+
+    # Check if already using this shell (only skip if we're certain about detection)
+    if [[ "$SHELL_DETECTED" == "true" ]] && [[ "$SHELL_CHOICE" == "$CURRENT_SHELL" ]]; then
+        log_info "Already using $SHELL_CHOICE. No changes needed."
+        exit 0
+    fi
+
+    # Build new config name
+    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$SHELL_CHOICE")
+
+    echo ""
+    log_info "Switching to: $CONFIG_NAME"
+    echo ""
+
+    cd "$SCRIPT_DIR"
+
+    # Rebuild with new configuration
+    log_info "Rebuilding system with $SHELL_CHOICE shell..."
+    if sudo nixos-rebuild switch --flake ".#${CONFIG_NAME}"; then
+        echo ""
+        log_success "Shell switched to $SHELL_CHOICE!"
+        echo ""
+
+        # Offer Hyprland restart first (faster), reboot as fallback
+        if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+            log_info "Restart Hyprland for changes to take effect."
+            echo ""
+            read -p "Restart Hyprland now? (Y/n): " restart
+            if [[ ! "$restart" =~ ^[Nn]$ ]]; then
+                echo ""
+                log_info "Restarting Hyprland in 2 seconds..."
+                sleep 2
+                hyprctl dispatch exit
+                # Script will be killed here, greetd restarts with new shell
+            else
+                echo ""
+                read -p "Reboot instead? (y/N): " reboot_choice
+                if [[ "$reboot_choice" =~ ^[Yy]$ ]]; then
+                    echo ""
+                    log_info "Rebooting in 2 seconds..."
+                    sleep 2
+                    sudo reboot
+                else
+                    echo ""
+                    log_warn "Log out and log back in for changes to take effect."
+                    log_warn "Do NOT reload Hyprland config (hyprctl reload) - it will break keybindings."
+                fi
+            fi
+        else
+            # Not in Hyprland session - offer reboot only
+            log_info "A reboot is recommended for all environment changes to take effect."
+            echo ""
+            read -p "Reboot now? (Y/n): " reboot_choice
+            if [[ ! "$reboot_choice" =~ ^[Nn]$ ]]; then
+                echo ""
+                log_info "Rebooting in 2 seconds..."
+                sleep 2
+                sudo reboot
+            else
+                echo ""
+                log_warn "Log out and log back in for changes to take effect."
+            fi
+        fi
+    else
+        log_error "Rebuild failed. Check the output above for errors."
+    fi
+}
+
+# Update system (git pull + flake update + smart rebuild + CLI tools)
+do_update() {
+    BASE_HOST=$(hostname)
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    # Validate hostname
+    if ! validate_base_host "$BASE_HOST"; then
+        log_error "Unknown hostname: $BASE_HOST. Expected one of: ${BASE_HOSTS[*]}"
+    fi
+
+    # Detect current shell from runtime file and build config name
+    CURRENT_SHELL=$(get_current_shell)
+    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$CURRENT_SHELL")
 
     # Don't run as root (git operations should be as normal user)
     if [[ $EUID -eq 0 ]]; then
@@ -256,20 +436,14 @@ do_update() {
     echo "=============================================="
     echo ""
 
+    # Warn if shell detection is assumed
+    if [[ "$SHELL_DETECTED" != "true" ]]; then
+        log_warn "Shell: $CURRENT_SHELL (assumed - not in graphical session)"
+        log_warn "Config: $CONFIG_NAME"
+        echo ""
+    fi
+
     cd "$SCRIPT_DIR"
-
-    # Check for uncommitted changes
-    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
-        log_error "You have uncommitted changes. Please commit or stash them first."
-    fi
-
-    # Ensure we're on main branch
-    CURRENT_BRANCH=$(git branch --show-current)
-    if [[ -z "$CURRENT_BRANCH" ]]; then
-        log_error "Detached HEAD state. Please checkout main branch first: git checkout main"
-    elif [[ "$CURRENT_BRANCH" != "main" ]]; then
-        log_error "Not on main branch (currently on '$CURRENT_BRANCH'). Please switch: git checkout main"
-    fi
 
     # Initialize logging
     UPDATE_LOG="$HOME/update.log"
@@ -277,10 +451,10 @@ do_update() {
     trap "rm -rf $LOG_DIR; tput cnorm 2>/dev/null" EXIT
     : > "$UPDATE_LOG"  # Clear log
     echo "NixOS Update - $(date)" >> "$UPDATE_LOG"
-    echo "Host: $CURRENT_HOST" >> "$UPDATE_LOG"
+    echo "Host: $BASE_HOST (shell: $CURRENT_SHELL)" >> "$UPDATE_LOG"
+    echo "Config: $CONFIG_NAME" >> "$UPDATE_LOG"
 
     # Track what was updated for summary
-    GIT_COMMITS=""
     FLAKE_CHANGES=""
     CLAUDE_OLD=""
     CLAUDE_NEW=""
@@ -294,17 +468,7 @@ do_update() {
     # Save flake.lock before update for comparison
     cp flake.lock "$LOG_DIR/flake.lock.old" 2>/dev/null || true
 
-    # Step 1: Git pull
-    HEAD_BEFORE=$(git rev-parse HEAD)
-    run_quiet "Pulling latest config" "$LOG_DIR/git.log" git pull --ff-only origin main || log_error "Git pull failed. Check $UPDATE_LOG"
-    HEAD_AFTER=$(git rev-parse HEAD)
-
-    if [[ "$HEAD_BEFORE" != "$HEAD_AFTER" ]]; then
-        NEEDS_REBUILD=true
-        GIT_COMMITS=$(git log --oneline "$HEAD_BEFORE".."$HEAD_AFTER" | sed 's/^/    /')
-    fi
-
-    # Step 2: Flake update
+    # Step 1: Flake update
     LOCK_BEFORE=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1 || echo "")
     if ! run_quiet "Updating flake inputs" "$LOG_DIR/flake.log" nix flake update; then
         log_error "Flake update failed. Check $UPDATE_LOG"
@@ -316,24 +480,17 @@ do_update() {
         FLAKE_CHANGES=$(parse_flake_changes "$LOG_DIR/flake.lock.old" flake.lock)
     fi
 
-    # Step 3: Rebuild (only if needed)
+    # Step 2: Rebuild (only if needed)
     REBUILD_FAILED=false
     if [[ "$NEEDS_REBUILD" == "true" ]]; then
-        if ! run_quiet "Rebuilding system" "$LOG_DIR/rebuild.log" sudo nixos-rebuild switch --flake ".#${CURRENT_HOST}"; then
+        if ! run_quiet "Rebuilding system" "$LOG_DIR/rebuild.log" sudo nixos-rebuild switch --flake ".#${CONFIG_NAME}"; then
             REBUILD_FAILED=true
-        else
-            # Auto-commit flake.lock if it changed (quietly)
-            if ! git diff --quiet flake.lock 2>/dev/null; then
-                if git add flake.lock && git commit -m "Update flake.lock" >/dev/null 2>&1; then
-                    git push >/dev/null 2>&1 || true
-                fi
-            fi
         fi
     else
         printf "  ${BLUE}-${NC} Skipping rebuild (no changes)\n"
     fi
 
-    # Step 4: Update Claude Code
+    # Step 3: Update Claude Code
     if [[ -x "$HOME/.local/bin/claude" ]]; then
         CLAUDE_OLD=$("$HOME/.local/bin/claude" --version 2>/dev/null | head -1 || echo "")
         run_quiet "Updating Claude Code" "$LOG_DIR/claude.log" "$HOME/.local/bin/claude" update || true
@@ -342,7 +499,7 @@ do_update() {
         printf "  ${BLUE}-${NC} Claude Code not installed\n"
     fi
 
-    # Step 5: Update Codex CLI
+    # Step 4: Update Codex CLI
     if [[ -x "$HOME/.npm-global/bin/codex" ]]; then
         CODEX_OLD=$(npm list -g @openai/codex 2>/dev/null | grep -o '@[0-9.]*' | tail -1 | tr -d '@' || echo "")
         run_quiet "Updating Codex CLI" "$LOG_DIR/codex.log" npm update -g @openai/codex || true
@@ -361,20 +518,26 @@ do_update() {
     echo "=============================================="
     echo ""
 
-    # Git
-    if [[ -n "$GIT_COMMITS" ]]; then
-        echo -e "  Git config:     ${GREEN}Updated${NC}"
-        echo "$GIT_COMMITS"
-    else
-        echo "  Git config:     Up to date"
-    fi
-
     # Flake inputs
     if [[ -n "$FLAKE_CHANGES" ]]; then
         echo -e "  Flake inputs:   ${GREEN}Updated${NC}"
         echo "$FLAKE_CHANGES"
     else
         echo "  Flake inputs:   Up to date"
+    fi
+
+    # Show dots-hyprland version when using illogical shell
+    if [[ "$CURRENT_SHELL" == "illogical" ]] && command -v jq &>/dev/null; then
+        DOTS_REV=$(jq -r '.nodes."dots-hyprland".locked.rev // empty' flake.lock 2>/dev/null | head -c7)
+        DOTS_DATE=$(jq -r '.nodes."dots-hyprland".locked.lastModified // empty' flake.lock 2>/dev/null)
+        if [[ -n "$DOTS_REV" ]]; then
+            if [[ -n "$DOTS_DATE" ]]; then
+                DOTS_DATE_FMT=$(date -d "@$DOTS_DATE" "+%Y-%m-%d" 2>/dev/null || echo "")
+                echo "  dots-hyprland:  $DOTS_REV ($DOTS_DATE_FMT)"
+            else
+                echo "  dots-hyprland:  $DOTS_REV"
+            fi
+        fi
     fi
 
     # System
@@ -424,19 +587,27 @@ do_update() {
 
 # Fresh NixOS installation
 do_install() {
-    # If hostname not set, prompt for selection
-    if [[ -z "${HOSTNAME:-}" ]]; then
+    # If base host not set, prompt for selection
+    if [[ -z "${BASE_HOST:-}" ]]; then
         select_hostname
     fi
 
-    # Validate hostname
-    if ! validate_hostname "$HOSTNAME"; then
-        log_error "Invalid hostname: $HOSTNAME. Must be one of: ${VALID_HOSTS[*]}"
+    # Validate base hostname
+    if ! validate_base_host "$BASE_HOST"; then
+        log_error "Invalid hostname: $BASE_HOST. Must be one of: ${BASE_HOSTS[*]}"
     fi
+
+    # Select desktop shell
+    if [[ -z "${SHELL_CHOICE:-}" ]]; then
+        select_shell
+    fi
+
+    # Build full config name
+    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$SHELL_CHOICE")
 
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
-        log_error "Installation must be run as root. Try: sudo $0 install $HOSTNAME"
+        log_error "Installation must be run as root. Try: sudo $0 install $BASE_HOST"
     fi
 
     # If no disk specified, show interactive selector
@@ -455,7 +626,9 @@ do_install() {
     echo "  NixOS Installation with Disko"
     echo "=============================================="
     echo ""
-    log_info "Target hostname: $HOSTNAME"
+    log_info "Target host: $BASE_HOST"
+    log_info "Desktop shell: $SHELL_CHOICE"
+    log_info "Configuration: $CONFIG_NAME"
     log_info "Target disk: $DISK_DEVICE"
     echo ""
     lsblk "$DISK_DEVICE"
@@ -497,7 +670,7 @@ do_install() {
 
     # Step 4: Update disk device in disko configuration
     log_info "Step 4/6: Configuring disk device..."
-    DISKO_HOST_FILE="$TEMP_CONFIG/modules/disko/${HOSTNAME}.nix"
+    DISKO_HOST_FILE="$TEMP_CONFIG/modules/disko/${BASE_HOST}.nix"
     if [[ -f "$DISKO_HOST_FILE" ]]; then
         sed -i "s|device = \"/dev/[^\"]*\"|device = \"$DISK_DEVICE\"|" "$DISKO_HOST_FILE"
         log_success "Updated disk device to $DISK_DEVICE in $DISKO_HOST_FILE"
@@ -520,7 +693,7 @@ do_install() {
 
     nix run "$TEMP_CONFIG#disko" -- \
         --mode destroy,format,mount \
-        --flake "$TEMP_CONFIG#$HOSTNAME"
+        --flake "$TEMP_CONFIG#$BASE_HOST"
 
     log_success "Disk partitioned and mounted at /mnt"
 
@@ -549,7 +722,7 @@ do_install() {
     log_info "Running nixos-install (this may take a while)..."
     echo ""
 
-    nixos-install --flake "${CONFIG_DIR}#${HOSTNAME}" --no-root-passwd
+    nixos-install --flake "${CONFIG_DIR}#${CONFIG_NAME}" --no-root-passwd
 
     # Installation complete
     echo ""
@@ -570,18 +743,24 @@ do_install() {
 
 # Parse command line arguments
 COMMAND="${1:-}"
-HOSTNAME="${2:-}"
-DISK_DEVICE="${3:-}"
+ARG2="${2:-}"
+ARG3="${3:-}"
 
 case "$COMMAND" in
     "")
         show_menu
         ;;
     "install")
+        BASE_HOST="$ARG2"
+        DISK_DEVICE="$ARG3"
         do_install
         ;;
     "update")
         do_update
+        ;;
+    "switch")
+        SHELL_CHOICE="$ARG2"
+        do_switch_shell
         ;;
     "-h"|"--help"|"help")
         usage
@@ -589,9 +768,9 @@ case "$COMMAND" in
     *)
         # Legacy: treat first arg as hostname for backwards compatibility
         # e.g., ./install.sh kraken /dev/nvme0n1
-        if validate_hostname "$COMMAND"; then
-            HOSTNAME="$COMMAND"
-            DISK_DEVICE="${2:-}"
+        if validate_base_host "$COMMAND"; then
+            BASE_HOST="$COMMAND"
+            DISK_DEVICE="$ARG2"
             do_install
         else
             echo "Unknown command: $COMMAND"

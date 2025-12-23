@@ -1,7 +1,18 @@
 # Key bindings configuration
-# All keyboard shortcuts
-{}:
+# All keyboard shortcuts (shell-aware)
+{ shell ? "noctalia" }:
 
+let
+  # Shell-specific launcher command
+  launcherCmd = if shell == "illogical"
+    then "fuzzel"
+    else "noctalia-shell ipc call launcher toggle";
+
+  # Shell-specific lock command
+  lockCmd = if shell == "illogical"
+    then "hyprlock"
+    else "noctalia-shell ipc call lockScreen lock";
+in
 ''
   # Variables
   $mainMod = SUPER
@@ -10,7 +21,7 @@
 
   # Application launchers
   bind = $mainMod, Return, exec, $terminal
-  bind = $mainMod, SPACE, exec, noctalia-shell ipc call launcher toggle
+  bind = $mainMod, SPACE, exec, ${launcherCmd}
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
@@ -31,7 +42,7 @@
   bind = $mainMod SHIFT, M, exit,
 
   # Lock screen
-  bind = $mainMod, L, exec, noctalia-shell ipc call lockScreen lock
+  bind = $mainMod, L, exec, ${lockCmd}
 
   # Focus movement
   bind = $mainMod, left, movefocus, l
