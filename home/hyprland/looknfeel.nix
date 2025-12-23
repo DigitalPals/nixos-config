@@ -105,6 +105,11 @@ ${masterConfig}
   # Floating windows - Calculator
   windowrule = float, class:org.gnome.Calculator
 
+  # Floating windows - Illogical Impulse settings (Quickshell)
+  windowrulev2 = float, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
+  windowrulev2 = center, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
+  windowrulev2 = size 1100 750, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
+
   # Floating windows - Media viewers
   windowrule = float, class:^(imv|mpv)$
   windowrule = center, class:^(imv|mpv)$

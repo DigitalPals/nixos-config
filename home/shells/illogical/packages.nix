@@ -10,15 +10,19 @@ let
 
   # Quickshell wrapper with QML import paths for KDE modules
   # Note: Use .unwrapped for kirigami to get actual QML files, not just wrapper
-  quickshellWrapped = pkgs.writeShellScriptBin "quickshell" ''
+  quickshellScript = ''
     export QML2_IMPORT_PATH="${pkgs.kdePackages.kirigami.unwrapped}/lib/qt-6/qml:${pkgs.kdePackages.qt5compat}/lib/qt-6/qml:${pkgs.kdePackages.qtpositioning}/lib/qt-6/qml:${pkgs.kdePackages.syntax-highlighting}/lib/qt-6/qml''${QML2_IMPORT_PATH:+:}$QML2_IMPORT_PATH"
     exec ${quickshell.packages.x86_64-linux.default}/bin/quickshell "$@"
   '';
+  quickshellWrapped = pkgs.writeShellScriptBin "quickshell" quickshellScript;
+  # 'qs' alias used by upstream Illogical Impulse (e.g., for opening settings panel)
+  qsWrapper = pkgs.writeShellScriptBin "qs" quickshellScript;
 in
 {
   home.packages = [
     # Quickshell with wrapper for KDE QML modules
     quickshellWrapped
+    qsWrapper  # 'qs' command expected by Illogical Impulse UI
   ] ++ (with pkgs; [
     # Qt theming and dependencies
     kdePackages.qt6ct
