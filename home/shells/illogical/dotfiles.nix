@@ -5,8 +5,89 @@ let
   # Source paths from dots-hyprland
   configSource = "${dots-hyprland}/dots/.config";
 
-  # Quickshell weather settings
-  weatherSettings = {
+  # Quickshell settings to persist across rebuilds
+  quickshellSettings = {
+    ai = {
+      model = "";
+      temperature = 0.5;
+    };
+    booru = {
+      allowNsfw = false;
+      provider = "yandere";
+    };
+    cheatsheet = {
+      tabIndex = 0;
+    };
+    idle = {
+      inhibit = false;
+    };
+    overlay = {
+      crosshair = {
+        clickthrough = true;
+        height = 100;
+        pinned = false;
+        width = 250;
+        x = 827;
+        y = 441;
+      };
+      floatingImage = {
+        clickthrough = false;
+        height = 0;
+        pinned = false;
+        width = 0;
+        x = 1650;
+        y = 390;
+      };
+      fpsLimiter = {
+        clickthrough = false;
+        height = 80;
+        pinned = false;
+        width = 280;
+        x = 1570;
+        y = 615;
+      };
+      notes = {
+        clickthrough = true;
+        height = 330;
+        pinned = false;
+        width = 460;
+        x = 1400;
+        y = 42;
+      };
+      open = [ "crosshair" "recorder" "volumeMixer" "resources" ];
+      recorder = {
+        clickthrough = false;
+        height = 130;
+        pinned = false;
+        width = 350;
+        x = 80;
+        y = 80;
+      };
+      resources = {
+        clickthrough = true;
+        height = 200;
+        pinned = false;
+        tabIndex = 0;
+        width = 350;
+        x = 1500;
+        y = 770;
+      };
+      volumeMixer = {
+        clickthrough = false;
+        height = 600;
+        pinned = false;
+        tabIndex = 0;
+        width = 350;
+        x = 80;
+        y = 280;
+      };
+    };
+    sidebar = {
+      bottomGroup = {
+        collapsed = false;
+        tab = 0;
+      };
+    };
     "options.bar.weather.city" = "Emmen, Drenthe, Netherlands";
     "options.bar.weather.enableGPS" = false;
   };
@@ -35,12 +116,12 @@ in
       run chmod -R u+w "$shapesDir"
     fi
 
-    # Apply quickshell weather settings to states.json
+    # Apply quickshell settings to states.json (merges with existing, preserving session data)
     statesFile="$HOME/.local/state/quickshell/states.json"
     if [ -f "$statesFile" ]; then
-      run ${pkgs.jq}/bin/jq '. + ${builtins.toJSON weatherSettings}' "$statesFile" > "$statesFile.tmp" && run mv "$statesFile.tmp" "$statesFile"
+      run ${pkgs.jq}/bin/jq '. * ${builtins.toJSON quickshellSettings}' "$statesFile" > "$statesFile.tmp" && run mv "$statesFile.tmp" "$statesFile"
     else
-      run echo '${builtins.toJSON weatherSettings}' > "$statesFile"
+      run echo '${builtins.toJSON quickshellSettings}' > "$statesFile"
     fi
   '';
 }
