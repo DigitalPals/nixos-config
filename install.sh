@@ -490,76 +490,118 @@ do_update() {
     # Get new system path for comparison
     NEW_SYSTEM=$(readlink -f /run/current-system)
 
+    # Helper to clean version strings (remove duplicate labels like "2.0.75 (Claude Code)")
+    clean_version() {
+        echo "$1" | sed 's/ (Claude Code)//; s/ (Codex)//'
+    }
+
     # Summary section
     echo ""
     echo "=============================================="
     echo "  Update Summary"
     echo "=============================================="
-    echo ""
 
     # Flake inputs
     if [[ -n "$FLAKE_CHANGES" ]]; then
-        echo -e "  Flake inputs:   ${GREEN}Updated${NC}"
-        echo "$FLAKE_CHANGES"
-    else
-        echo "  Flake inputs:   Up to date"
+        echo ""
+        echo -e "  ${GREEN}Flake inputs updated:${NC}"
+        echo "$FLAKE_CHANGES" | sed 's/^  //'
     fi
 
     # Show dots-hyprland version when using illogical shell
     if [[ "$CURRENT_SHELL" == "illogical" ]] && command -v jq &>/dev/null; then
         DOTS_REV=$(jq -r '.nodes."dots-hyprland".locked.rev // empty' flake.lock 2>/dev/null | head -c7)
         DOTS_DATE=$(jq -r '.nodes."dots-hyprland".locked.lastModified // empty' flake.lock 2>/dev/null)
-        if [[ -n "$DOTS_REV" ]]; then
-            if [[ -n "$DOTS_DATE" ]]; then
-                DOTS_DATE_FMT=$(date -d "@$DOTS_DATE" "+%Y-%m-%d" 2>/dev/null || echo "")
-                echo "  dots-hyprland:  $DOTS_REV ($DOTS_DATE_FMT)"
-            else
-                echo "  dots-hyprland:  $DOTS_REV"
-            fi
+        if [[ -n "$DOTS_REV" ]] && [[ -n "$DOTS_DATE" ]]; then
+            DOTS_DATE_FMT=$(date -d "@$DOTS_DATE" "+%Y-%m-%d" 2>/dev/null || echo "")
+            echo "    dots-hyprland: $DOTS_REV ($DOTS_DATE_FMT)"
+        elif [[ -n "$DOTS_REV" ]]; then
+            echo "    dots-hyprland: $DOTS_REV"
         fi
     fi
 
-    # System
+    # CLI tools section
+    CLAUDE_UPDATED=false
+    CODEX_UPDATED=false
+    if [[ -n "$CLAUDE_OLD" ]] && [[ "$CLAUDE_OLD" != "$CLAUDE_NEW" ]] && [[ -n "$CLAUDE_NEW" ]]; then
+        CLAUDE_UPDATED=true
+    fi
+    if [[ -n "$CODEX_OLD" ]] && [[ "$CODEX_OLD" != "$CODEX_NEW" ]] && [[ -n "$CODEX_NEW" ]]; then
+        CODEX_UPDATED=true
+    fi
+
+    if [[ "$CLAUDE_UPDATED" == "true" ]] || [[ "$CODEX_UPDATED" == "true" ]]; then
+        echo ""
+        echo -e "  ${GREEN}CLI tools updated:${NC}"
+        if [[ "$CLAUDE_UPDATED" == "true" ]]; then
+            echo "    Claude Code: $(clean_version "$CLAUDE_OLD") → $(clean_version "$CLAUDE_NEW")"
+        fi
+        if [[ "$CODEX_UPDATED" == "true" ]]; then
+            echo "    Codex CLI: $CODEX_OLD → $CODEX_NEW"
+        fi
+    fi
+
+    # Package changes - parse nvd output for cleaner display
+    if [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
+        NVD_OUTPUT=$(nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM" 2>/dev/null || true)
+
+        # Extract version changes - one package per line with clean version
+        VERSION_CHANGES=$(echo "$NVD_OUTPUT" | grep -E '^\[' | while read -r line; do
+            # Parse: [A.]  #1  packagename  version -> version
+            pkg=$(echo "$line" | awk '{print $3}')
+            # Get everything after the package name for version info
+            versions=$(echo "$line" | sed "s/.*$pkg  *//")
+            # Extract just the first old and new version (before any comma)
+            old_ver=$(echo "$versions" | sed 's/ *->.*//; s/,.*//' | sed 's/2025-[0-9-]*_//')
+            new_ver=$(echo "$versions" | sed 's/.*-> *//; s/,.*//' | sed 's/2025-[0-9-]*_//')
+            echo "    $pkg: $old_ver → $new_ver"
+        done)
+
+        # Extract closure stats
+        CLOSURE_LINE=$(echo "$NVD_OUTPUT" | grep "Closure size:" || true)
+        if [[ -n "$CLOSURE_LINE" ]]; then
+            PATHS_ADDED=$(echo "$CLOSURE_LINE" | grep -oP '\d+ paths added' || true)
+            PATHS_REMOVED=$(echo "$CLOSURE_LINE" | grep -oP '\d+ paths removed' || true)
+            DISK_DELTA=$(echo "$CLOSURE_LINE" | grep -oP 'disk usage [^)]+' | sed 's/disk usage //' || true)
+        fi
+
+        if [[ -n "$VERSION_CHANGES" ]]; then
+            echo ""
+            echo -e "  ${GREEN}Packages changed:${NC}"
+            echo "$VERSION_CHANGES"
+        fi
+
+        if [[ -n "$PATHS_ADDED" ]] || [[ -n "$PATHS_REMOVED" ]] || [[ -n "$DISK_DELTA" ]]; then
+            echo ""
+            echo "  Closure:"
+            [[ -n "$PATHS_ADDED" ]] && echo "    $PATHS_ADDED"
+            [[ -n "$PATHS_REMOVED" ]] && echo "    $PATHS_REMOVED"
+            [[ -n "$DISK_DELTA" ]] && echo "    disk: $DISK_DELTA"
+        fi
+    fi
+
+    # Status line (only show items that weren't updated above)
+    echo ""
+    echo "  ─────────────────────────────────────────"
+    echo ""
+
+    # System status
     if [[ "$REBUILD_FAILED" == "true" ]]; then
-        echo -e "  System:         ${RED}Rebuild failed${NC}"
-    elif [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
-        echo -e "  System:         ${GREEN}Rebuilt${NC}"
-    else
-        echo "  System:         No changes"
+        echo -e "  System:      ${RED}Rebuild failed${NC}"
+    elif [[ "$OLD_SYSTEM" == "$NEW_SYSTEM" ]] && [[ -z "$FLAKE_CHANGES" ]]; then
+        echo "  System:      Already up to date"
     fi
 
-    # Claude
-    if [[ -n "$CLAUDE_OLD" ]]; then
-        if [[ "$CLAUDE_OLD" != "$CLAUDE_NEW" ]] && [[ -n "$CLAUDE_NEW" ]]; then
-            echo -e "  Claude Code:    ${GREEN}$CLAUDE_OLD → $CLAUDE_NEW${NC}"
-        else
-            echo "  Claude Code:    Up to date ($CLAUDE_OLD)"
-        fi
-    else
-        echo "  Claude Code:    Not installed"
+    # Show versions that weren't updated
+    if [[ -n "$CLAUDE_OLD" ]] && [[ "$CLAUDE_UPDATED" != "true" ]]; then
+        echo "  Claude Code: $(clean_version "$CLAUDE_OLD")"
     fi
-
-    # Codex
-    if [[ -n "$CODEX_OLD" ]]; then
-        if [[ "$CODEX_OLD" != "$CODEX_NEW" ]] && [[ -n "$CODEX_NEW" ]]; then
-            echo -e "  Codex CLI:      ${GREEN}$CODEX_OLD → $CODEX_NEW${NC}"
-        else
-            echo "  Codex CLI:      Up to date ($CODEX_OLD)"
-        fi
-    else
-        echo "  Codex CLI:      Not installed"
+    if [[ -n "$CODEX_OLD" ]] && [[ "$CODEX_UPDATED" != "true" ]]; then
+        echo "  Codex CLI:   $CODEX_OLD"
     fi
 
     echo ""
-    echo "  Full log: $UPDATE_LOG"
-
-    # Package changes (keep nvd diff - it's already a good summary)
-    if [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
-        echo ""
-        echo "  Package changes:"
-        nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM" 2>/dev/null | sed 's/^/  /'
-    fi
-
+    echo "  Log: $UPDATE_LOG"
     echo ""
     echo "=============================================="
 }
