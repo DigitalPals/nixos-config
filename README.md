@@ -24,16 +24,16 @@ This configuration supports three different Hyprland desktop shells. Each provid
 
 ### Switching Shells
 
-After installation, you can switch between shells at any time:
+Desktop shells are switched via the **boot menu** (NixOS specialisations):
 
-```bash
-./install.sh switch            # Interactive shell selection
-./install.sh switch illogical  # Switch to Illogical Impulse
-./install.sh switch caelestia  # Switch to Caelestia
-./install.sh switch noctalia   # Switch back to Noctalia
-```
+1. Reboot your system
+2. In the Limine boot menu, select your generation
+3. Choose from the sub-menu:
+   - **Default** - Noctalia
+   - **illogical** - Illogical Impulse
+   - **caelestia** - Caelestia
 
-A reboot is required after switching shells for all changes to take effect.
+The selected shell persists for that boot session. To switch shells, reboot and select a different option.
 
 ## Hosts
 
@@ -44,16 +44,17 @@ A reboot is required after switching shells for all changes to take effect.
 
 ## Flake Configurations
 
-Each host has configurations for all three shells:
+Each host has one configuration with shell variants as specialisations:
 
-| Configuration | Host | Shell |
-|---------------|------|-------|
-| `kraken` | kraken | Noctalia (default) |
-| `kraken-illogical` | kraken | Illogical Impulse |
-| `kraken-caelestia` | kraken | Caelestia |
-| `G1a` | G1a | Noctalia (default) |
-| `G1a-illogical` | G1a | Illogical Impulse |
-| `G1a-caelestia` | G1a | Caelestia |
+| Configuration | Host | Specialisations |
+|---------------|------|-----------------|
+| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical, caelestia |
+| `G1a` | G1a (AMD) | Default (Noctalia), illogical, caelestia |
+
+Rebuilding includes all shell specialisations:
+```bash
+sudo nixos-rebuild switch --flake .#kraken
+```
 
 ## Partition Layout
 

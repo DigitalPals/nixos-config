@@ -5,11 +5,11 @@
 { config, pkgs, lib, hostname, ... }:
 
 let
-  # Check base hostname (strip -illogical suffix if present)
+  # Enable auto-suspend for known hosts
   shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname;
 
   # Shell-specific lock command
-  lockCmd = if shell == "illogical"
+  lockCmd = if shell == "illogical" || shell == "caelestia"
     then "hyprlock"
     else "pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock";
 

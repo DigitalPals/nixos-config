@@ -117,17 +117,19 @@ usage() {
     echo "  (none)              Interactive menu"
     echo "  install [hostname]  Fresh NixOS installation"
     echo "  update              Update flake inputs, smart rebuild"
-    echo "  switch [shell]      Switch desktop shell"
+    echo "  switch              Show shell switching instructions"
     echo ""
     echo "Examples:"
     echo "  $0                  # Show interactive menu"
     echo "  $0 install          # Install with hostname selection"
     echo "  $0 install kraken   # Install directly to kraken"
     echo "  $0 update           # Update current system"
-    echo "  $0 switch illogical # Switch to Illogical Impulse shell"
+    echo "  $0 switch           # Show how to switch shells"
     echo ""
     echo "Available hosts: ${BASE_HOSTS[*]}"
-    echo "Available shells: ${SHELLS[*]}"
+    echo ""
+    echo "Desktop shells are selected via the boot menu (specialisations):"
+    echo "  - Default (Noctalia), illogical, caelestia"
     echo ""
     exit 1
 }
@@ -178,61 +180,8 @@ select_hostname() {
     log_success "Selected host: $BASE_HOST"
 }
 
-# Interactive shell selection (dynamic from SHELL_INFO)
-select_shell() {
-    echo ""
-    log_info "Available desktop shells:"
-    echo ""
-
-    local i=1
-    for shell_name in "${SHELLS[@]}"; do
-        IFS='|' read -r display desc <<< "${SHELL_INFO[$shell_name]}"
-        printf "  ${GREEN}%d)${NC} %-20s - %s\n" "$i" "$display" "$desc"
-        ((i++))
-    done
-    echo ""
-
-    while true; do
-        read -p "Select shell (1-${#SHELLS[@]}) [1]: " choice
-        choice=${choice:-1}
-        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#SHELLS[@]} )); then
-            SHELL_CHOICE="${SHELLS[$((choice-1))]}"
-            break
-        else
-            echo "Invalid selection. Please enter 1-${#SHELLS[@]}."
-        fi
-    done
-
-    log_success "Selected shell: $SHELL_CHOICE"
-}
-
-# Build full config name from base host + shell
-get_config_name() {
-    local host="$1"
-    local shell="$2"
-    if [[ "$shell" == "noctalia" ]]; then
-        echo "$host"
-    else
-        echo "${host}-${shell}"
-    fi
-}
-
-# Detect current shell from runtime file
-# The active desktop shell writes its name to $XDG_RUNTIME_DIR/desktop-shell at startup
-# Sets CURRENT_SHELL and SHELL_DETECTED variables directly (not via subshell)
-detect_current_shell() {
-    local runtime_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/desktop-shell"
-    if [[ -f "$runtime_file" ]]; then
-        SHELL_DETECTED=true
-        CURRENT_SHELL=$(cat "$runtime_file")
-    else
-        # Default to noctalia if no runtime file exists (not in a graphical session)
-        SHELL_DETECTED=false
-        CURRENT_SHELL="noctalia"
-    fi
-}
-
-# Resolve current host configuration (shared by switch/update)
+# Resolve current host configuration (shared by update)
+# With specialisations, config name is always just the hostname
 resolve_current_config() {
     BASE_HOST=$(hostname)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -241,8 +190,8 @@ resolve_current_config() {
         log_error "Unknown hostname: $BASE_HOST. Expected one of: ${BASE_HOSTS[*]}"
     fi
 
-    detect_current_shell  # Sets CURRENT_SHELL and SHELL_DETECTED
-    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$CURRENT_SHELL")
+    # Config name is always the base hostname (specialisations handle shell variants)
+    CONFIG_NAME="$BASE_HOST"
 }
 
 # Get list of available disks (excluding loop, ram, rom, zram devices)
@@ -317,87 +266,32 @@ validate_base_host() {
     return 1
 }
 
-# Validate shell name
-validate_shell() {
-    local shell="$1"
-    for valid in "${SHELLS[@]}"; do
-        if [[ "$shell" == "$valid" ]]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Switch desktop shell
+# Switch desktop shell (via boot menu specialisations)
 do_switch_shell() {
-    # Don't run as root
-    if [[ $EUID -eq 0 ]]; then
-        log_error "Don't run as root. Run as normal user (sudo is used only for rebuild)."
-    fi
-
-    resolve_current_config  # Sets BASE_HOST, SCRIPT_DIR, CURRENT_SHELL, CONFIG_NAME
-
     echo ""
     echo "=============================================="
     echo "  Switch Desktop Shell"
     echo "=============================================="
     echo ""
-    log_info "Host: $BASE_HOST"
-    if [[ "$SHELL_DETECTED" == "true" ]]; then
-        log_info "Current shell: $CURRENT_SHELL"
-    else
-        log_warn "Current shell: $CURRENT_SHELL (assumed - not in graphical session)"
-    fi
+    log_info "Desktop shells are now switched via the boot menu."
     echo ""
-
-    # If shell was passed as argument, use it; otherwise prompt
-    if [[ -n "${SHELL_CHOICE:-}" ]]; then
-        if ! validate_shell "$SHELL_CHOICE"; then
-            log_error "Invalid shell: $SHELL_CHOICE. Must be one of: ${SHELLS[*]}"
-        fi
-    else
-        select_shell
-    fi
-
-    # Check if already using this shell (only skip if we're certain about detection)
-    if [[ "$SHELL_DETECTED" == "true" ]] && [[ "$SHELL_CHOICE" == "$CURRENT_SHELL" ]]; then
-        log_info "Already using $SHELL_CHOICE. No changes needed."
-        exit 0
-    fi
-
-    # Build new config name
-    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$SHELL_CHOICE")
-
+    echo "To switch shells:"
     echo ""
-    log_info "Switching to: $CONFIG_NAME"
+    echo "  1. Reboot your system"
+    echo "  2. In the Limine boot menu, select your generation"
+    echo "  3. Choose from the sub-menu:"
+    echo "     - Default        (Noctalia)"
+    echo "     - illogical      (Illogical Impulse)"
+    echo "     - caelestia      (Caelestia)"
     echo ""
-
-    cd "$SCRIPT_DIR"
-
-    # Rebuild with new configuration
-    log_info "Rebuilding system with $SHELL_CHOICE shell..."
-    if sudo nixos-rebuild switch --flake ".#${CONFIG_NAME}"; then
-        echo ""
-        log_success "Shell switched to $SHELL_CHOICE!"
-        echo ""
-
-        # Reboot required for shell switch to take full effect
-        log_info "A reboot is required for the shell switch to take full effect."
-        echo ""
-        read -p "Reboot now? (Y/n): " reboot_choice
-        if [[ ! "$reboot_choice" =~ ^[Nn]$ ]]; then
-            echo ""
-            log_info "Rebooting in 2 seconds..."
-            sleep 2
-            sudo reboot
-        else
-            echo ""
-            log_warn "Remember to reboot for the shell switch to take effect."
-            log_warn "Do NOT reload Hyprland config (hyprctl reload) - it will break keybindings."
-        fi
-    else
-        log_error "Rebuild failed. Check the output above for errors."
-    fi
+    echo "The selected shell will be used for that boot session."
+    echo ""
+    echo "Available shells:"
+    for shell_name in "${SHELLS[@]}"; do
+        IFS='|' read -r display desc <<< "${SHELL_INFO[$shell_name]}"
+        printf "  - %-18s %s\n" "$display" "$desc"
+    done
+    echo ""
 }
 
 # Update system (git pull + flake update + smart rebuild + CLI tools)
@@ -407,20 +301,13 @@ do_update() {
         log_error "Don't run update as root. Run as normal user (sudo is used only for rebuild)."
     fi
 
-    resolve_current_config  # Sets BASE_HOST, SCRIPT_DIR, CURRENT_SHELL, CONFIG_NAME
+    resolve_current_config  # Sets BASE_HOST, SCRIPT_DIR, CONFIG_NAME
 
     echo ""
     echo "=============================================="
     echo "  NixOS System Update"
     echo "=============================================="
     echo ""
-
-    # Warn if shell detection is assumed
-    if [[ "$SHELL_DETECTED" != "true" ]]; then
-        log_warn "Shell: $CURRENT_SHELL (assumed - not in graphical session)"
-        log_warn "Config: $CONFIG_NAME"
-        echo ""
-    fi
 
     cd "$SCRIPT_DIR"
 
@@ -430,7 +317,7 @@ do_update() {
     trap "rm -rf $LOG_DIR; tput cnorm 2>/dev/null" EXIT
     : > "$UPDATE_LOG"  # Clear log
     echo "NixOS Update - $(date)" >> "$UPDATE_LOG"
-    echo "Host: $BASE_HOST (shell: $CURRENT_SHELL)" >> "$UPDATE_LOG"
+    echo "Host: $BASE_HOST" >> "$UPDATE_LOG"
     echo "Config: $CONFIG_NAME" >> "$UPDATE_LOG"
 
     # Track what was updated for summary
@@ -508,8 +395,8 @@ do_update() {
         echo "$FLAKE_CHANGES" | sed 's/^  //'
     fi
 
-    # Show dots-hyprland version when using illogical shell
-    if [[ "$CURRENT_SHELL" == "illogical" ]] && command -v jq &>/dev/null; then
+    # Show dots-hyprland version (used by illogical specialisation)
+    if command -v jq &>/dev/null; then
         DOTS_REV=$(jq -r '.nodes."dots-hyprland".locked.rev // empty' flake.lock 2>/dev/null | head -c7)
         DOTS_DATE=$(jq -r '.nodes."dots-hyprland".locked.lastModified // empty' flake.lock 2>/dev/null)
         if [[ -n "$DOTS_REV" ]] && [[ -n "$DOTS_DATE" ]]; then
@@ -618,13 +505,8 @@ do_install() {
         log_error "Invalid hostname: $BASE_HOST. Must be one of: ${BASE_HOSTS[*]}"
     fi
 
-    # Select desktop shell
-    if [[ -z "${SHELL_CHOICE:-}" ]]; then
-        select_shell
-    fi
-
-    # Build full config name
-    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$SHELL_CHOICE")
+    # Config name is the hostname (specialisations handle shell variants)
+    CONFIG_NAME="$BASE_HOST"
 
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
@@ -648,8 +530,8 @@ do_install() {
     echo "=============================================="
     echo ""
     log_info "Target host: $BASE_HOST"
-    log_info "Desktop shell: $SHELL_CHOICE"
     log_info "Configuration: $CONFIG_NAME"
+    log_info "Desktop shells: Noctalia (default), Illogical, Caelestia (via boot menu)"
     log_info "Target disk: $DISK_DEVICE"
     echo ""
     lsblk "$DISK_DEVICE"
@@ -754,11 +636,16 @@ do_install() {
     echo "Next steps:"
     echo "  1. Reboot: reboot"
     echo "  2. Enter your LUKS passphrase at boot"
-    echo "  3. You will be auto-logged in as 'john'"
-    echo "  4. Set your user password: passwd"
-    echo "  5. Your config is at ~/nixos-config (symlinked from /etc/nixos)"
+    echo "  3. In the boot menu, select a shell:"
+    echo "     - Default (Noctalia)"
+    echo "     - illogical (Illogical Impulse)"
+    echo "     - caelestia (Caelestia)"
+    echo "  4. You will be auto-logged in as 'john'"
+    echo "  5. Set your user password: passwd"
+    echo "  6. Your config is at ~/nixos-config (symlinked from /etc/nixos)"
     echo ""
     echo "Your LUKS passphrase will be required at every boot."
+    echo "To switch shells, reboot and select from the boot menu."
     echo "=============================================="
 }
 
@@ -780,7 +667,6 @@ case "$COMMAND" in
         do_update
         ;;
     "switch")
-        SHELL_CHOICE="$ARG2"
         do_switch_shell
         ;;
     "-h"|"--help"|"help")

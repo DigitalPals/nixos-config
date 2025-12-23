@@ -1,8 +1,10 @@
 # Hyprland window manager configuration
 # Generates modular config for multi-shell environment
-{ config, pkgs, lib, hostname, shell ? "noctalia", ... }:
+{ config, pkgs, lib, hostname, osConfig, ... }:
 
 let
+  # Get shell from NixOS config (set by specialisations)
+  shell = osConfig.desktop.shell;
   # Import config generators (only used for noctalia)
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
   inputConfig = import ./input.nix {};

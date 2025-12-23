@@ -62,28 +62,21 @@
     # Custom packages
     plymouth-cybex = pkgs.callPackage ./packages/plymouth-cybex { };
 
-    # Shell-aware Home Manager configuration
-    mkHomeManagerConfig = { hostname, shell ? "noctalia" }: {
+    # Home Manager configuration (shell-agnostic - shell comes from osConfig)
+    mkHomeManagerConfig = { hostname }: {
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
-      home-manager.extraSpecialArgs = { inherit inputs hostname shell dots-hyprland rounded-polygon-qmljs quickshell; };
+      home-manager.extraSpecialArgs = { inherit inputs hostname dots-hyprland rounded-polygon-qmljs quickshell; };
       home-manager.users.john = import ./home/home.nix;
-      home-manager.sharedModules =
-        if shell == "illogical" then [
-          # Illogical Impulse is self-contained in home/shells/illogical/
-        ] else if shell == "caelestia" then [
-          caelestia.homeManagerModules.default
-        ] else [
-          noctalia.homeModules.default
-        ];
+      # sharedModules removed - external modules now imported conditionally in home.nix
     };
 
-    # Helper to create NixOS configurations for host+shell combinations
-    mkNixosSystem = { hostname, shell ? "noctalia", extraModules ? [] }:
+    # Helper to create NixOS configurations with shell specialisations
+    mkNixosSystem = { hostname, extraModules ? [] }:
       nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex shell; };
+        specialArgs = { inherit inputs plymouth-cybex; };
         modules = [
           # Disko for declarative disk partitioning
           disko.nixosModules.disko
@@ -91,11 +84,20 @@
 
           ./hosts/${hostname}
           ./modules/common.nix
+          ./modules/shell-config.nix
           ./modules/desktop-environments.nix
 
           # Home Manager
           home-manager.nixosModules.home-manager
-          (mkHomeManagerConfig { inherit hostname shell; })
+          (mkHomeManagerConfig { inherit hostname; })
+
+          # Shell specialisations (boot menu entries)
+          {
+            specialisation = {
+              illogical.configuration.desktop.shell = "illogical";
+              caelestia.configuration.desktop.shell = "caelestia";
+            };
+          }
         ] ++ extraModules;
       };
   in
@@ -106,43 +108,17 @@
     };
 
     nixosConfigurations = {
-      # Desktop with NVIDIA RTX 5090 - Noctalia (default)
+      # Desktop with NVIDIA RTX 5090
+      # Default: Noctalia | Specialisations: illogical, caelestia
       kraken = mkNixosSystem {
         hostname = "kraken";
-        shell = "noctalia";
         extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
-      # Desktop with NVIDIA RTX 5090 - Illogical Impulse
-      kraken-illogical = mkNixosSystem {
-        hostname = "kraken";
-        shell = "illogical";
-        extraModules = [ ./modules/hardware/nvidia.nix ];
-      };
-
-      # HP ZBook Ultra G1a - Noctalia (default)
+      # HP ZBook Ultra G1a (AMD Strix Halo)
+      # Default: Noctalia | Specialisations: illogical, caelestia
       G1a = mkNixosSystem {
         hostname = "G1a";
-        shell = "noctalia";
-      };
-
-      # HP ZBook Ultra G1a - Illogical Impulse
-      G1a-illogical = mkNixosSystem {
-        hostname = "G1a";
-        shell = "illogical";
-      };
-
-      # Desktop with NVIDIA RTX 5090 - Caelestia
-      kraken-caelestia = mkNixosSystem {
-        hostname = "kraken";
-        shell = "caelestia";
-        extraModules = [ ./modules/hardware/nvidia.nix ];
-      };
-
-      # HP ZBook Ultra G1a - Caelestia
-      G1a-caelestia = mkNixosSystem {
-        hostname = "G1a";
-        shell = "caelestia";
       };
     };
 

@@ -13,6 +13,7 @@ Configuration details and solutions to issues in this NixOS setup.
 ├── modules/
 │   ├── boot/limine-plymouth.nix    # Bootloader + Plymouth config
 │   ├── common.nix                  # Shared system config
+│   ├── shell-config.nix            # Desktop shell option (specialisations)
 │   ├── desktop-environments.nix
 │   ├── gaming.nix
 │   ├── disko/                      # Disk partitioning configs
@@ -37,26 +38,35 @@ Configuration details and solutions to issues in this NixOS setup.
 
 ## Rebuilding the System
 
-Each host+shell combination has its own flake configuration. Always specify the correct one when rebuilding:
+Each host has one configuration with shell variants as specialisations:
 
-| Config Name | Host | Shell |
-|-------------|------|-------|
-| `kraken` | kraken | Noctalia (default) |
-| `kraken-illogical` | kraken | Illogical Impulse |
-| `kraken-caelestia` | kraken | Caelestia |
-| `G1a` | G1a | Noctalia (default) |
-| `G1a-illogical` | G1a | Illogical Impulse |
-| `G1a-caelestia` | G1a | Caelestia |
+| Config | Host | Specialisations |
+|--------|------|-----------------|
+| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical, caelestia |
+| `G1a` | G1a (AMD) | Default (Noctalia), illogical, caelestia |
 
 ```bash
-# Rebuild with specific config (recommended)
-sudo nixos-rebuild switch --flake .#kraken-illogical
+# Rebuild (includes all shell specialisations)
+sudo nixos-rebuild switch --flake .#kraken
 
-# Without specifying config, uses current hostname (defaults to Noctalia)
+# Or use hostname (auto-detected)
 sudo nixos-rebuild switch --flake .
 ```
 
-**Important:** Running without `#config-name` selects by hostname, which always maps to Noctalia. To rebuild with a different shell, you must explicitly specify the configuration name.
+## Switching Desktop Shells
+
+Desktop shells are switched via the **boot menu** (Limine):
+
+1. Reboot your system
+2. In Limine, select your generation
+3. Choose from the sub-menu:
+   - **Default** - Noctalia (AGS-based shell)
+   - **illogical** - Illogical Impulse (Material Design 3)
+   - **caelestia** - Caelestia desktop shell
+
+The selected shell persists for that boot session. To change shells, reboot and select a different specialisation.
+
+**Note:** Each rebuild builds all three shell variants. The boot menu shows all options for each generation.
 
 ## Plymouth + NVIDIA Issue
 

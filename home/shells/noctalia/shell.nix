@@ -6,7 +6,6 @@ let
   baseSettings = builtins.fromJSON (builtins.readFile ./settings.json);
 
   # Filter out Battery widget for hosts without a battery (desktop PCs)
-  # Use hasPrefix to handle hostname variants (e.g., kraken-illogical)
   hostsWithoutBattery = [ "kraken" ];
   hasBattery = !builtins.any (host: lib.hasPrefix host hostname) hostsWithoutBattery;
 
@@ -25,7 +24,7 @@ let
 in
 {
   # Noctalia Desktop Shell
-  # The module is loaded via home-manager.sharedModules in flake.nix
+  # The module is loaded via conditional import in home/home.nix
   programs.noctalia-shell = {
     enable = true;
 

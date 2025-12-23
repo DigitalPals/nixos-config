@@ -1,7 +1,9 @@
 # Desktop environment configuration shared across machines
-{ config, pkgs, lib, shell ? "noctalia", ... }:
+{ config, pkgs, lib, ... }:
 
 let
+  # Get shell from config option (set by specialisations)
+  shell = config.desktop.shell;
   # Import Hyprland session packages
   hyprlandSessions = pkgs.callPackage ../packages/hyprland-sessions { };
 

@@ -1,6 +1,10 @@
 # Home Manager configuration for john
-{ config, pkgs, inputs, lib, shell ? "noctalia", ... }:
+{ config, pkgs, inputs, lib, osConfig, ... }:
 
+let
+  # Get shell from NixOS config (set by specialisations)
+  shell = osConfig.desktop.shell;
+in
 {
   imports = [
     ./hyprland        # Modular Hyprland config (includes hypridle)
@@ -9,8 +13,10 @@
   ] ++ (if shell == "illogical" then [
     ./shells/illogical
   ] else if shell == "caelestia" then [
+    inputs.caelestia.homeManagerModules.default
     ./shells/caelestia
   ] else [
+    inputs.noctalia.homeModules.default
     ./shells/noctalia
   ]);
 

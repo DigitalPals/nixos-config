@@ -9,7 +9,7 @@ let
     else "noctalia-shell ipc call launcher toggle";
 
   # Shell-specific lock command
-  lockCmd = if shell == "illogical"
+  lockCmd = if shell == "illogical" || shell == "caelestia"
     then "hyprlock"
     else "noctalia-shell ipc call lockScreen lock";
 
