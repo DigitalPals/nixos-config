@@ -1,5 +1,51 @@
 {
   "nodes": {
+    "caelestia": {
+      "inputs": {
+        "caelestia-cli": "caelestia-cli",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "quickshell": "quickshell"
+      },
+      "locked": {
+        "lastModified": 1766280311,
+        "narHash": "sha256-Ty4GT6EaQFaL9E/dKcJB1Q30ByGkxXV6U1eu8+PS5Dc=",
+        "owner": "caelestia-dots",
+        "repo": "shell",
+        "rev": "66e509ae488b2c0468f2c803fd34c2625ca725dc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "caelestia-dots",
+        "repo": "shell",
+        "type": "github"
+      }
+    },
+    "caelestia-cli": {
+      "inputs": {
+        "caelestia-shell": [
+          "caelestia"
+        ],
+        "nixpkgs": [
+          "caelestia",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1766195958,
+        "narHash": "sha256-YGawjW7RDzzOEiovrRGyRoXfjISbgLz4BVN9ZMb8LEc=",
+        "owner": "caelestia-dots",
+        "repo": "cli",
+        "rev": "8c83ae1e6a60de7d496d346bf3623f789a9f53e3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "caelestia-dots",
+        "repo": "cli",
+        "type": "github"
+      }
+    },
     "disko": {
       "inputs": {
         "nixpkgs": [
@@ -23,11 +69,11 @@
     "dots-hyprland": {
       "flake": false,
       "locked": {
-        "lastModified": 1766477466,
-        "narHash": "sha256-36KklvC7WvqcNZVElUtEKgJCsw/5UoNRQc6+SizKVVo=",
+        "lastModified": 1766482265,
+        "narHash": "sha256-VR4rKQjinhwCWaCOPOIiWY6DSpd4N058rPXN+u8n6Ts=",
         "owner": "end-4",
         "repo": "dots-hyprland",
-        "rev": "ec7d6fd66b4069f75dd4c64931495dd10756eeec",
+        "rev": "76ca889eecd5ad85a3bbb26c9413d68390067c51",
         "type": "github"
       },
       "original": {
@@ -92,13 +138,73 @@
         "type": "github"
       }
     },
+    "quickshell": {
+      "inputs": {
+        "nixpkgs": [
+          "caelestia",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1764663772,
+        "narHash": "sha256-sHqLmm0wAt3PC4vczJeBozI1/f4rv9yp3IjkClHDXDs=",
+        "ref": "refs/heads/master",
+        "rev": "26531fc46ef17e9365b03770edd3fb9206fcb460",
+        "revCount": 713,
+        "type": "git",
+        "url": "https://git.outfoxxed.me/outfoxxed/quickshell"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://git.outfoxxed.me/outfoxxed/quickshell"
+      }
+    },
+    "quickshell_2": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1766386896,
+        "narHash": "sha256-1uql4y229Rh+/2da99OVNe6DfsjObukXkf60TYRCvhI=",
+        "owner": "quickshell-mirror",
+        "repo": "quickshell",
+        "rev": "3918290c1bcd93ed81291844d9f1ed146672dbfc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "quickshell-mirror",
+        "repo": "quickshell",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "caelestia": "caelestia",
         "disko": "disko",
         "dots-hyprland": "dots-hyprland",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
-        "noctalia": "noctalia"
+        "noctalia": "noctalia",
+        "quickshell": "quickshell_2",
+        "rounded-polygon-qmljs": "rounded-polygon-qmljs"
+      }
+    },
+    "rounded-polygon-qmljs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1761813939,
+        "narHash": "sha256-m9mxJ7M1cH8tASnzk0efgXeNGJyEQDbYGb0wRob3qfU=",
+        "owner": "end-4",
+        "repo": "rounded-polygon-qmljs",
+        "rev": "8aa62a41bd4cdc4899bdfdc0d9cf103ac34c51f6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "end-4",
+        "repo": "rounded-polygon-qmljs",
+        "type": "github"
       }
     }
   },

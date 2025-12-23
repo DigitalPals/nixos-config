@@ -99,8 +99,13 @@ SYMLINK_PATH="/mnt/etc/nixos"
 # Base hosts (hardware configurations)
 BASE_HOSTS=("kraken" "G1a")
 
-# Available desktop shells
-SHELLS=("noctalia" "illogical")
+# Shell definitions: name -> "display|description"
+declare -A SHELL_INFO=(
+  ["noctalia"]="Noctalia|Modern Qt6/QML desktop shell (default)"
+  ["illogical"]="Illogical Impulse|Material Design 3 Quickshell-based shell"
+  ["caelestia"]="Caelestia|Feature-rich Quickshell desktop environment"
+)
+SHELLS=("noctalia" "illogical" "caelestia")
 
 # Show usage
 usage() {
@@ -112,7 +117,7 @@ usage() {
     echo "  (none)              Interactive menu"
     echo "  install [hostname]  Fresh NixOS installation"
     echo "  update              Update flake inputs, smart rebuild"
-    echo "  switch [shell]      Switch desktop shell (noctalia or illogical)"
+    echo "  switch [shell]      Switch desktop shell"
     echo ""
     echo "Examples:"
     echo "  $0                  # Show interactive menu"
@@ -173,23 +178,29 @@ select_hostname() {
     log_success "Selected host: $BASE_HOST"
 }
 
-# Interactive shell selection
+# Interactive shell selection (dynamic from SHELL_INFO)
 select_shell() {
     echo ""
     log_info "Available desktop shells:"
     echo ""
-    echo -e "  ${GREEN}1)${NC} Noctalia          - Modern Qt6/QML desktop shell (default)"
-    echo -e "  ${GREEN}2)${NC} Illogical Impulse - Material Design 3 Quickshell-based shell"
+
+    local i=1
+    for shell_name in "${SHELLS[@]}"; do
+        IFS='|' read -r display desc <<< "${SHELL_INFO[$shell_name]}"
+        printf "  ${GREEN}%d)${NC} %-20s - %s\n" "$i" "$display" "$desc"
+        ((i++))
+    done
     echo ""
 
     while true; do
-        read -p "Select shell (1-2) [1]: " choice
-        choice=${choice:-1}  # Default to Noctalia
-        case $choice in
-            1) SHELL_CHOICE="noctalia"; break ;;
-            2) SHELL_CHOICE="illogical"; break ;;
-            *) echo "Invalid selection. Please enter 1 or 2." ;;
-        esac
+        read -p "Select shell (1-${#SHELLS[@]}) [1]: " choice
+        choice=${choice:-1}
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#SHELLS[@]} )); then
+            SHELL_CHOICE="${SHELLS[$((choice-1))]}"
+            break
+        else
+            echo "Invalid selection. Please enter 1-${#SHELLS[@]}."
+        fi
     done
 
     log_success "Selected shell: $SHELL_CHOICE"
@@ -199,26 +210,39 @@ select_shell() {
 get_config_name() {
     local host="$1"
     local shell="$2"
-    if [[ "$shell" == "illogical" ]]; then
-        echo "${host}-illogical"
-    else
+    if [[ "$shell" == "noctalia" ]]; then
         echo "$host"
+    else
+        echo "${host}-${shell}"
     fi
 }
 
 # Detect current shell from runtime file
 # The active desktop shell writes its name to $XDG_RUNTIME_DIR/desktop-shell at startup
-# Sets SHELL_DETECTED=true if detected from runtime file, false if assumed
-get_current_shell() {
+# Sets CURRENT_SHELL and SHELL_DETECTED variables directly (not via subshell)
+detect_current_shell() {
     local runtime_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/desktop-shell"
     if [[ -f "$runtime_file" ]]; then
         SHELL_DETECTED=true
-        cat "$runtime_file"
+        CURRENT_SHELL=$(cat "$runtime_file")
     else
         # Default to noctalia if no runtime file exists (not in a graphical session)
         SHELL_DETECTED=false
-        echo "noctalia"
+        CURRENT_SHELL="noctalia"
     fi
+}
+
+# Resolve current host configuration (shared by switch/update)
+resolve_current_config() {
+    BASE_HOST=$(hostname)
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    if ! validate_base_host "$BASE_HOST"; then
+        log_error "Unknown hostname: $BASE_HOST. Expected one of: ${BASE_HOSTS[*]}"
+    fi
+
+    detect_current_shell  # Sets CURRENT_SHELL and SHELL_DETECTED
+    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$CURRENT_SHELL")
 }
 
 # Get list of available disks (excluding loop, ram, rom, zram devices)
@@ -306,21 +330,12 @@ validate_shell() {
 
 # Switch desktop shell
 do_switch_shell() {
-    BASE_HOST=$(hostname)
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-    # Validate hostname (hostname is always base, no suffix)
-    if ! validate_base_host "$BASE_HOST"; then
-        log_error "Unknown hostname: $BASE_HOST. Expected one of: ${BASE_HOSTS[*]}"
-    fi
-
-    # Detect current shell from runtime file
-    CURRENT_SHELL=$(get_current_shell)
-
     # Don't run as root
     if [[ $EUID -eq 0 ]]; then
         log_error "Don't run as root. Run as normal user (sudo is used only for rebuild)."
     fi
+
+    resolve_current_config  # Sets BASE_HOST, SCRIPT_DIR, CURRENT_SHELL, CONFIG_NAME
 
     echo ""
     echo "=============================================="
@@ -366,45 +381,19 @@ do_switch_shell() {
         log_success "Shell switched to $SHELL_CHOICE!"
         echo ""
 
-        # Offer Hyprland restart first (faster), reboot as fallback
-        if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-            log_info "Restart Hyprland for changes to take effect."
+        # Reboot required for shell switch to take full effect
+        log_info "A reboot is required for the shell switch to take full effect."
+        echo ""
+        read -p "Reboot now? (Y/n): " reboot_choice
+        if [[ ! "$reboot_choice" =~ ^[Nn]$ ]]; then
             echo ""
-            read -p "Restart Hyprland now? (Y/n): " restart
-            if [[ ! "$restart" =~ ^[Nn]$ ]]; then
-                echo ""
-                log_info "Restarting Hyprland in 2 seconds..."
-                sleep 2
-                hyprctl dispatch exit
-                # Script will be killed here, greetd restarts with new shell
-            else
-                echo ""
-                read -p "Reboot instead? (y/N): " reboot_choice
-                if [[ "$reboot_choice" =~ ^[Yy]$ ]]; then
-                    echo ""
-                    log_info "Rebooting in 2 seconds..."
-                    sleep 2
-                    sudo reboot
-                else
-                    echo ""
-                    log_warn "Log out and log back in for changes to take effect."
-                    log_warn "Do NOT reload Hyprland config (hyprctl reload) - it will break keybindings."
-                fi
-            fi
+            log_info "Rebooting in 2 seconds..."
+            sleep 2
+            sudo reboot
         else
-            # Not in Hyprland session - offer reboot only
-            log_info "A reboot is recommended for all environment changes to take effect."
             echo ""
-            read -p "Reboot now? (Y/n): " reboot_choice
-            if [[ ! "$reboot_choice" =~ ^[Nn]$ ]]; then
-                echo ""
-                log_info "Rebooting in 2 seconds..."
-                sleep 2
-                sudo reboot
-            else
-                echo ""
-                log_warn "Log out and log back in for changes to take effect."
-            fi
+            log_warn "Remember to reboot for the shell switch to take effect."
+            log_warn "Do NOT reload Hyprland config (hyprctl reload) - it will break keybindings."
         fi
     else
         log_error "Rebuild failed. Check the output above for errors."
@@ -413,22 +402,12 @@ do_switch_shell() {
 
 # Update system (git pull + flake update + smart rebuild + CLI tools)
 do_update() {
-    BASE_HOST=$(hostname)
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-    # Validate hostname
-    if ! validate_base_host "$BASE_HOST"; then
-        log_error "Unknown hostname: $BASE_HOST. Expected one of: ${BASE_HOSTS[*]}"
-    fi
-
-    # Detect current shell from runtime file and build config name
-    CURRENT_SHELL=$(get_current_shell)
-    CONFIG_NAME=$(get_config_name "$BASE_HOST" "$CURRENT_SHELL")
-
     # Don't run as root (git operations should be as normal user)
     if [[ $EUID -eq 0 ]]; then
         log_error "Don't run update as root. Run as normal user (sudo is used only for rebuild)."
     fi
+
+    resolve_current_config  # Sets BASE_HOST, SCRIPT_DIR, CURRENT_SHELL, CONFIG_NAME
 
     echo ""
     echo "=============================================="

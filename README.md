@@ -1,6 +1,6 @@
 # NixOS Configuration
 
-A declarative NixOS configuration for single-user workstations using Flakes and Disko.
+A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring multi-shell support with three different Hyprland desktop environments.
 
 ## Features
 
@@ -8,8 +8,32 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 - **Full disk encryption** with LUKS2 (interactive passphrase at boot)
 - **Btrfs filesystem** with subvolumes and zstd compression
 - **Passwordless auto-login** via greetd (password set after first boot)
-- **Hyprland** window manager with Noctalia desktop shell
+- **Hyprland** window manager with choice of desktop shells
 - **Home Manager** integration for user configuration
+- **Multi-shell support** - switch between 3 desktop environments
+
+## Desktop Shells
+
+This configuration supports three different Hyprland desktop shells. Each provides a complete desktop experience with its own theming, panels, and widgets.
+
+| Shell | Description | Source |
+|-------|-------------|--------|
+| **Noctalia** (default) | Modern Qt6/QML desktop shell | [noctalia-dev/noctalia-shell](https://github.com/noctalia-dev/noctalia-shell) |
+| **Illogical Impulse** | Material Design 3 Quickshell-based shell | [end-4/dots-hyprland](https://github.com/end-4/dots-hyprland) |
+| **Caelestia** | Feature-rich Quickshell desktop environment | [caelestia-dots/shell](https://github.com/caelestia-dots/shell) |
+
+### Switching Shells
+
+After installation, you can switch between shells at any time:
+
+```bash
+./install.sh switch            # Interactive shell selection
+./install.sh switch illogical  # Switch to Illogical Impulse
+./install.sh switch caelestia  # Switch to Caelestia
+./install.sh switch noctalia   # Switch back to Noctalia
+```
+
+A reboot is required after switching shells for all changes to take effect.
 
 ## Hosts
 
@@ -17,6 +41,19 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 |------|-------------|-----|
 | `kraken` | Desktop PC | NVIDIA RTX 5090 |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
+
+## Flake Configurations
+
+Each host has configurations for all three shells:
+
+| Configuration | Host | Shell |
+|---------------|------|-------|
+| `kraken` | kraken | Noctalia (default) |
+| `kraken-illogical` | kraken | Illogical Impulse |
+| `kraken-caelestia` | kraken | Caelestia |
+| `G1a` | G1a | Noctalia (default) |
+| `G1a-illogical` | G1a | Illogical Impulse |
+| `G1a-caelestia` | G1a | Caelestia |
 
 ## Partition Layout
 
@@ -69,32 +106,22 @@ Clone the repository and run the installer:
 ```bash
 nix-shell -p git --run "git clone https://github.com/DigitalPals/nixos-config.git"
 cd nixos-config
-sudo ./install.sh G1a  # or: sudo ./install.sh kraken
+sudo ./install.sh
 ```
 
-### Step 4: Select Installation Disk
+The interactive installer will prompt you to:
+1. Select your host (kraken or G1a)
+2. Choose a desktop shell (Noctalia, Illogical Impulse, or Caelestia)
+3. Select the target disk
+4. Set your LUKS encryption passphrase
 
-If you have multiple disks, the installer will show an interactive menu:
-
-```
-[INFO] Available disks:
-
-  1) /dev/nvme0n1       1.8T  Samsung SSD 990 PRO
-  2) /dev/nvme1n1       500G  WD Black SN850X
-
-Select disk (1-2): 1
-```
-
-Or specify the disk directly:
+Alternatively, install directly:
 ```bash
-sudo ./install.sh G1a /dev/nvme0n1
+sudo ./install.sh install G1a      # Interactive shell and disk selection
+sudo ./install.sh install kraken   # Interactive shell and disk selection
 ```
 
-### Step 5: Set LUKS Passphrase
-
-You'll be prompted to enter a LUKS encryption passphrase. Choose a strong passphrase - you'll need it every time you boot.
-
-### Step 6: Wait for Installation
+### Step 4: Wait for Installation
 
 The installer will:
 1. Partition and format the disk
@@ -102,7 +129,7 @@ The installer will:
 3. Install NixOS with your configuration
 4. This typically takes 10-30 minutes depending on your internet speed
 
-### Step 7: Reboot
+### Step 5: Reboot
 
 ```bash
 reboot
@@ -145,18 +172,30 @@ Or use the included alias:
 nrs  # nixos-rebuild switch
 ```
 
+### Updating the System
+
+Run the update command to update flake inputs, rebuild, and update CLI tools:
+```bash
+./install.sh update
+```
+
+This will:
+1. Update all flake inputs (`nix flake update`)
+2. Rebuild the system if there are changes
+3. Update Claude Code and Codex CLI
+
 ## Configuration Structure
 
 ```
 nixos-config/
-├── flake.nix                 # Main flake definition
+├── flake.nix                 # Main flake with host+shell configurations
 ├── flake.lock                # Locked dependencies
-├── install.sh                # Installation script
+├── install.sh                # Install, update, and shell switch script
 ├── hosts/
-│   ├── kraken/               # Desktop configuration
+│   ├── kraken/               # Desktop configuration (NVIDIA)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
-│   └── G1a/               # HP ZBook Ultra G1a
+│   └── G1a/                  # HP ZBook Ultra G1a (AMD)
 │       ├── default.nix
 │       └── hardware-configuration.nix
 ├── modules/
@@ -165,18 +204,37 @@ nixos-config/
 │   ├── disko/                # Disk partitioning
 │   │   ├── default.nix       # Common disko config
 │   │   ├── kraken.nix        # Kraken disk device
-│   │   └── G1a.nix        # G1a disk device
+│   │   └── G1a.nix           # G1a disk device
 │   ├── boot/
 │   │   └── limine-plymouth.nix
 │   └── hardware/
 │       └── nvidia.nix
 ├── home/                     # Home Manager configuration
-│   ├── home.nix
-│   ├── fish.nix
-│   ├── ghostty.nix
-│   ├── hyprland/
-│   └── noctalia.nix
-└── packages/                 # Custom packages
+│   ├── home.nix              # Main config (imports shell based on flake)
+│   ├── ghostty.nix           # Terminal configuration
+│   ├── hyprland/             # Hyprland window manager config
+│   │   ├── autostart.nix     # Shell-aware autostart
+│   │   └── bindings.nix      # Shell-aware keybindings
+│   └── shells/               # Desktop shell configurations
+│       ├── noctalia/         # Noctalia Desktop Shell
+│       │   ├── default.nix
+│       │   ├── shell.nix     # Shell + JSON configs
+│       │   ├── fish.nix      # Fish + Starship + Zoxide
+│       │   └── theming.nix   # GTK, cursor, icons
+│       ├── illogical/        # Illogical Impulse
+│       │   ├── default.nix
+│       │   ├── dotfiles.nix  # Fetch upstream configs
+│       │   ├── packages.nix  # Qt, Quickshell, tools
+│       │   ├── fish.nix      # Fish shell config
+│       │   └── theming.nix   # Cursor, GTK, icons
+│       └── caelestia/        # Caelestia Desktop Shell
+│           ├── default.nix
+│           ├── shell.nix     # Caelestia config
+│           ├── fish.nix      # Fish shell config
+│           └── theming.nix   # Theme configuration
+└── packages/
+    ├── plymouth-cybex/       # Custom Plymouth theme
+    └── hyprland-sessions/    # Session .desktop files for each shell
 ```
 
 ## Troubleshooting
@@ -192,6 +250,12 @@ There is no recovery option. You'll need to reinstall.
 
 ### Change disk device after installation
 Edit `modules/disko/<hostname>.nix` and update the device path, then reinstall.
+
+### Shell switch not taking effect
+After running `./install.sh switch`, you must reboot for the new shell to activate. Do not use `hyprctl reload` as it will break keybindings.
+
+### Shell detection issues
+The update and switch commands detect the current shell via `$XDG_RUNTIME_DIR/desktop-shell`. If running outside a graphical session, it will assume Noctalia (default).
 
 ## License
 

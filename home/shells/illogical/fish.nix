@@ -29,7 +29,7 @@
       # Illogical aliases
       ls = "eza --icons";
       clear = "printf '\\033[2J\\033[3J\\033[1;1H'";
-      q = "qs -c ii";
+      q = "quickshell -c ~/.config/quickshell/ii";
 
       # Nix shortcuts
       rebuild = "sudo nixos-rebuild switch --flake /etc/nixos";

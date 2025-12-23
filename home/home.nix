@@ -8,6 +8,8 @@
     ./neovim.nix      # Neovim with LazyVim dependencies
   ] ++ (if shell == "illogical" then [
     ./shells/illogical
+  ] else if shell == "caelestia" then [
+    ./shells/caelestia
   ] else [
     ./shells/noctalia
   ]);
