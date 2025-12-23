@@ -47,7 +47,7 @@ spin() {
     printf "\r\033[K"  # Clear the line
 }
 
-# Run command quietly with spinner, log errors
+# Run command quietly with spinner, log output
 run_quiet() {
     local msg="$1" log_file="$2"
     shift 2
@@ -58,13 +58,15 @@ run_quiet() {
     wait "$pid"
     local status=$?
 
+    # Always save to main log
+    echo "" >> "$UPDATE_LOG"
+    echo "=== $msg ===" >> "$UPDATE_LOG"
+    cat "$log_file" >> "$UPDATE_LOG"
+
     if [[ $status -eq 0 ]]; then
         printf "  ${GREEN}✓${NC} %s\n" "$msg"
     else
         printf "  ${RED}✗${NC} %s\n" "$msg"
-        echo "" >> "$ERROR_LOG"
-        echo "=== $msg ===" >> "$ERROR_LOG"
-        cat "$log_file" >> "$ERROR_LOG"
         echo ""
         cat "$log_file"
     fi
@@ -270,10 +272,12 @@ do_update() {
     fi
 
     # Initialize logging
-    ERROR_LOG="$HOME/update-errors.log"
+    UPDATE_LOG="$HOME/update.log"
     LOG_DIR=$(mktemp -d)
     trap "rm -rf $LOG_DIR; tput cnorm 2>/dev/null" EXIT
-    : > "$ERROR_LOG"  # Clear error log
+    : > "$UPDATE_LOG"  # Clear log
+    echo "NixOS Update - $(date)" >> "$UPDATE_LOG"
+    echo "Host: $CURRENT_HOST" >> "$UPDATE_LOG"
 
     # Track what was updated for summary
     GIT_COMMITS=""
@@ -292,7 +296,7 @@ do_update() {
 
     # Step 1: Git pull
     HEAD_BEFORE=$(git rev-parse HEAD)
-    run_quiet "Pulling latest config" "$LOG_DIR/git.log" git pull --ff-only origin main || log_error "Git pull failed. Check $ERROR_LOG"
+    run_quiet "Pulling latest config" "$LOG_DIR/git.log" git pull --ff-only origin main || log_error "Git pull failed. Check $UPDATE_LOG"
     HEAD_AFTER=$(git rev-parse HEAD)
 
     if [[ "$HEAD_BEFORE" != "$HEAD_AFTER" ]]; then
@@ -303,7 +307,7 @@ do_update() {
     # Step 2: Flake update
     LOCK_BEFORE=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1 || echo "")
     if ! run_quiet "Updating flake inputs" "$LOG_DIR/flake.log" nix flake update; then
-        log_error "Flake update failed. Check $ERROR_LOG"
+        log_error "Flake update failed. Check $UPDATE_LOG"
     fi
     LOCK_AFTER=$(sha256sum flake.lock 2>/dev/null | cut -d' ' -f1 || echo "")
 
@@ -404,11 +408,8 @@ do_update() {
         echo "  Codex CLI:      Not installed"
     fi
 
-    # Show error log location if errors occurred
-    if [[ -s "$ERROR_LOG" ]]; then
-        echo ""
-        echo -e "  ${YELLOW}Errors saved to: $ERROR_LOG${NC}"
-    fi
+    echo ""
+    echo "  Full log: $UPDATE_LOG"
 
     # Package changes (keep nvd diff - it's already a good summary)
     if [[ "$OLD_SYSTEM" != "$NEW_SYSTEM" ]]; then
