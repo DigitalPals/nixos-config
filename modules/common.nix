@@ -164,18 +164,8 @@
     powertop
   ];
 
-  # Security
-  security.sudo.extraRules = [
-    {
-      users = [ "john" ];
-      commands = [
-        {
-          command = "ALL";
-          options = [ "NOPASSWD" ];
-        }
-      ];
-    }
-  ];
+  # Security - passwordless sudo (account has no password)
+  security.sudo.wheelNeedsPassword = false;
 
   # GNOME Keyring - Auto-unlock on login
   services.gnome.gnome-keyring.enable = true;

@@ -269,9 +269,6 @@ do_update() {
         log_error "Not on main branch (currently on '$CURRENT_BRANCH'). Please switch: git checkout main"
     fi
 
-    # Cache sudo credentials upfront (needed for backgrounded commands)
-    sudo -v || log_error "Failed to authenticate with sudo"
-
     # Initialize logging
     ERROR_LOG="$HOME/update-errors.log"
     LOG_DIR=$(mktemp -d)
