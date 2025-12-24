@@ -24,11 +24,10 @@
   # SSH client configuration
   programs.ssh = {
     enable = true;
-    extraConfig = ''
-      # Use 1Password SSH agent for all hosts
-      Host *
-        IdentityAgent ~/.1password/agent.sock
-    '';
+    enableDefaultConfig = false;
+    matchBlocks."*" = {
+      identityAgent = "~/.1password/agent.sock";
+    };
   };
 
   # Fish shell integration - ensure SSH_AUTH_SOCK is set in interactive shells
