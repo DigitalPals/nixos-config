@@ -23,6 +23,8 @@ let
     source = ~/.config/hypr/bindings.conf
     source = ~/.config/hypr/looknfeel.conf
     source = ~/.config/hypr/autostart.conf
+  '' + lib.optionalString (shell == "noctalia") ''
+    source = ~/.config/hypr/noctalia/noctalia-colors.conf
   '';
 
 in {
