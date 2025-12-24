@@ -110,6 +110,7 @@ in
     # Media
     mpv              # video player
     imv              # image viewer
+    pinta            # image editor
 
     # Productivity
     evince           # document/PDF viewer
