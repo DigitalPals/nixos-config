@@ -10,6 +10,7 @@ in
     ./hyprland        # Modular Hyprland config (includes hypridle)
     ./ghostty.nix
     ./neovim.nix      # Neovim with LazyVim dependencies
+    ./1password-secrets.nix  # 1Password SSH agent integration
   ] ++ (if shell == "illogical" then [
     ./shells/illogical
   ] else if shell == "caelestia" then [
