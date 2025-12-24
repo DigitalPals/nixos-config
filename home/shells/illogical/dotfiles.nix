@@ -95,9 +95,11 @@ let
 in
 {
   # Copy Quickshell configuration to ~/.config/quickshell/ii/
+  # force = true prevents backup conflicts when activation script modifies files
   xdg.configFile."quickshell/ii" = {
     source = "${configSource}/quickshell/ii";
     recursive = true;
+    force = true;
   };
 
   # Copy Starship prompt configuration
