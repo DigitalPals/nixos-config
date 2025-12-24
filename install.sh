@@ -433,6 +433,7 @@ do_update() {
         NVD_OUTPUT=$(nix run nixpkgs#nvd -- diff "$OLD_SYSTEM" "$NEW_SYSTEM" 2>/dev/null || true)
 
         # Extract version changes - one package per line with clean version
+        # Only show packages where the version actually changed
         VERSION_CHANGES=$(echo "$NVD_OUTPUT" | grep -E '^\[' | while read -r line; do
             # Parse: [A.]  #1  packagename  version -> version
             pkg=$(echo "$line" | awk '{print $3}')
@@ -441,7 +442,10 @@ do_update() {
             # Extract just the first old and new version (before any comma)
             old_ver=$(echo "$versions" | sed 's/ *->.*//; s/,.*//' | sed 's/2025-[0-9-]*_//')
             new_ver=$(echo "$versions" | sed 's/.*-> *//; s/,.*//' | sed 's/2025-[0-9-]*_//')
-            echo "    $pkg: $old_ver → $new_ver"
+            # Only output if versions differ
+            if [[ "$old_ver" != "$new_ver" ]]; then
+                echo "    $pkg: $old_ver → $new_ver"
+            fi
         done)
 
         # Extract closure stats
