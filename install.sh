@@ -102,13 +102,6 @@ BROWSER_BACKUP_CONFIG="$HOME/.config/browser-backup/config"
 # Base hosts (hardware configurations)
 BASE_HOSTS=("kraken" "G1a")
 
-# Shell definitions: name -> "display|description"
-declare -A SHELL_INFO=(
-  ["noctalia"]="Noctalia|Modern Qt6/QML desktop shell (default)"
-  ["illogical"]="Illogical Impulse|Material Design 3 Quickshell-based shell"
-  ["caelestia"]="Caelestia|Feature-rich Quickshell desktop environment"
-)
-SHELLS=("noctalia" "illogical" "caelestia")
 
 # Show usage
 usage() {
@@ -120,7 +113,6 @@ usage() {
     echo "  (none)              Interactive menu"
     echo "  install [hostname]  Fresh NixOS installation"
     echo "  update              Update flake inputs, smart rebuild"
-    echo "  switch              Show shell switching instructions"
     echo "  browser backup      Backup browser profiles and push to GitHub"
     echo "  browser restore     Pull and restore browser profiles from GitHub"
     echo "  browser status      Check for browser profile updates"
@@ -130,7 +122,6 @@ usage() {
     echo "  $0 install          # Install with hostname selection"
     echo "  $0 install kraken   # Install directly to kraken"
     echo "  $0 update           # Update current system"
-    echo "  $0 switch           # Show how to switch shells"
     echo "  $0 browser backup   # Backup + push browser profiles"
     echo "  $0 browser restore  # Pull + restore browser profiles"
     echo ""
@@ -151,20 +142,18 @@ show_menu() {
     echo ""
     echo -e "  ${GREEN}1)${NC} Install NixOS (fresh installation)"
     echo -e "  ${GREEN}2)${NC} Update system (flake inputs + rebuild + CLI tools)"
-    echo -e "  ${GREEN}3)${NC} Switch desktop shell"
-    echo -e "  ${GREEN}4)${NC} Browser profiles (backup/restore)"
-    echo -e "  ${GREEN}5)${NC} Exit"
+    echo -e "  ${GREEN}3)${NC} Browser profiles (backup/restore)"
+    echo -e "  ${GREEN}4)${NC} Exit"
     echo ""
 
     while true; do
-        read -p "Select option (1-5): " choice
+        read -p "Select option (1-4): " choice
         case $choice in
             1) do_install; break ;;
             2) do_update; break ;;
-            3) do_switch_shell; break ;;
-            4) do_browser_menu; break ;;
-            5) echo "Goodbye!"; exit 0 ;;
-            *) echo "Invalid option. Please enter 1-5." ;;
+            3) do_browser_menu; break ;;
+            4) echo "Goodbye!"; exit 0 ;;
+            *) echo "Invalid option. Please enter 1-4." ;;
         esac
     done
 }
@@ -274,34 +263,6 @@ validate_base_host() {
         fi
     done
     return 1
-}
-
-# Switch desktop shell (via boot menu specialisations)
-do_switch_shell() {
-    echo ""
-    echo "=============================================="
-    echo "  Switch Desktop Shell"
-    echo "=============================================="
-    echo ""
-    log_info "Desktop shells are now switched via the boot menu."
-    echo ""
-    echo "To switch shells:"
-    echo ""
-    echo "  1. Reboot your system"
-    echo "  2. In the Limine boot menu, select your generation"
-    echo "  3. Choose from the sub-menu:"
-    echo "     - Default        (Noctalia)"
-    echo "     - illogical      (Illogical Impulse)"
-    echo "     - caelestia      (Caelestia)"
-    echo ""
-    echo "The selected shell will be used for that boot session."
-    echo ""
-    echo "Available shells:"
-    for shell_name in "${SHELLS[@]}"; do
-        IFS='|' read -r display desc <<< "${SHELL_INFO[$shell_name]}"
-        printf "  - %-18s %s\n" "$display" "$desc"
-    done
-    echo ""
 }
 
 # ============================================================================
@@ -833,9 +794,6 @@ case "$COMMAND" in
         ;;
     "update")
         do_update
-        ;;
-    "switch")
-        do_switch_shell
         ;;
     "browser")
         # Check for --force flag
