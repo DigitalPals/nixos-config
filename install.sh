@@ -7,7 +7,7 @@
 # Commands:
 #   (none)              Interactive menu
 #   install [hostname]  Fresh NixOS installation
-#   update              Update flake inputs, smart rebuild, update CLI tools
+#   update              Update flake inputs, smart rebuild, CLI tools, check browser profiles
 #
 # Run fresh installs from the official NixOS minimal ISO.
 #
@@ -112,7 +112,7 @@ usage() {
     echo "Commands:"
     echo "  (none)              Interactive menu"
     echo "  install [hostname]  Fresh NixOS installation"
-    echo "  update              Update flake inputs, smart rebuild"
+    echo "  update              Update flake inputs, smart rebuild, check browser profiles"
     echo "  browser backup      Backup browser profiles and push to GitHub"
     echo "  browser restore     Pull and restore browser profiles from GitHub"
     echo "  browser status      Check for browser profile updates"
@@ -141,7 +141,7 @@ show_menu() {
     echo "=============================================="
     echo ""
     echo -e "  ${GREEN}1)${NC} Install NixOS (fresh installation)"
-    echo -e "  ${GREEN}2)${NC} Update system (flake inputs + rebuild + CLI tools)"
+    echo -e "  ${GREEN}2)${NC} Update system (flake + rebuild + CLI tools + browser check)"
     echo -e "  ${GREEN}3)${NC} Browser profiles (backup/restore)"
     echo -e "  ${GREEN}4)${NC} Exit"
     echo ""
@@ -444,7 +444,7 @@ do_browser_status() {
 # End Browser Profile Functions
 # ============================================================================
 
-# Update system (git pull + flake update + smart rebuild + CLI tools)
+# Update system (flake update + smart rebuild + CLI tools + browser check)
 do_update() {
     # Don't run as root (git operations should be as normal user)
     if [[ $EUID -eq 0 ]]; then
@@ -522,6 +522,50 @@ do_update() {
         CODEX_NEW=$(npm list -g @openai/codex 2>/dev/null | grep -o '@[0-9.]*' | tail -1 | tr -d '@' || echo "")
     else
         printf "  ${BLUE}-${NC} Codex CLI not installed\n"
+    fi
+
+    # Step 5: Update browser profiles if available
+    BROWSER_STATUS=""
+    BROWSER_UPDATED=false
+    if [[ -f "$BROWSER_BACKUP_CONFIG" ]] && command -v browser-restore &>/dev/null; then
+        # Source config to get LOCAL_REPO_PATH
+        # shellcheck source=/dev/null
+        source "$BROWSER_BACKUP_CONFIG"
+        LOCAL_REPO_PATH="${LOCAL_REPO_PATH:-$HOME/.local/share/browser-backup}"
+        LOCAL_REPO_PATH="${LOCAL_REPO_PATH/#\~/$HOME}"
+
+        if [[ -d "$LOCAL_REPO_PATH/.git" ]]; then
+            cd "$LOCAL_REPO_PATH"
+            if git remote get-url origin >/dev/null 2>&1; then
+                if git fetch origin >/dev/null 2>&1; then
+                    LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null || echo "")
+                    REMOTE_HEAD=$(git rev-parse origin/main 2>/dev/null || git rev-parse origin/master 2>/dev/null || echo "")
+                    if [[ -n "$LOCAL_HEAD" ]] && [[ -n "$REMOTE_HEAD" ]]; then
+                        if [[ "$LOCAL_HEAD" == "$REMOTE_HEAD" ]]; then
+                            BROWSER_STATUS="up to date"
+                            printf "  ${GREEN}✓${NC} Browser profiles up to date\n"
+                        else
+                            # Updates available - restore them
+                            cd "$SCRIPT_DIR"
+                            if run_quiet "Updating browser profiles" "$LOG_DIR/browser.log" browser-restore --pull; then
+                                BROWSER_UPDATED=true
+                                BROWSER_STATUS="updated"
+                            else
+                                BROWSER_STATUS="update failed"
+                            fi
+                        fi
+                    fi
+                else
+                    BROWSER_STATUS="offline"
+                    printf "  ${YELLOW}!${NC} Browser profiles (offline)\n"
+                fi
+            fi
+            cd "$SCRIPT_DIR"
+        else
+            printf "  ${BLUE}-${NC} Browser profiles not synced yet\n"
+        fi
+    else
+        printf "  ${BLUE}-${NC} Browser backup not configured\n"
     fi
 
     # Get new system path for comparison
@@ -639,6 +683,17 @@ do_update() {
     fi
     if [[ -n "$CODEX_OLD" ]] && [[ "$CODEX_UPDATED" != "true" ]]; then
         echo "  Codex CLI:   $CODEX_OLD"
+    fi
+
+    # Browser profile status
+    if [[ -n "$BROWSER_STATUS" ]]; then
+        if [[ "$BROWSER_STATUS" == "update failed" ]]; then
+            echo -e "  Browser:     ${RED}$BROWSER_STATUS${NC} (check $UPDATE_LOG)"
+        elif [[ "$BROWSER_UPDATED" == "true" ]]; then
+            echo -e "  ${GREEN}Browser profiles updated${NC}"
+        else
+            echo "  Browser:     $BROWSER_STATUS"
+        fi
     fi
 
     echo ""
