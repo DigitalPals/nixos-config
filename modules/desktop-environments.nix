@@ -48,10 +48,15 @@ in
     xwayland.enable = true;
   };
 
-  # XDG Portal for Hyprland (screen sharing, file dialogs)
+  # XDG Portal for Hyprland (screen sharing, file dialogs, dark mode)
+  # GTK portal is patched via overlay to include Hyprland in UseIn
   xdg.portal = {
     enable = true;
-    extraPortals = [ pkgs.xdg-desktop-portal-hyprland ];
+    extraPortals = [
+      pkgs.xdg-desktop-portal-hyprland
+      pkgs.xdg-desktop-portal-gtk
+    ];
+    config.common.default = [ "hyprland" "gtk" ];
   };
 
   # Register Hyprland session with display manager (for fallback/GNOME login)

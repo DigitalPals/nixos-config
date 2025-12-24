@@ -57,7 +57,21 @@
   outputs = { self, nixpkgs, home-manager, noctalia, caelestia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, ... }@inputs:
   let
     system = "x86_64-linux";
-    pkgs = nixpkgs.legacyPackages.${system};
+
+    # Overlay to patch xdg-desktop-portal-gtk for Hyprland support
+    gtkPortalOverlay = final: prev: {
+      xdg-desktop-portal-gtk = prev.xdg-desktop-portal-gtk.overrideAttrs (old: {
+        postInstall = (old.postInstall or "") + ''
+          substituteInPlace $out/share/xdg-desktop-portal/portals/gtk.portal \
+            --replace-fail "UseIn=gnome" "UseIn=gnome;Hyprland"
+        '';
+      });
+    };
+
+    pkgs = import nixpkgs {
+      inherit system;
+      overlays = [ gtkPortalOverlay ];
+    };
 
     # Custom packages
     plymouth-cybex = pkgs.callPackage ./packages/plymouth-cybex { };
@@ -78,6 +92,8 @@
         inherit system;
         specialArgs = { inherit inputs plymouth-cybex; };
         modules = [
+          # Apply overlay for patched xdg-desktop-portal-gtk
+          { nixpkgs.overlays = [ gtkPortalOverlay ]; }
           # Disko for declarative disk partitioning
           disko.nixosModules.disko
           ./modules/disko/${hostname}.nix

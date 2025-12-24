@@ -78,6 +78,9 @@ in
 
   # User packages
   home.packages = with pkgs; [
+    # Portal for GTK apps (dark mode, file dialogs)
+    xdg-desktop-portal-gtk
+
     # Screenshot tools
     grim
     slurp
