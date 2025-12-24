@@ -290,6 +290,8 @@ let
           git clone "$BROWSER_BACKUP_REPO" "$LOCAL_REPO_PATH"
         else
           log_info "Updating repository..."
+          # Reset any uncommitted changes from interrupted backups
+          git -C "$LOCAL_REPO_PATH" reset --hard HEAD
           git -C "$LOCAL_REPO_PATH" pull --rebase
         fi
 
@@ -580,6 +582,8 @@ let
           git clone "$BROWSER_BACKUP_REPO" "$LOCAL_REPO_PATH"
         else
           log_info "Updating repository..."
+          # Reset any uncommitted changes from interrupted backups
+          git -C "$LOCAL_REPO_PATH" reset --hard HEAD
           git -C "$LOCAL_REPO_PATH" pull --rebase
         fi
         echo ""

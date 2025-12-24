@@ -28,6 +28,15 @@ in
   # Let Home Manager manage itself
   programs.home-manager.enable = true;
 
+  # Git configuration
+  programs.git = {
+    enable = true;
+    settings.user = {
+      name = "John";
+      email = "john@cybex.net";
+    };
+  };
+
   # XDG user directories
   xdg.userDirs = {
     enable = true;
