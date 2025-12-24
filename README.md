@@ -101,25 +101,22 @@ Verify connectivity:
 ping -c 1 github.com
 ```
 
-### Step 3: Run the Installation Script
+### Step 3: Run Forge
 
-Clone the repository and run the installer:
+Run the Forge installer directly from the flake:
 ```bash
-nix-shell -p git --run "git clone https://github.com/DigitalPals/nixos-config.git"
-cd nixos-config
-sudo ./install.sh
+nix run github:DigitalPals/nixos-config#forge
 ```
 
-The interactive installer will prompt you to:
+The interactive TUI will guide you through:
 1. Select your host (kraken or G1a)
-2. Choose a desktop shell (Noctalia, Illogical Impulse, or Caelestia)
-3. Select the target disk
-4. Set your LUKS encryption passphrase
+2. Select the target disk
+3. Confirm the installation (type 'yes')
+4. Set your LUKS encryption passphrase when prompted
 
-Alternatively, install directly:
+Alternatively, run with arguments for non-interactive install:
 ```bash
-sudo ./install.sh install G1a      # Interactive shell and disk selection
-sudo ./install.sh install kraken   # Interactive shell and disk selection
+nix run github:DigitalPals/nixos-config#forge -- install kraken /dev/nvme0n1
 ```
 
 ### Step 4: Wait for Installation
@@ -175,15 +172,21 @@ nrs  # nixos-rebuild switch
 
 ### Updating the System
 
-Run the update command to update flake inputs, rebuild, and update CLI tools:
+Run Forge to update flake inputs, rebuild, and update CLI tools:
 ```bash
-./install.sh update
+nix run github:DigitalPals/nixos-config#forge -- update
+```
+
+Or if you have the config cloned locally:
+```bash
+nix run .#forge -- update
 ```
 
 This will:
 1. Update all flake inputs (`nix flake update`)
 2. Rebuild the system if there are changes
 3. Update Claude Code and Codex CLI
+4. Check browser profile sync status
 
 ## Configuration Structure
 
@@ -191,7 +194,6 @@ This will:
 nixos-config/
 ├── flake.nix                 # Main flake with host+shell configurations
 ├── flake.lock                # Locked dependencies
-├── install.sh                # Install, update, and shell switch script
 ├── hosts/
 │   ├── kraken/               # Desktop configuration (NVIDIA)
 │   │   ├── default.nix
@@ -234,6 +236,7 @@ nixos-config/
 │           ├── fish.nix      # Fish shell config
 │           └── theming.nix   # Theme configuration
 └── packages/
+    ├── forge/                # TUI installer and system management tool
     ├── plymouth-cybex/       # Custom Plymouth theme
     └── hyprland-sessions/    # Session .desktop files for each shell
 ```
@@ -253,10 +256,7 @@ There is no recovery option. You'll need to reinstall.
 Edit `modules/disko/<hostname>.nix` and update the device path, then reinstall.
 
 ### Shell switch not taking effect
-After running `./install.sh switch`, you must reboot for the new shell to activate. Do not use `hyprctl reload` as it will break keybindings.
-
-### Shell detection issues
-The update and switch commands detect the current shell via `$XDG_RUNTIME_DIR/desktop-shell`. If running outside a graphical session, it will assume Noctalia (default).
+Shell switching is done via the boot menu (specialisations). You must reboot and select the desired shell from the Limine boot menu. Do not use `hyprctl reload` as it will break keybindings.
 
 ## License
 

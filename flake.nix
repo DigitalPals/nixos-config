@@ -75,6 +75,7 @@
 
     # Custom packages
     plymouth-cybex = pkgs.callPackage ./packages/plymouth-cybex { };
+    forge = pkgs.callPackage ./packages/forge { };
 
     # Home Manager configuration (shell-agnostic - shell comes from osConfig)
     mkHomeManagerConfig = { hostname }: {
@@ -118,9 +119,19 @@
       };
   in
   {
-    apps.${system}.disko = {
-      type = "app";
-      program = "${disko.packages.${system}.disko}/bin/disko";
+    apps.${system} = {
+      disko = {
+        type = "app";
+        program = "${disko.packages.${system}.disko}/bin/disko";
+      };
+      forge = {
+        type = "app";
+        program = "${forge}/bin/forge";
+      };
+      default = {
+        type = "app";
+        program = "${forge}/bin/forge";
+      };
     };
 
     nixosConfigurations = {
@@ -138,6 +149,10 @@
       };
     };
 
-    packages.${system}.disko = disko.packages.${system}.disko;
+    packages.${system} = {
+      disko = disko.packages.${system}.disko;
+      forge = forge;
+      default = forge;
+    };
   };
 }

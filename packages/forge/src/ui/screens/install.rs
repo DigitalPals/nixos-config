@@ -1,0 +1,344 @@
+//! Installation screens
+
+use ratatui::{
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph, Row, Table},
+    Frame,
+};
+
+use crate::app::{App, StepStatus, HOSTS};
+use crate::system::disk::DiskInfo;
+use crate::ui::layout::{centered_rect, progress_layout};
+use crate::ui::theme;
+use crate::ui::widgets::{LogView, MenuList, ProgressSteps};
+
+/// Draw hostname selection screen
+pub fn draw_host_selection(frame: &mut Frame, selected: usize, _app: &App) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(10),
+            Constraint::Length(3),
+        ])
+        .split(centered_rect(60, 80, area));
+
+    // Header
+    draw_header(frame, chunks[0], "Select Target Host");
+
+    // Host list with descriptions
+    let items: Vec<String> = HOSTS
+        .iter()
+        .map(|(name, desc)| format!("{:<10} - {}", name, desc))
+        .collect();
+    let items_ref: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
+
+    let menu = MenuList::new(items_ref, selected).title(" Available Hosts ");
+    frame.render_widget(menu, chunks[1]);
+
+    // Footer
+    draw_footer(frame, chunks[2], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+}
+
+/// Draw disk selection screen
+pub fn draw_disk_selection(
+    frame: &mut Frame,
+    host: &str,
+    disks: &[DiskInfo],
+    selected: usize,
+    _app: &App,
+) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(10),
+            Constraint::Length(3),
+        ])
+        .split(centered_rect(70, 80, area));
+
+    // Header
+    draw_header(frame, chunks[0], &format!("Select Disk for {}", host));
+
+    // Handle empty disk list
+    if disks.is_empty() {
+        let message = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled("No disks found!", theme::warning())),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Please check that disks are properly connected.",
+                theme::dim(),
+            )),
+            Line::from(""),
+        ])
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::warning())
+                .title(Span::styled(" Available Disks ", theme::title())),
+        );
+        frame.render_widget(message, chunks[1]);
+        draw_footer(frame, chunks[2], &["Esc Back"]);
+        return;
+    }
+
+    // Disk table
+    let header = Row::new(vec!["", "Device", "Size", "Model"])
+        .style(theme::title())
+        .bottom_margin(1);
+
+    let rows: Vec<Row> = disks
+        .iter()
+        .enumerate()
+        .map(|(i, disk)| {
+            let prefix = if i == selected { ">" } else { " " };
+            let style = if i == selected {
+                theme::selected()
+            } else {
+                theme::text()
+            };
+            Row::new(vec![
+                prefix.to_string(),
+                disk.path.clone(),
+                disk.size.clone(),
+                disk.model.clone().unwrap_or_default(),
+            ])
+            .style(style)
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(2),
+            Constraint::Length(15),
+            Constraint::Length(10),
+            Constraint::Min(20),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(Span::styled(" Available Disks ", theme::title())),
+    );
+
+    frame.render_widget(table, chunks[1]);
+
+    // Footer
+    draw_footer(frame, chunks[2], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+}
+
+/// Draw confirmation screen
+pub fn draw_confirm(frame: &mut Frame, host: &str, disk: &DiskInfo, input: &str, _app: &App) {
+    let area = frame.area();
+    let center = centered_rect(60, 60, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(6),
+            Constraint::Length(5),
+            Constraint::Min(3),
+        ])
+        .split(center);
+
+    // Warning header
+    let warning = Paragraph::new(Line::from(vec![
+        Span::styled("⚠ ", theme::warning()),
+        Span::styled("WARNING: This will ERASE ALL DATA!", theme::warning()),
+    ]))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::warning()),
+    );
+    frame.render_widget(warning, chunks[0]);
+
+    // Details
+    let details = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Host: ", theme::dim()),
+            Span::styled(host, theme::text()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Disk: ", theme::dim()),
+            Span::styled(&disk.path, theme::text()),
+            Span::styled(format!(" ({})", disk.size), theme::dim()),
+        ]),
+        Line::from(""),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border()),
+    );
+    frame.render_widget(details, chunks[1]);
+
+    // Input prompt
+    let prompt = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Type 'yes' to continue:",
+            theme::text(),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("> ", theme::info()),
+            Span::styled(input, theme::text()),
+            Span::styled("_", theme::info()),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border()),
+    );
+    frame.render_widget(prompt, chunks[2]);
+
+    // Footer
+    draw_footer(frame, chunks[3], &["Type 'yes' + Enter", "Esc Cancel"]);
+}
+
+/// Draw running installation screen
+pub fn draw_running(
+    frame: &mut Frame,
+    host: &str,
+    disk: &DiskInfo,
+    steps: &[StepStatus],
+    output: &[String],
+    app: &App,
+) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(2),
+        ])
+        .split(area);
+
+    // Header with host/disk info
+    let header = Paragraph::new(Line::from(vec![
+        Span::styled(" Installing NixOS | ", theme::title()),
+        Span::styled("Host: ", theme::dim()),
+        Span::styled(host, theme::text()),
+        Span::styled(" | Disk: ", theme::dim()),
+        Span::styled(&disk.path, theme::text()),
+        Span::styled(format!(" ({})", disk.size), theme::dim()),
+    ]))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border_active()),
+    );
+    frame.render_widget(header, chunks[0]);
+
+    // Progress and output
+    let (steps_area, output_area) = progress_layout(chunks[1]);
+
+    let progress = ProgressSteps::new(steps, app.spinner_state).title(" Progress ");
+    frame.render_widget(progress, steps_area);
+
+    let log = LogView::new(output).title(" Output ");
+    frame.render_widget(log, output_area);
+
+    // Footer
+    let footer = Paragraph::new(Line::from(vec![
+        Span::styled("[", theme::dim()),
+        Span::styled("Ctrl+C", theme::key_hint()),
+        Span::styled("] Cancel", theme::dim()),
+    ]))
+    .alignment(Alignment::Center);
+    frame.render_widget(footer, chunks[2]);
+}
+
+/// Draw completion screen (shows output log)
+pub fn draw_complete(frame: &mut Frame, success: bool, output: &[String], _app: &App) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(3),
+        ])
+        .split(area);
+
+    // Header
+    let (title, style) = if success {
+        (" ✓ Installation Complete ", theme::success())
+    } else {
+        (" ✗ Installation Failed ", theme::error())
+    };
+    let header = Paragraph::new(Line::from(Span::styled(title, style)))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(style),
+        );
+    frame.render_widget(header, chunks[0]);
+
+    // Output log
+    let log = LogView::new(output).title(" Output ");
+    frame.render_widget(log, chunks[1]);
+
+    // Footer
+    let footer = Paragraph::new(Line::from(vec![
+        Span::styled("[", theme::dim()),
+        Span::styled("Enter", theme::key_hint()),
+        Span::styled("] Done  [", theme::dim()),
+        Span::styled("q", theme::key_hint()),
+        Span::styled("] Quit", theme::dim()),
+    ]))
+    .alignment(Alignment::Center);
+    frame.render_widget(footer, chunks[2]);
+}
+
+fn draw_header(frame: &mut Frame, area: Rect, title: &str) {
+    let header = Paragraph::new(Line::from(Span::styled(title, theme::title())))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::border_active()),
+        );
+    frame.render_widget(header, area);
+}
+
+fn draw_footer(frame: &mut Frame, area: Rect, hints: &[&str]) {
+    let spans: Vec<Span> = hints
+        .iter()
+        .enumerate()
+        .flat_map(|(i, hint)| {
+            let mut v = vec![];
+            if i > 0 {
+                v.push(Span::styled("  ", theme::dim()));
+            }
+            v.push(Span::styled("[", theme::dim()));
+            // Split hint into key and action
+            let parts: Vec<&str> = hint.splitn(2, ' ').collect();
+            if parts.len() == 2 {
+                v.push(Span::styled(parts[0], theme::key_hint()));
+                v.push(Span::styled(format!("] {}", parts[1]), theme::dim()));
+            } else {
+                v.push(Span::styled(*hint, theme::key_hint()));
+                v.push(Span::styled("]", theme::dim()));
+            }
+            v
+        })
+        .collect();
+
+    let footer = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
+    frame.render_widget(footer, area);
+}

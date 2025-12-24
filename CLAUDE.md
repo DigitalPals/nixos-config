@@ -34,9 +34,47 @@ Configuration details and solutions to issues in this NixOS setup.
 │       ├── illogical/              # Illogical Impulse shell
 │       └── caelestia/              # Caelestia shell
 └── packages/
+    ├── forge/                      # Rust TUI configuration tool
     ├── plymouth-cybex/             # Custom Plymouth theme
     └── hyprland-sessions/          # Session desktop entries
 ```
+
+## Forge - NixOS Configuration Tool
+
+Forge is a Rust TUI application for managing NixOS installations and updates. Copyright Cybex B.V.
+
+### Running Forge
+
+```bash
+# From installed system
+forge                    # Interactive TUI menu
+forge update            # Update flake + rebuild + CLI tools
+forge browser backup    # Backup browser profiles
+forge browser restore   # Restore browser profiles
+
+# From NixOS ISO (fresh install)
+nix run github:DigitalPals/nixos-config
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `forge` | Interactive TUI with main menu |
+| `forge install [hostname] [disk]` | Fresh NixOS installation |
+| `forge update` | Update flake, rebuild, update CLI tools |
+| `forge browser backup` | Backup + push browser profiles |
+| `forge browser restore` | Pull + restore browser profiles |
+| `forge browser status` | Check for profile updates |
+
+### Fresh Installation from ISO
+
+1. Boot the NixOS minimal ISO
+2. Connect to WiFi: `nmtui`
+3. Run Forge: `nix run github:DigitalPals/nixos-config`
+4. Select "Install NixOS", choose host and disk
+5. Enter LUKS passphrase when prompted
+6. Reboot and select a shell from the boot menu
 
 ## Rebuilding the System
 
@@ -200,12 +238,12 @@ programs.browser-backup = {
 
 ### Commands
 
-Via install.sh (recommended):
+Via Forge TUI (recommended):
 ```bash
-./install.sh browser backup    # Backup + push profiles to GitHub
-./install.sh browser restore   # Pull + restore profiles from GitHub
-./install.sh browser status    # Check for remote updates
-./install.sh browser           # Interactive menu
+forge browser backup     # Backup + push profiles to GitHub
+forge browser restore    # Restore profiles from GitHub
+forge browser status     # Check for remote updates
+forge browser            # Interactive menu
 ```
 
 Via standalone scripts (after Home Manager activation):
@@ -216,9 +254,9 @@ browser-restore --pull         # Pull + restore
 
 ### New Machine Bootstrap
 
-1. Install NixOS with this config
+1. Install NixOS with Forge: `nix run github:DigitalPals/nixos-config`
 2. Sign in to 1Password desktop app (unlocks the CLI)
-3. Run `./install.sh browser restore`
+3. Run `forge browser restore`
 4. Open browsers - sessions restored
 
 The age key is retrieved from 1Password on-the-fly - no manual key management needed!
