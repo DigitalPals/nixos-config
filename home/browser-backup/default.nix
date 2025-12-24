@@ -129,7 +129,7 @@ let
         pgrep -x "chrome" >/dev/null 2>&1 && running="Chrome"
         pgrep -x "firefox" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x "firefox-bin" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
-        pgrep -x ".firefox-wrappe" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
+        pgrep -x ".firefox-wrapped" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         if [[ -n "$running" ]]; then
           if [[ "$FORCE" == "true" ]]; then
             log_warn "Browsers running ($running) - continuing with --force"
@@ -396,7 +396,7 @@ let
         pgrep -x "chrome" >/dev/null 2>&1 && running="Chrome"
         pgrep -x "firefox" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x "firefox-bin" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
-        pgrep -x ".firefox-wrappe" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
+        pgrep -x ".firefox-wrapped" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         if [[ -n "$running" ]]; then
           if [[ "$FORCE" == "true" ]]; then
             log_warn "Browsers running ($running) - continuing with --force"

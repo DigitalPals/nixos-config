@@ -390,13 +390,38 @@ do_browser_status() {
 
     cd "$LOCAL_REPO_PATH"
 
-    # Fetch without merging
+    # Ensure origin exists before fetching
+    if ! git remote get-url origin >/dev/null 2>&1; then
+        log_warn "No remote 'origin' configured for $LOCAL_REPO_PATH"
+        echo ""
+        echo "Local files:"
+        ls -lh ./*.age 2>/dev/null || echo "  (no backup files)"
+        echo ""
+        return
+    fi
+
+    # Fetch without merging (be resilient to offline/missing-remote cases)
     log_info "Checking for updates..."
-    git fetch origin
+    if ! git fetch origin >/dev/null 2>&1; then
+        log_warn "Unable to reach remote; showing local status only"
+        echo ""
+        echo "Local files:"
+        ls -lh ./*.age 2>/dev/null || echo "  (no backup files)"
+        echo ""
+        return
+    fi
 
     # Compare local and remote
     LOCAL_HEAD=$(git rev-parse HEAD)
     REMOTE_HEAD=$(git rev-parse origin/main 2>/dev/null || git rev-parse origin/master 2>/dev/null)
+    if [[ -z "$REMOTE_HEAD" ]]; then
+        log_warn "Remote branch not found (origin/main or origin/master)"
+        echo ""
+        echo "Local files:"
+        ls -lh ./*.age 2>/dev/null || echo "  (no backup files)"
+        echo ""
+        return
+    fi
 
     if [[ "$LOCAL_HEAD" == "$REMOTE_HEAD" ]]; then
         log_success "Browser profiles are up to date"
