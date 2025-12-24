@@ -115,6 +115,47 @@ All NVIDIA config is in `modules/hardware/nvidia.nix`:
 
 Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
 
+## Noctalia Settings (Hybrid Management)
+
+Noctalia settings use a hybrid approach that allows GUI changes while preserving reproducibility across machines.
+
+### How It Works
+
+Settings are stored in `~/.config/noctalia/` as regular files (not symlinks). A hash file tracks when the repo version was last deployed:
+
+- **First run**: Configs are copied from repo to `~/.config/noctalia/`
+- **GUI changes**: Saved locally, persist across reboots and rebuilds
+- **Repo updated**: When you pull updated configs from another machine and rebuild, the hash changes and local files are overwritten
+
+Implementation: `home/shells/noctalia/shell.nix:44-70`
+
+### Syncing Settings to Another Machine
+
+When you've made GUI changes you want to sync to the repo:
+
+1. **Ask Claude**: "Sync my Noctalia settings to the repo"
+   - Claude copies `~/.config/noctalia/*.json` → `home/shells/noctalia/`
+2. **Commit and push** the changes
+3. **On other machine**: Pull and rebuild → hash changes → local files updated
+
+### Config Files
+
+| File | Purpose |
+|------|---------|
+| `settings.json` | Main shell settings (bar widgets, layouts) |
+| `gui-settings.json` | GUI-specific preferences |
+| `colors.json` | Color scheme |
+| `plugins.json` | Plugin configuration |
+| `.deployed-hash` | Tracks repo version (auto-managed) |
+
+### Forcing a Re-sync
+
+To force re-deployment from repo (discarding local changes):
+```bash
+rm ~/.config/noctalia/.deployed-hash
+sudo nixos-rebuild switch --flake .
+```
+
 ## Browser Profile Backup/Restore
 
 Encrypted browser profile backup system using Age encryption and a private GitHub repository. Supports 1Password integration for automatic key retrieval across machines.
