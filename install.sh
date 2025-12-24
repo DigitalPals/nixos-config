@@ -96,6 +96,9 @@ TEMP_CONFIG="/tmp/nixos-config"
 CONFIG_DIR="/mnt/home/john/nixos-config"
 SYMLINK_PATH="/mnt/etc/nixos"
 
+# Browser backup configuration file
+BROWSER_BACKUP_CONFIG="$HOME/.config/browser-backup/config"
+
 # Base hosts (hardware configurations)
 BASE_HOSTS=("kraken" "G1a")
 
@@ -118,6 +121,9 @@ usage() {
     echo "  install [hostname]  Fresh NixOS installation"
     echo "  update              Update flake inputs, smart rebuild"
     echo "  switch              Show shell switching instructions"
+    echo "  browser backup      Backup browser profiles and push to GitHub"
+    echo "  browser restore     Pull and restore browser profiles from GitHub"
+    echo "  browser status      Check for browser profile updates"
     echo ""
     echo "Examples:"
     echo "  $0                  # Show interactive menu"
@@ -125,6 +131,8 @@ usage() {
     echo "  $0 install kraken   # Install directly to kraken"
     echo "  $0 update           # Update current system"
     echo "  $0 switch           # Show how to switch shells"
+    echo "  $0 browser backup   # Backup + push browser profiles"
+    echo "  $0 browser restore  # Pull + restore browser profiles"
     echo ""
     echo "Available hosts: ${BASE_HOSTS[*]}"
     echo ""
@@ -144,17 +152,19 @@ show_menu() {
     echo -e "  ${GREEN}1)${NC} Install NixOS (fresh installation)"
     echo -e "  ${GREEN}2)${NC} Update system (flake inputs + rebuild + CLI tools)"
     echo -e "  ${GREEN}3)${NC} Switch desktop shell"
-    echo -e "  ${GREEN}4)${NC} Exit"
+    echo -e "  ${GREEN}4)${NC} Browser profiles (backup/restore)"
+    echo -e "  ${GREEN}5)${NC} Exit"
     echo ""
 
     while true; do
-        read -p "Select option (1-4): " choice
+        read -p "Select option (1-5): " choice
         case $choice in
             1) do_install; break ;;
             2) do_update; break ;;
             3) do_switch_shell; break ;;
-            4) echo "Goodbye!"; exit 0 ;;
-            *) echo "Invalid option. Please enter 1, 2, 3, or 4." ;;
+            4) do_browser_menu; break ;;
+            5) echo "Goodbye!"; exit 0 ;;
+            *) echo "Invalid option. Please enter 1-5." ;;
         esac
     done
 }
@@ -293,6 +303,160 @@ do_switch_shell() {
     done
     echo ""
 }
+
+# ============================================================================
+# Browser Profile Backup/Restore Functions
+# ============================================================================
+
+# Load browser backup configuration
+load_browser_config() {
+    if [[ ! -f "$BROWSER_BACKUP_CONFIG" ]]; then
+        log_error "Browser backup not configured. Enable it in home.nix and rebuild."
+    fi
+    # shellcheck source=/dev/null
+    source "$BROWSER_BACKUP_CONFIG"
+
+    # Validate required config
+    : "${BROWSER_BACKUP_REPO:?BROWSER_BACKUP_REPO not set in config}"
+    : "${AGE_RECIPIENT:?AGE_RECIPIENT not set in config}"
+    : "${LOCAL_REPO_PATH:=$HOME/.local/share/browser-backup}"
+    : "${BACKUP_RETENTION:=3}"
+
+    # Check for 1Password or file-based key
+    USE_1PASSWORD=false
+    if [[ -n "${AGE_KEY_1PASSWORD:-}" ]]; then
+        USE_1PASSWORD=true
+    elif [[ -z "${AGE_KEY_PATH:-}" ]]; then
+        log_error "Neither AGE_KEY_1PASSWORD nor AGE_KEY_PATH is set in config"
+    fi
+
+    # Expand ~ in paths
+    if [[ -n "${AGE_KEY_PATH:-}" ]]; then
+        AGE_KEY_PATH="${AGE_KEY_PATH/#\~/$HOME}"
+    fi
+    LOCAL_REPO_PATH="${LOCAL_REPO_PATH/#\~/$HOME}"
+}
+
+# Browser profiles menu
+do_browser_menu() {
+    echo ""
+    echo "=============================================="
+    echo "  Browser Profiles"
+    echo "=============================================="
+    echo ""
+    echo -e "  ${GREEN}1)${NC} Backup & push to GitHub"
+    echo -e "  ${GREEN}2)${NC} Pull & restore from GitHub"
+    echo -e "  ${GREEN}3)${NC} Check for updates"
+    echo -e "  ${GREEN}4)${NC} Back to main menu"
+    echo ""
+
+    while true; do
+        read -p "Select option (1-4): " choice
+        case $choice in
+            1) do_browser_backup; break ;;
+            2) do_browser_restore; break ;;
+            3) do_browser_status; break ;;
+            4) show_menu; break ;;
+            *) echo "Invalid option. Please enter 1-4." ;;
+        esac
+    done
+}
+
+# Backup browser profiles
+do_browser_backup() {
+    local force="${1:-false}"
+
+    if [[ $EUID -eq 0 ]]; then
+        log_error "Don't run as root. Run as normal user."
+    fi
+
+    # Check for the Home Manager browser-backup script
+    if ! command -v browser-backup &>/dev/null; then
+        log_error "browser-backup not found. Enable browser-backup in home.nix and rebuild."
+    fi
+
+    # Build arguments
+    local args=("--push")
+    if [[ "$force" == "true" ]]; then
+        args+=("--force")
+    fi
+
+    # Delegate to Home Manager script (handles minimal backup)
+    browser-backup "${args[@]}"
+}
+
+# Restore browser profiles
+do_browser_restore() {
+    local force="${1:-false}"
+
+    if [[ $EUID -eq 0 ]]; then
+        log_error "Don't run as root. Run as normal user."
+    fi
+
+    # Check for the Home Manager browser-restore script
+    if ! command -v browser-restore &>/dev/null; then
+        log_error "browser-restore not found. Enable browser-backup in home.nix and rebuild."
+    fi
+
+    # Build arguments
+    local args=("--pull")
+    if [[ "$force" == "true" ]]; then
+        args+=("--force")
+    fi
+
+    # Delegate to Home Manager script (handles merge-based restore)
+    browser-restore "${args[@]}"
+}
+
+# Check for browser profile updates
+do_browser_status() {
+    if [[ $EUID -eq 0 ]]; then
+        log_error "Don't run as root. Run as normal user."
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo "  Browser Profile Status"
+    echo "=============================================="
+    echo ""
+
+    load_browser_config
+
+    if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
+        log_info "Local repository not found. Run restore to clone."
+        return
+    fi
+
+    cd "$LOCAL_REPO_PATH"
+
+    # Fetch without merging
+    log_info "Checking for updates..."
+    git fetch origin
+
+    # Compare local and remote
+    LOCAL_HEAD=$(git rev-parse HEAD)
+    REMOTE_HEAD=$(git rev-parse origin/main 2>/dev/null || git rev-parse origin/master 2>/dev/null)
+
+    if [[ "$LOCAL_HEAD" == "$REMOTE_HEAD" ]]; then
+        log_success "Browser profiles are up to date"
+    else
+        log_warn "Remote has newer profiles"
+        echo ""
+        echo "Remote commits:"
+        git log --oneline "$LOCAL_HEAD..$REMOTE_HEAD"
+        echo ""
+        log_info "Run './install.sh browser restore' to update"
+    fi
+
+    echo ""
+    echo "Local files:"
+    ls -lh ./*.age 2>/dev/null || echo "  (no backup files)"
+    echo ""
+}
+
+# ============================================================================
+# End Browser Profile Functions
+# ============================================================================
 
 # Update system (git pull + flake update + smart rebuild + CLI tools)
 do_update() {
@@ -672,6 +836,26 @@ case "$COMMAND" in
         ;;
     "switch")
         do_switch_shell
+        ;;
+    "browser")
+        # Check for --force flag
+        BROWSER_FORCE=false
+        [[ "$ARG3" == "--force" || "$ARG3" == "-f" ]] && BROWSER_FORCE=true
+
+        case "$ARG2" in
+            "backup")
+                do_browser_backup "$BROWSER_FORCE"
+                ;;
+            "restore")
+                do_browser_restore "$BROWSER_FORCE"
+                ;;
+            "status")
+                do_browser_status
+                ;;
+            *)
+                do_browser_menu
+                ;;
+        esac
         ;;
     "-h"|"--help"|"help")
         usage

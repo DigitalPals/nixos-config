@@ -22,6 +22,8 @@ Configuration details and solutions to issues in this NixOS setup.
 │   ├── home.nix                    # Main Home Manager config
 │   ├── ghostty.nix                 # Terminal config
 │   ├── neovim.nix
+│   ├── browser-backup/             # Browser profile backup/restore
+│   │   └── default.nix
 │   ├── hyprland/                   # Hyprland WM config (modular)
 │   │   ├── default.nix
 │   │   ├── bindings.nix
@@ -112,3 +114,87 @@ All NVIDIA config is in `modules/hardware/nvidia.nix`:
 - Wayland env vars: `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`, `NIXOS_OZONE_WL`
 
 Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
+
+## Browser Profile Backup/Restore
+
+Encrypted browser profile backup system using Age encryption and a private GitHub repository. Supports 1Password integration for automatic key retrieval across machines.
+
+### Setup with 1Password (Recommended)
+
+1. Generate an Age keypair locally:
+   ```bash
+   age-keygen
+   # Output:
+   # Public key: age1xxxxxxxxxx...
+   # AGE-SECRET-KEY-1XXXXXXXXXX...
+   ```
+
+2. Store the private key in 1Password:
+   - Create a new item in 1Password (e.g., "age-key" in Private vault)
+   - Add a field called "private-key" with the `AGE-SECRET-KEY-1...` value
+   - The 1Password reference will be: `op://Private/age-key/private-key`
+
+3. Configure in `home/home.nix`:
+   ```nix
+   programs.browser-backup = {
+     enable = true;
+     # Repo is pre-configured to: git@github.com:DigitalPals/private-settings.git
+     ageRecipient = "age1...your-public-key...";
+     ageKey1Password = "op://Private/age-key/private-key";
+   };
+   ```
+
+4. Rebuild: `sudo nixos-rebuild switch --flake .`
+
+### Alternative: File-based Key
+
+If not using 1Password, you can use a file-based key:
+```nix
+programs.browser-backup = {
+  enable = true;
+  ageRecipient = "age1...";
+  ageKeyPath = "~/.config/age/key.txt";  # Fallback if ageKey1Password not set
+};
+```
+
+### Commands
+
+Via install.sh (recommended):
+```bash
+./install.sh browser backup    # Backup + push profiles to GitHub
+./install.sh browser restore   # Pull + restore profiles from GitHub
+./install.sh browser status    # Check for remote updates
+./install.sh browser           # Interactive menu
+```
+
+Via standalone scripts (after Home Manager activation):
+```bash
+browser-backup --push          # Backup + push
+browser-restore --pull         # Pull + restore
+```
+
+### New Machine Bootstrap
+
+1. Install NixOS with this config
+2. Sign in to 1Password desktop app (unlocks the CLI)
+3. Run `./install.sh browser restore`
+4. Open browsers - sessions restored
+
+The age key is retrieved from 1Password on-the-fly - no manual key management needed!
+
+### Troubleshooting
+
+- **"Browsers are running"**: Close Chrome/Firefox or use `--force`
+- **"1Password not unlocked"**: Open 1Password app and sign in
+- **"op: command not found"**: Rebuild to install 1Password CLI
+- **"Git push failed"**: Check SSH key is in 1Password agent
+- **"Config not found"**: Enable `programs.browser-backup` and rebuild
+
+### Security Notes
+
+Profile archives contain session cookies, auth tokens, and potentially saved passwords. The archives are encrypted with Age before being pushed to GitHub.
+
+- Age private key is stored in 1Password, never on disk
+- Key is retrieved on-the-fly and never written to filesystem
+- LUKS disk encryption (enabled by default) provides additional protection
+- Decrypted archives are only created in temp directories and shredded after use
