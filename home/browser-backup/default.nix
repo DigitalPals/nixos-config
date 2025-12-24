@@ -70,7 +70,7 @@ let
   # The browser-backup script
   browser-backup = pkgs.writeShellApplication {
     name = "browser-backup";
-    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs _1password-cli findutils ];
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs findutils libsecret ];
     text = ''
       set -euo pipefail
 
@@ -139,11 +139,33 @@ let
         fi
       }
 
+      # Export Chrome Safe Storage key from GNOME Keyring
+      # This key is used to encrypt/decrypt cookies and saved passwords
+      export_chrome_key() {
+        local keyfile="$1"
+        log_info "Exporting Chrome Safe Storage key..."
+
+        # Try to get the Chrome Safe Storage key
+        local key
+        key=$(secret-tool search --all xdg:schema chrome_libsecret_os_crypt_password_v2 application chrome 2>/dev/null | grep "^secret = " | head -1 | cut -d' ' -f3) || true
+
+        if [[ -z "$key" ]]; then
+          log_warn "Chrome Safe Storage key not found in keyring"
+          return 1
+        fi
+
+        # Save key to file (will be included in encrypted archive)
+        echo "$key" > "$keyfile"
+        log_success "Chrome Safe Storage key exported"
+        return 0
+      }
+
       # Create Chrome archive with only essential files
       backup_chrome() {
         local chrome_dir="$HOME/.config/google-chrome"
         local archive="$TEMP_DIR/chrome-profile.tar.gz"
         local filelist="$TEMP_DIR/chrome-files.txt"
+        local staging_dir="$TEMP_DIR/chrome-staging"
 
         if [[ ! -d "$chrome_dir" ]]; then
           log_warn "Chrome directory not found: $chrome_dir"
@@ -152,30 +174,41 @@ let
 
         log_info "Backing up Chrome essential files..."
 
-        # Build list of files that exist
-        : > "$filelist"
+        # Create staging directory for archive contents
+        mkdir -p "$staging_dir"
+
+        # Build list of files that exist and copy to staging
+        local count=0
         cd "$chrome_dir"
         for f in ${lib.concatMapStringsSep " " (f: ''"${f}"'') chromeEssentialFiles}; do
           if [[ -f "$f" ]]; then
-            echo "$f" >> "$filelist"
+            mkdir -p "$staging_dir/$(dirname "$f")"
+            cp "$f" "$staging_dir/$f"
+            ((count++)) || true
           fi
         done
 
-        if [[ ! -s "$filelist" ]]; then
+        if [[ $count -eq 0 ]]; then
           log_warn "No Chrome files found to backup"
           return 1
         fi
 
-        local count
-        count=$(wc -l < "$filelist")
         log_info "Found $count essential Chrome files"
 
-        # Create archive from file list
+        # Export Chrome Safe Storage key and add to staging
+        if export_chrome_key "$staging_dir/.chrome-safe-storage-key"; then
+          ((count++)) || true
+        fi
+
+        # Create archive from staging directory
         tar --create --gzip --file="$archive" \
-          --directory="$chrome_dir" \
-          --files-from="$filelist" \
+          --directory="$staging_dir" \
           --sort=name \
-          --mtime='2024-01-01'
+          --mtime='2024-01-01' \
+          .
+
+        # Clean up staging
+        rm -rf "$staging_dir"
 
         local size
         size=$(du -h "$archive" | cut -f1)
@@ -327,9 +360,11 @@ let
   };
 
   # The browser-restore script
+  # NOTE: Do NOT include _1password-cli in runtimeInputs - we need the system wrapper
+  # at /run/wrappers/bin/op which has permissions to communicate with the desktop app
   browser-restore = pkgs.writeShellApplication {
     name = "browser-restore";
-    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs _1password-cli ];
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs libsecret ];
     text = ''
       set -euo pipefail
 
@@ -409,10 +444,12 @@ let
       }
 
       # Get age key (from 1Password or file)
+      # IMPORTANT: This function outputs ONLY the key to stdout (for piping to age)
+      # All other messages must go to stderr
       get_age_key() {
         if [[ "$USE_1PASSWORD" == "true" ]]; then
           # Retrieve from 1Password - this will prompt for unlock if needed
-          log_info "Retrieving age key from 1Password..."
+          log_info "Retrieving age key from 1Password..." >&2
           op read "$AGE_KEY_1PASSWORD"
         else
           # Read from file
@@ -472,6 +509,45 @@ let
         done
       }
 
+      # Import Chrome Safe Storage key into GNOME Keyring
+      # This allows Chrome to decrypt cookies from another machine
+      import_chrome_key() {
+        local keyfile="$1"
+
+        if [[ ! -f "$keyfile" ]]; then
+          log_warn "Chrome Safe Storage key not found in backup"
+          return 1
+        fi
+
+        local key
+        key=$(cat "$keyfile")
+
+        if [[ -z "$key" ]]; then
+          log_warn "Chrome Safe Storage key is empty"
+          return 1
+        fi
+
+        log_info "Importing Chrome Safe Storage key..."
+
+        # Check if key already exists and matches
+        local existing_key
+        existing_key=$(secret-tool search --all xdg:schema chrome_libsecret_os_crypt_password_v2 application chrome 2>/dev/null | grep "^secret = " | head -1 | cut -d' ' -f3) || true
+
+        if [[ "$existing_key" == "$key" ]]; then
+          log_info "Chrome Safe Storage key already matches"
+          return 0
+        fi
+
+        # Store the key in GNOME Keyring
+        # This will overwrite any existing key with the same attributes
+        echo -n "$key" | secret-tool store --label="Chrome Safe Storage" \
+          xdg:schema chrome_libsecret_os_crypt_password_v2 \
+          application chrome
+
+        log_success "Chrome Safe Storage key imported"
+        return 0
+      }
+
       # Restore Chrome essential files (merge into existing profile)
       restore_chrome() {
         local age_file="$1"
@@ -491,6 +567,14 @@ let
 
         get_age_key | age --decrypt --identity - --output "$tar_file" "$age_file"
         tar --extract --gzip --file="$tar_file" --directory="$extract_dir"
+
+        # Import Chrome Safe Storage key BEFORE restoring files
+        # This must happen before Chrome reads the cookies
+        if [[ -f "$extract_dir/.chrome-safe-storage-key" ]]; then
+          import_chrome_key "$extract_dir/.chrome-safe-storage-key"
+          # Remove the key file so it doesn't get copied to Chrome dir
+          rm -f "$extract_dir/.chrome-safe-storage-key"
+        fi
 
         # Backup files that will be overwritten
         backup_essential_files "$chrome_dir" "$extract_dir"
@@ -520,6 +604,10 @@ let
       }
 
       # Restore Firefox essential files (merge into existing profile)
+      # Firefox profiles have random names (e.g., abc123.default), so we need to:
+      # 1. Find the local profile directory
+      # 2. Find the backup's profile directory
+      # 3. Copy files from backup profile INTO local profile
       restore_firefox() {
         local age_file="$1"
         local firefox_dir="$HOME/.mozilla/firefox"
@@ -539,30 +627,64 @@ let
         get_age_key | age --decrypt --identity - --output "$tar_file" "$age_file"
         tar --extract --gzip --file="$tar_file" --directory="$extract_dir"
 
-        # Backup files that will be overwritten
-        backup_essential_files "$firefox_dir" "$extract_dir"
-        prune_essential_backups "$firefox_dir" "$BACKUP_RETENTION"
+        # Find the backup's profile directory (*.default* pattern)
+        local backup_profile=""
+        backup_profile=$(find "$extract_dir" -maxdepth 1 -type d -name "*.default*" | head -1)
 
-        # Ensure target directory exists
-        mkdir -p "$firefox_dir"
+        if [[ -z "$backup_profile" ]]; then
+          log_warn "No Firefox profile found in backup"
+          rm -rf "$extract_dir"
+          shred -u "$tar_file" 2>/dev/null || rm -f "$tar_file"
+          return 1
+        fi
+        backup_profile=$(basename "$backup_profile")
+        log_info "Backup profile: $backup_profile"
 
-        # Copy files from archive to firefox dir (merge)
+        # Find the local profile directory
+        # First try to get it from profiles.ini, then fall back to finding *.default*
+        local local_profile=""
+        if [[ -f "$firefox_dir/profiles.ini" ]]; then
+          local_profile=$(grep -E "^Path=" "$firefox_dir/profiles.ini" | head -1 | cut -d= -f2)
+        fi
+        if [[ -z "$local_profile" ]] || [[ ! -d "$firefox_dir/$local_profile" ]]; then
+          local_profile=$(find "$firefox_dir" -maxdepth 1 -type d -name "*.default*" | head -1)
+          if [[ -n "$local_profile" ]]; then
+            local_profile=$(basename "$local_profile")
+          fi
+        fi
+
+        if [[ -z "$local_profile" ]]; then
+          log_warn "No local Firefox profile found, creating from backup"
+          local_profile="$backup_profile"
+        fi
+        log_info "Local profile: $local_profile"
+
+        # Ensure local profile directory exists
+        mkdir -p "$firefox_dir/$local_profile"
+
+        # Copy essential files from backup profile to local profile
+        # Skip profiles.ini and installs.ini to preserve local profile config
         local file_count=0
-        cd "$extract_dir"
-        find . -type f | while read -r f; do
-          local src="$extract_dir/$f"
-          local dst="$firefox_dir/$f"
-          mkdir -p "$(dirname "$dst")"
-          cp "$src" "$dst"
-        done
-        file_count=$(find "$extract_dir" -type f 2>/dev/null | wc -l)
-        cd /
+        if [[ -d "$extract_dir/$backup_profile" ]]; then
+          cd "$extract_dir/$backup_profile"
+          for f in *; do
+            if [[ -f "$f" ]]; then
+              # Backup existing file if present
+              if [[ -f "$firefox_dir/$local_profile/$f" ]]; then
+                cp "$firefox_dir/$local_profile/$f" "$firefox_dir/$local_profile/$f.bak" 2>/dev/null || true
+              fi
+              cp "$f" "$firefox_dir/$local_profile/$f"
+              ((file_count++)) || true
+            fi
+          done
+          cd /
+        fi
 
         # Cleanup
         shred -u "$tar_file" 2>/dev/null || rm -f "$tar_file"
         rm -rf "$extract_dir"
 
-        log_success "Restored $file_count Firefox essential files"
+        log_success "Restored $file_count Firefox essential files to $local_profile"
         return 0
       }
 
