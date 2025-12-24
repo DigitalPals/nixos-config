@@ -41,8 +41,10 @@ in
 
   # Fix NVIDIA suspend/resume: Add system-sleep hook (like Arch has)
   # This ensures nvidia-sleep.sh resume is called after waking from sleep
+  # Note: nvidia-sleep.sh requires chvt/fgconsole from kbd package in PATH
   powerManagement.powerDownCommands = "";
   powerManagement.resumeCommands = ''
+    export PATH="${pkgs.kbd}/bin:$PATH"
     ${nvidia-sleep} resume
   '';
 
