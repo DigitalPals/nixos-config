@@ -46,6 +46,9 @@ in
   # Ensure custom directories exist
   home.file."Code/.keep".text = "";
 
+  # User profile picture (used by GDM, SDDM, etc.)
+  home.file.".face".source = ../face;
+
   # npm config for global packages (avoids permission issues)
   home.file.".npmrc".text = ''
     prefix=''${HOME}/.npm-global
