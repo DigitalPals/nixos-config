@@ -11,10 +11,11 @@ mod ui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
+    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::Duration;
@@ -167,26 +168,28 @@ async fn run_app(
     // Start any initial commands based on mode
     app.start_initial_command().await?;
 
+    // Create async event stream for responsive input
+    let mut event_stream = EventStream::new();
+
     loop {
         // Draw UI
         terminal.draw(|frame| ui::draw(frame, app))?;
 
-        // Poll for terminal events FIRST (non-blocking) to ensure responsive input
-        while event::poll(Duration::from_millis(0))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.handle_key(key.code).await?;
-                }
-            }
-        }
-
-        // Handle async events with timeout for UI updates
+        // Handle all events with proper async - no blocking delays
         let timeout = Duration::from_millis(constants::EVENT_POLL_TIMEOUT_MS);
 
         tokio::select! {
-            biased;  // Prioritize command messages over timeout
+            biased;  // Prioritize in order: keys, commands, timeout
 
-            // Check for command output
+            // Terminal key events (instant response)
+            Some(Ok(event)) = event_stream.next() => {
+                if let Event::Key(key) = event {
+                    if key.kind == KeyEventKind::Press {
+                        app.handle_key(key.code).await?;
+                    }
+                }
+            }
+            // Command output from async tasks
             Some(msg) = cmd_rx.recv() => {
                 app.handle_command_message(msg).await?;
             }
