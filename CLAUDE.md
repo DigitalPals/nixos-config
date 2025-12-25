@@ -17,11 +17,14 @@ Configuration details and solutions to issues in this NixOS setup.
 │   ├── desktop-environments.nix
 │   ├── gaming.nix
 │   ├── disko/                      # Disk partitioning configs
-│   └── hardware/nvidia.nix         # NVIDIA driver config
+│   └── hardware/
+│       ├── nvidia.nix              # NVIDIA driver config
+│       └── intel.nix               # Intel GPU config (unused)
 ├── home/
 │   ├── home.nix                    # Main Home Manager config
 │   ├── ghostty.nix                 # Terminal config
 │   ├── neovim.nix
+│   ├── 1password-secrets.nix       # 1Password SSH agent integration
 │   ├── app-backup/                 # App profile backup/restore (browsers, Termius)
 │   │   └── default.nix
 │   ├── hyprland/                   # Hyprland WM config (modular)
@@ -62,6 +65,7 @@ nix run github:DigitalPals/nixos-config
 |---------|-------------|
 | `forge` | Interactive TUI with main menu |
 | `forge install [hostname] [disk]` | Fresh NixOS installation |
+| `forge create-host [hostname]` | Create a new host configuration |
 | `forge update` | Update flake, rebuild, update CLI tools |
 | `forge apps backup` | Backup + push app profiles |
 | `forge apps restore` | Pull + restore app profiles |
@@ -195,6 +199,17 @@ To force re-deployment from repo (discarding local changes):
 rm ~/.config/noctalia/.deployed-hash
 sudo nixos-rebuild switch --flake .
 ```
+
+## 1Password SSH Agent
+
+SSH keys are managed through 1Password's SSH agent (`home/1password-secrets.nix`). After rebuild:
+
+1. Open 1Password GUI
+2. Settings → Developer → Enable "Integrate with 1Password CLI"
+3. Settings → Developer → Enable "Use the SSH agent"
+4. Add/import SSH keys to 1Password
+
+SSH commands will automatically use keys from 1Password after a single unlock.
 
 ## App Profile Backup/Restore
 
