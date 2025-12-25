@@ -91,7 +91,7 @@
     mkNixosSystem = { hostname, extraModules ? [] }:
       nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex; };
+        specialArgs = { inherit inputs plymouth-cybex forge; };
         modules = [
           # Apply overlay for patched xdg-desktop-portal-gtk
           { nixpkgs.overlays = [ gtkPortalOverlay ]; }

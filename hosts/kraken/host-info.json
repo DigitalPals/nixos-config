@@ -1,0 +1,13 @@
+{
+  "cpu": {
+    "vendor": "AMD",
+    "model": "AMD Ryzen 9 9950X3D 16-Core Processor"
+  },
+  "gpu": {
+    "vendor": "NVIDIA",
+    "model": "GeForce RTX 5090"
+  },
+  "form_factor": "Desktop",
+  "ram": "96 GB",
+  "product": "ASUS ROG STRIX X870-F GAMING WIFI"
+}
