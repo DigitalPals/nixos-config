@@ -52,6 +52,118 @@ pub async fn start_status(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     Ok(())
 }
 
+/// Start a quick background check for app profile updates (non-blocking, silent on failure)
+pub async fn start_quick_update_check(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
+    tokio::spawn(async move {
+        let available = check_updates_available().await.unwrap_or(false);
+        // Only send if updates are available (fail silently otherwise)
+        if available {
+            let _ = tx
+                .send(CommandMessage::AppUpdatesAvailable { available: true })
+                .await;
+        }
+    });
+    Ok(())
+}
+
+/// Check if remote has newer app profiles (quick, non-blocking)
+async fn check_updates_available() -> Result<bool> {
+    // Check both new and legacy paths
+    let local_repo = dirs::home_dir()
+        .map(|h| {
+            let new_path = h.join(".local/share/app-backup");
+            if new_path.join(".git").exists() {
+                new_path
+            } else {
+                h.join(".local/share/browser-backup")
+            }
+        })
+        .ok_or_else(|| anyhow::anyhow!("No home directory"))?;
+
+    // If no local repo, no updates available (user needs to run restore first)
+    if !local_repo.join(".git").exists() {
+        return Ok(false);
+    }
+
+    // Check if remote is configured
+    let (remote_ok, _, _) = run_capture(
+        "git",
+        &[
+            "-C",
+            local_repo.to_str().unwrap_or("."),
+            "remote",
+            "get-url",
+            "origin",
+        ],
+    )
+    .await?;
+
+    if !remote_ok {
+        return Ok(false);
+    }
+
+    // Fetch from remote (with short timeout for startup check)
+    let fetch_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        run_capture(
+            "git",
+            &["-C", local_repo.to_str().unwrap_or("."), "fetch", "origin"],
+        ),
+    )
+    .await;
+
+    let (fetch_ok, _, _) = match fetch_result {
+        Ok(Ok(result)) => result,
+        _ => return Ok(false), // Timeout or error - fail silently
+    };
+
+    if !fetch_ok {
+        return Ok(false);
+    }
+
+    // Compare local HEAD with remote HEAD
+    let (_, local_head, _) = run_capture(
+        "git",
+        &["-C", local_repo.to_str().unwrap_or("."), "rev-parse", "HEAD"],
+    )
+    .await?;
+
+    // Try origin/main first, then origin/master
+    let (remote_ok, remote_head, _) = run_capture(
+        "git",
+        &[
+            "-C",
+            local_repo.to_str().unwrap_or("."),
+            "rev-parse",
+            "origin/main",
+        ],
+    )
+    .await?;
+
+    let remote_head = if remote_ok {
+        remote_head
+    } else {
+        let (master_ok, master_head, _) = run_capture(
+            "git",
+            &[
+                "-C",
+                local_repo.to_str().unwrap_or("."),
+                "rev-parse",
+                "origin/master",
+            ],
+        )
+        .await?;
+
+        if !master_ok {
+            return Ok(false);
+        }
+        master_head
+    };
+
+    // Updates available if heads differ
+    Ok(local_head.trim() != remote_head.trim())
+}
+
 /// Helper to send stdout message
 async fn out(tx: &mpsc::Sender<CommandMessage>, msg: &str) {
     let _ = tx.send(CommandMessage::Stdout(msg.to_string())).await;

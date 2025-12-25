@@ -189,6 +189,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
         AppMode::Quit => {}
     }
 
+    // Render update dialog on top of any screen (but below exit confirm)
+    if app.show_update_dialog && !app.show_exit_confirm {
+        draw_update_dialog(frame);
+    }
+
     // Render exit confirmation popup on top of any screen
     if app.show_exit_confirm {
         draw_exit_confirm(frame);
@@ -226,6 +231,46 @@ fn draw_exit_confirm(frame: &mut Frame) {
             .borders(Borders::ALL)
             .border_style(theme::border_active())
             .title(Span::styled(" Exit ", theme::title())),
+    );
+    frame.render_widget(content, popup_area);
+}
+
+/// Draw the app update available dialog centered on screen
+fn draw_update_dialog(frame: &mut Frame) {
+    let area = frame.area();
+    let popup_width = 50;
+    let popup_height = 8;
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Draw popup content
+    let content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "App profile updates available.",
+            theme::text(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled("Restore now?", theme::text())),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[", theme::dim()),
+            Span::styled("Enter/Y", theme::key_hint()),
+            Span::styled("] Yes  [", theme::dim()),
+            Span::styled("Esc/N", theme::key_hint()),
+            Span::styled("] No", theme::dim()),
+        ]),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border_active())
+            .title(Span::styled(" Updates Available ", theme::title())),
     );
     frame.render_widget(content, popup_area);
 }

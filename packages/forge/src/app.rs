@@ -398,6 +398,10 @@ pub struct App {
     pub mode: AppMode,
     pub should_quit: bool,
     pub show_exit_confirm: bool,
+    /// Show dialog when app profile updates are available
+    pub show_update_dialog: bool,
+    /// Whether the startup update check is in progress
+    pub startup_check_running: bool,
     pub spinner_state: usize,
     pub last_tick: Instant,
     pub error: Option<String>,
@@ -435,6 +439,8 @@ impl App {
             mode: initial_mode,
             should_quit: false,
             show_exit_confirm: false,
+            show_update_dialog: false,
+            startup_check_running: false,
             spinner_state: 0,
             last_tick: Instant::now(),
             error: None,
@@ -556,6 +562,13 @@ impl App {
                 // Load disk list
                 *disks = crate::system::disk::get_available_disks()?;
             }
+            AppMode::MainMenu { .. } => {
+                // Start background check for app profile updates
+                if let Some(tx) = &self.cmd_tx {
+                    self.startup_check_running = true;
+                    commands::apps::start_quick_update_check(tx.clone()).await?;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -571,6 +584,23 @@ impl App {
                 }
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
                     self.show_exit_confirm = false;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        // Handle update dialog
+        if self.show_update_dialog {
+            match key {
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.show_update_dialog = false;
+                    // Navigate to restore and start it
+                    self.mode = AppMode::Apps(AppProfileState::new_restore(false));
+                    self.start_initial_command().await?;
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    self.show_update_dialog = false;
                 }
                 _ => {}
             }
@@ -1412,6 +1442,12 @@ impl App {
             }
             CommandMessage::Done { success } => {
                 self.handle_command_done(success);
+            }
+            CommandMessage::AppUpdatesAvailable { available } => {
+                self.startup_check_running = false;
+                if available && matches!(self.mode, AppMode::MainMenu { .. }) {
+                    self.show_update_dialog = true;
+                }
             }
         }
         Ok(())

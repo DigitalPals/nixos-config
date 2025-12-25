@@ -54,4 +54,6 @@ pub enum CommandMessage {
     StepSkipped { step: String },
     /// Command fully completed
     Done { success: bool },
+    /// App profile updates are available
+    AppUpdatesAvailable { available: bool },
 }
