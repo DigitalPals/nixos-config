@@ -205,10 +205,10 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         .await?;
     }
 
-    // Step 5: Check browser profiles
-    if command_exists("browser-restore").await {
+    // Step 5: Check app profiles
+    if command_exists("app-restore").await {
         let config_path = dirs::home_dir()
-            .map(|h| h.join(".config/browser-backup/config"))
+            .map(|h| h.join(".config/app-backup/config"))
             .unwrap_or_default();
 
         if config_path.exists() {
@@ -226,7 +226,7 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         .await?;
     } else {
         summary.browser_status = "not configured".to_string();
-        out(tx, "  - Browser backup not configured").await;
+        out(tx, "  - App backup not configured").await;
         tx.send(CommandMessage::StepSkipped {
             step: "browser".to_string(),
         })
@@ -633,8 +633,16 @@ async fn get_npm_package_version(package: &str) -> Option<String> {
 }
 
 async fn check_browser_status() -> Result<String> {
+    // Check both new and legacy paths
     let local_repo = dirs::home_dir()
-        .map(|h| h.join(".local/share/browser-backup"))
+        .map(|h| {
+            let new_path = h.join(".local/share/app-backup");
+            if new_path.join(".git").exists() {
+                new_path
+            } else {
+                h.join(".local/share/browser-backup")
+            }
+        })
         .unwrap_or_default();
 
     if !local_repo.join(".git").exists() {
