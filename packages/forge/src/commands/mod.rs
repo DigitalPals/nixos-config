@@ -1,6 +1,6 @@
 //! Command execution module
 
-pub mod browser;
+pub mod apps;
 pub mod create_host;
 pub mod executor;
 pub mod install;

@@ -1,4 +1,4 @@
-//! Browser profile management commands
+//! App profile management commands (browsers, Termius, etc.)
 
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use super::executor::{run_capture, run_command};
 use super::CommandMessage;
 
-/// Start browser backup
+/// Start app backup
 pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = run_backup(&tx, force).await {
@@ -23,7 +23,7 @@ pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Resu
     Ok(())
 }
 
-/// Start browser restore
+/// Start app restore
 pub async fn start_restore(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = run_restore(&tx, force).await {
@@ -40,7 +40,7 @@ pub async fn start_restore(tx: mpsc::Sender<CommandMessage>, force: bool) -> Res
     Ok(())
 }
 
-/// Start browser status check
+/// Start app status check
 pub async fn start_status(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = run_status(&tx).await {
@@ -60,7 +60,7 @@ async fn out(tx: &mpsc::Sender<CommandMessage>, msg: &str) {
 async fn run_backup(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
     out(tx, "").await;
     out(tx, "==============================================").await;
-    out(tx, "  Browser Profile Backup").await;
+    out(tx, "  App Profile Backup").await;
     out(tx, "==============================================").await;
     out(tx, "").await;
 
@@ -69,14 +69,14 @@ async fn run_backup(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<()
         args.push("--force");
     }
 
-    let success = run_command(tx, "browser-backup", &args).await?;
+    let success = run_command(tx, "app-backup", &args).await?;
 
     if success {
         out(tx, "").await;
-        out(tx, "  ✓ Browser profiles backed up successfully").await;
+        out(tx, "  App profiles backed up successfully").await;
     } else {
         out(tx, "").await;
-        out(tx, "  ✗ Backup failed").await;
+        out(tx, "  Backup failed").await;
     }
 
     out(tx, "").await;
@@ -89,7 +89,7 @@ async fn run_backup(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<()
 async fn run_restore(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
     out(tx, "").await;
     out(tx, "==============================================").await;
-    out(tx, "  Browser Profile Restore").await;
+    out(tx, "  App Profile Restore").await;
     out(tx, "==============================================").await;
     out(tx, "").await;
 
@@ -98,14 +98,14 @@ async fn run_restore(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<(
         args.push("--force");
     }
 
-    let success = run_command(tx, "browser-restore", &args).await?;
+    let success = run_command(tx, "app-restore", &args).await?;
 
     if success {
         out(tx, "").await;
-        out(tx, "  ✓ Browser profiles restored successfully").await;
+        out(tx, "  App profiles restored successfully").await;
     } else {
         out(tx, "").await;
-        out(tx, "  ✗ Restore failed").await;
+        out(tx, "  Restore failed").await;
     }
 
     out(tx, "").await;
@@ -118,17 +118,25 @@ async fn run_restore(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<(
 async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     out(tx, "").await;
     out(tx, "==============================================").await;
-    out(tx, "  Browser Profile Status").await;
+    out(tx, "  App Profile Status").await;
     out(tx, "==============================================").await;
     out(tx, "").await;
 
+    // Check both new and legacy paths
     let local_repo = dirs::home_dir()
-        .map(|h| h.join(".local/share/browser-backup"))
+        .map(|h| {
+            let new_path = h.join(".local/share/app-backup");
+            if new_path.join(".git").exists() {
+                new_path
+            } else {
+                h.join(".local/share/browser-backup")
+            }
+        })
         .unwrap_or_default();
 
     if !local_repo.join(".git").exists() {
         out(tx, "  Local repository not found.").await;
-        out(tx, "  Run 'forge browser restore' to clone.").await;
+        out(tx, "  Run 'forge apps restore' to clone.").await;
         out(tx, "").await;
         out(tx, "==============================================").await;
         return Ok(());
@@ -148,7 +156,7 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     .await?;
 
     if !remote_ok {
-        out(tx, "  ⚠ No remote 'origin' configured").await;
+        out(tx, "  No remote 'origin' configured").await;
         out(tx, "").await;
         list_local_files(tx, &local_repo).await;
         out(tx, "==============================================").await;
@@ -164,7 +172,7 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     .await?;
 
     if !fetch_ok {
-        out(tx, "  ⚠ Unable to reach remote; showing local status only").await;
+        out(tx, "  Unable to reach remote; showing local status only").await;
         out(tx, "").await;
         list_local_files(tx, &local_repo).await;
         out(tx, "==============================================").await;
@@ -203,7 +211,7 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         .await?;
 
         if !master_ok {
-            out(tx, "  ⚠ Remote branch not found (origin/main or origin/master)").await;
+            out(tx, "  Remote branch not found (origin/main or origin/master)").await;
             out(tx, "").await;
             list_local_files(tx, &local_repo).await;
             out(tx, "==============================================").await;
@@ -231,10 +239,10 @@ async fn check_and_show_status(
 ) -> Result<()> {
     if local_head.trim() == remote_head.trim() {
         out(tx, "").await;
-        out(tx, "  ✓ Browser profiles are up to date").await;
+        out(tx, "  App profiles are up to date").await;
     } else {
         out(tx, "").await;
-        out(tx, "  ⚠ Remote has newer profiles").await;
+        out(tx, "  Remote has newer profiles").await;
         out(tx, "").await;
         out(tx, "  Remote commits:").await;
 
@@ -256,7 +264,7 @@ async fn check_and_show_status(
         }
 
         out(tx, "").await;
-        out(tx, "  Run 'forge browser restore' to update").await;
+        out(tx, "  Run 'forge apps restore' to update").await;
     }
     Ok(())
 }

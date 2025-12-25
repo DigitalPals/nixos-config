@@ -30,7 +30,7 @@ use commands::CommandMessage;
 #[command(name = "forge")]
 #[command(author = "Cybex B.V.")]
 #[command(version = "1.0.0")]
-#[command(about = "NixOS Configuration Tool - TUI for install, update, and browser profile management")]
+#[command(about = "NixOS Configuration Tool - TUI for install, update, and app profile management")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -52,28 +52,29 @@ enum Commands {
     },
     /// Update flake inputs, rebuild system, and update CLI tools
     Update,
-    /// Browser profile management
-    Browser {
+    /// App profile management (browsers, Termius, etc.)
+    #[command(alias = "browser")]
+    Apps {
         #[command(subcommand)]
-        action: Option<BrowserAction>,
+        action: Option<AppsAction>,
     },
 }
 
 #[derive(Subcommand)]
-enum BrowserAction {
-    /// Backup browser profiles and push to GitHub
+enum AppsAction {
+    /// Backup app profiles and push to GitHub
     Backup {
-        /// Force backup even if browsers are running
+        /// Force backup even if apps are running
         #[arg(short, long)]
         force: bool,
     },
-    /// Pull and restore browser profiles from GitHub
+    /// Pull and restore app profiles from GitHub
     Restore {
-        /// Force restore even if browsers are running
+        /// Force restore even if apps are running
         #[arg(short, long)]
         force: bool,
     },
-    /// Check for browser profile updates
+    /// Check for app profile updates
     Status,
 }
 
@@ -106,17 +107,17 @@ async fn main() -> Result<()> {
             run_tui(AppMode::CreateHost(app::CreateHostState::new())).await
         }
         Some(Commands::Update) => run_tui(AppMode::Update(app::UpdateState::new())).await,
-        Some(Commands::Browser { action }) => match action {
-            Some(BrowserAction::Backup { force }) => {
-                run_tui(AppMode::Browser(app::BrowserState::new_backup(force))).await
+        Some(Commands::Apps { action }) => match action {
+            Some(AppsAction::Backup { force }) => {
+                run_tui(AppMode::Apps(app::AppProfileState::new_backup(force))).await
             }
-            Some(BrowserAction::Restore { force }) => {
-                run_tui(AppMode::Browser(app::BrowserState::new_restore(force))).await
+            Some(AppsAction::Restore { force }) => {
+                run_tui(AppMode::Apps(app::AppProfileState::new_restore(force))).await
             }
-            Some(BrowserAction::Status) => {
-                run_tui(AppMode::Browser(app::BrowserState::new_status())).await
+            Some(AppsAction::Status) => {
+                run_tui(AppMode::Apps(app::AppProfileState::new_status())).await
             }
-            None => run_tui(AppMode::Browser(app::BrowserState::new_menu())).await,
+            None => run_tui(AppMode::Apps(app::AppProfileState::new_menu())).await,
         },
         None => run_tui(AppMode::MainMenu { selected: 0 }).await,
     }

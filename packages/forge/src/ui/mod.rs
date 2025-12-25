@@ -12,7 +12,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, AppMode, BrowserState, CreateHostState, InstallState, UpdateState};
+use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, UpdateState};
 
 /// Main draw function - dispatches to appropriate screen
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -71,27 +71,27 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 screens::update::draw_running(frame, steps, &output_vec, true, Some(*scroll_offset), app);
             }
         },
-        AppMode::Browser(state) => match state {
-            BrowserState::Menu { selected } => {
-                screens::browser::draw_menu(frame, *selected, app);
+        AppMode::Apps(state) => match state {
+            AppProfileState::Menu { selected } => {
+                screens::apps::draw_menu(frame, *selected, app);
             }
-            BrowserState::Running {
+            AppProfileState::Running {
                 operation, output, ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::browser::draw_running(frame, operation, &output_vec, app);
+                screens::apps::draw_running(frame, operation, &output_vec, app);
             }
-            BrowserState::Status { output } => {
+            AppProfileState::Status { output } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::browser::draw_status(frame, &output_vec, app);
+                screens::apps::draw_status(frame, &output_vec, app);
             }
-            BrowserState::Complete {
+            AppProfileState::Complete {
                 success,
                 output,
                 scroll_offset,
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::browser::draw_complete(frame, *success, &output_vec, *scroll_offset, app);
+                screens::apps::draw_complete(frame, *success, &output_vec, *scroll_offset, app);
             }
         },
         AppMode::CreateHost(state) => match state {

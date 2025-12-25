@@ -50,12 +50,12 @@ fn host_dir_exists(hostname: &str) -> bool {
 pub const MAIN_MENU_ITEMS: &[&str] = &[
     "Install NixOS (fresh installation)",
     "Update system",
-    "Browser profiles",
+    "App profiles",
     "Exit",
 ];
 
-/// Browser menu items
-pub const BROWSER_MENU_ITEMS: &[&str] = &[
+/// App profile menu items (browsers, Termius, etc.)
+pub const APP_MENU_ITEMS: &[&str] = &[
     "Backup & push to GitHub",
     "Pull & restore from GitHub",
     "Check for updates",
@@ -69,7 +69,7 @@ pub enum AppMode {
     Install(InstallState),
     CreateHost(CreateHostState),
     Update(UpdateState),
-    Browser(BrowserState),
+    Apps(AppProfileState),
     #[allow(dead_code)]
     Quit,
 }
@@ -244,12 +244,12 @@ impl UpdateState {
     }
 }
 
-/// Browser management state
+/// App profile management state (browsers, Termius, etc.)
 #[derive(Debug, Clone)]
-pub enum BrowserState {
+pub enum AppProfileState {
     Menu { selected: usize },
     Running {
-        operation: BrowserOp,
+        operation: AppOp,
         output: VecDeque<String>,
         force: bool,
     },
@@ -263,34 +263,34 @@ pub enum BrowserState {
     },
 }
 
-impl BrowserState {
+impl AppProfileState {
     pub fn new_menu() -> Self {
-        BrowserState::Menu { selected: 0 }
+        AppProfileState::Menu { selected: 0 }
     }
 
     pub fn new_backup(force: bool) -> Self {
-        BrowserState::Running {
-            operation: BrowserOp::Backup,
+        AppProfileState::Running {
+            operation: AppOp::Backup,
             output: VecDeque::new(),
             force,
         }
     }
 
     pub fn new_restore(force: bool) -> Self {
-        BrowserState::Running {
-            operation: BrowserOp::Restore,
+        AppProfileState::Running {
+            operation: AppOp::Restore,
             output: VecDeque::new(),
             force,
         }
     }
 
     pub fn new_status() -> Self {
-        BrowserState::Status { output: VecDeque::new() }
+        AppProfileState::Status { output: VecDeque::new() }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum BrowserOp {
+pub enum AppOp {
     Backup,
     Restore,
 }
@@ -418,23 +418,23 @@ impl App {
                     commands::update::start_update(tx.clone()).await?;
                 }
             }
-            AppMode::Browser(BrowserState::Running {
+            AppMode::Apps(AppProfileState::Running {
                 operation, force, ..
             }) => {
                 if let Some(tx) = &self.cmd_tx {
                     match operation {
-                        BrowserOp::Backup => {
-                            commands::browser::start_backup(tx.clone(), *force).await?;
+                        AppOp::Backup => {
+                            commands::apps::start_backup(tx.clone(), *force).await?;
                         }
-                        BrowserOp::Restore => {
-                            commands::browser::start_restore(tx.clone(), *force).await?;
+                        AppOp::Restore => {
+                            commands::apps::start_restore(tx.clone(), *force).await?;
                         }
                     }
                 }
             }
-            AppMode::Browser(BrowserState::Status { .. }) => {
+            AppMode::Apps(AppProfileState::Status { .. }) => {
                 if let Some(tx) = &self.cmd_tx {
-                    commands::browser::start_status(tx.clone()).await?;
+                    commands::apps::start_status(tx.clone()).await?;
                 }
             }
             AppMode::Install(InstallState::SelectDisk { disks, .. }) => {
@@ -504,9 +504,9 @@ impl App {
             && matches!(
                 self.mode,
                 AppMode::MainMenu { .. }
-                    | AppMode::Browser(BrowserState::Menu { .. })
-                    | AppMode::Browser(BrowserState::Complete { .. })
-                    | AppMode::Browser(BrowserState::Status { .. })
+                    | AppMode::Apps(AppProfileState::Menu { .. })
+                    | AppMode::Apps(AppProfileState::Complete { .. })
+                    | AppMode::Apps(AppProfileState::Status { .. })
                     | AppMode::Update(UpdateState::Complete { .. })
                     | AppMode::Install(InstallState::Complete { .. })
                     | AppMode::CreateHost(CreateHostState::Complete { .. })
@@ -529,7 +529,7 @@ impl App {
         // Extract values from mode to avoid borrow conflicts
         let action = match &self.mode {
             AppMode::MainMenu { selected } => Some(("main_menu", *selected, None, None)),
-            AppMode::Browser(BrowserState::Menu { selected }) => {
+            AppMode::Apps(AppProfileState::Menu { selected }) => {
                 Some(("browser_menu", *selected, None, None))
             }
             AppMode::Install(InstallState::SelectHost { selected }) => {
@@ -550,14 +550,14 @@ impl App {
             }
             AppMode::Install(InstallState::Complete { .. })
             | AppMode::Update(UpdateState::Complete { .. })
-            | AppMode::Browser(BrowserState::Complete { .. }) => {
+            | AppMode::Apps(AppProfileState::Complete { .. }) => {
                 match key {
                     KeyCode::Enter => Some(("complete", 0, None, None)),
                     KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
                     _ => None,
                 }
             }
-            AppMode::Browser(BrowserState::Status { .. }) => {
+            AppMode::Apps(AppProfileState::Status { .. }) => {
                 if key == KeyCode::Enter {
                     Some(("browser_done", 0, None, None))
                 } else {
@@ -573,7 +573,7 @@ impl App {
                 self.handle_main_menu_key(key, selected).await?;
             }
             Some(("browser_menu", selected, _, _)) => {
-                self.handle_browser_menu_key(key, selected).await?;
+                self.handle_app_menu_key(key, selected).await?;
             }
             Some(("install_host", selected, _, _)) => {
                 self.handle_install_host_key(key, selected).await?;
@@ -592,7 +592,7 @@ impl App {
                 self.handle_scroll(key);
             }
             Some(("browser_done", _, _, _)) => {
-                self.mode = AppMode::Browser(BrowserState::Menu { selected: 0 });
+                self.mode = AppMode::Apps(AppProfileState::Menu { selected: 0 });
             }
             Some(("create_host", _, _, _)) => {
                 self.handle_create_host_key(key).await?;
@@ -635,8 +635,8 @@ impl App {
                 self.start_initial_command().await?;
             }
             2 => {
-                // Browser
-                self.mode = AppMode::Browser(BrowserState::Menu { selected: 0 });
+                // App profiles
+                self.mode = AppMode::Apps(AppProfileState::Menu { selected: 0 });
             }
             3 => {
                 // Exit
@@ -660,7 +660,7 @@ impl App {
                 scroll_offset,
                 ..
             })
-            | AppMode::Browser(BrowserState::Complete {
+            | AppMode::Apps(AppProfileState::Complete {
                 output,
                 scroll_offset,
                 ..
@@ -679,32 +679,32 @@ impl App {
         }
     }
 
-    async fn handle_browser_menu_key(&mut self, key: KeyCode, selected: usize) -> Result<()> {
+    async fn handle_app_menu_key(&mut self, key: KeyCode, selected: usize) -> Result<()> {
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
-                if let AppMode::Browser(BrowserState::Menu { selected }) = &mut self.mode {
+                if let AppMode::Apps(AppProfileState::Menu { selected }) = &mut self.mode {
                     *selected = selected.saturating_sub(1);
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if let AppMode::Browser(BrowserState::Menu { selected }) = &mut self.mode {
-                    *selected = (*selected + 1).min(BROWSER_MENU_ITEMS.len() - 1);
+                if let AppMode::Apps(AppProfileState::Menu { selected }) = &mut self.mode {
+                    *selected = (*selected + 1).min(APP_MENU_ITEMS.len() - 1);
                 }
             }
             KeyCode::Enter => match selected {
                 0 => {
                     // Backup
-                    self.mode = AppMode::Browser(BrowserState::new_backup(false));
+                    self.mode = AppMode::Apps(AppProfileState::new_backup(false));
                     self.start_initial_command().await?;
                 }
                 1 => {
                     // Restore
-                    self.mode = AppMode::Browser(BrowserState::new_restore(false));
+                    self.mode = AppMode::Apps(AppProfileState::new_restore(false));
                     self.start_initial_command().await?;
                 }
                 2 => {
                     // Status
-                    self.mode = AppMode::Browser(BrowserState::new_status());
+                    self.mode = AppMode::Apps(AppProfileState::new_status());
                     self.start_initial_command().await?;
                 }
                 3 => {
@@ -1201,10 +1201,10 @@ impl App {
         );
 
         self.mode = match &self.mode {
-            AppMode::Browser(BrowserState::Menu { .. }) => AppMode::MainMenu { selected: 2 },
-            AppMode::Browser(BrowserState::Complete { .. })
-            | AppMode::Browser(BrowserState::Status { .. }) => {
-                AppMode::Browser(BrowserState::Menu { selected: 0 })
+            AppMode::Apps(AppProfileState::Menu { .. }) => AppMode::MainMenu { selected: 2 },
+            AppMode::Apps(AppProfileState::Complete { .. })
+            | AppMode::Apps(AppProfileState::Status { .. }) => {
+                AppMode::Apps(AppProfileState::Menu { selected: 0 })
             }
             AppMode::Install(InstallState::SelectHost { .. }) => {
                 AppMode::MainMenu { selected: 0 }
@@ -1351,13 +1351,13 @@ impl App {
                     output.pop_front();
                 }
             }
-            AppMode::Browser(BrowserState::Running { output, .. }) => {
+            AppMode::Apps(AppProfileState::Running { output, .. }) => {
                 output.push_back(clean_line.clone());
                 while output.len() > OUTPUT_BUFFER_SIZE {
                     output.pop_front();
                 }
             }
-            AppMode::Browser(BrowserState::Status { output }) => {
+            AppMode::Apps(AppProfileState::Status { output }) => {
                 output.push_back(clean_line);
             }
             AppMode::CreateHost(CreateHostState::Generating { output, .. }) => {
@@ -1476,8 +1476,8 @@ impl App {
         ));
 
         match &mut self.mode {
-            AppMode::Browser(BrowserState::Running { output, .. }) => {
-                self.mode = AppMode::Browser(BrowserState::Complete {
+            AppMode::Apps(AppProfileState::Running { output, .. }) => {
+                self.mode = AppMode::Apps(AppProfileState::Complete {
                     success,
                     output: output.clone(),
                     scroll_offset: 0,

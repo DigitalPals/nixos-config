@@ -1,16 +1,17 @@
-# Browser Profile Backup/Restore Module
+# Application Profile Backup/Restore Module
 #
-# Provides age-encrypted browser profile backup to a private GitHub repository.
+# Provides age-encrypted app profile backup to a private GitHub repository.
 # Supports 1Password integration for automatic key retrieval across machines.
 #
 # MINIMAL BACKUP - Only backs up essential files for:
 # - Login sessions and cookies
-# - Saved passwords (encrypted by browser)
+# - Saved passwords (encrypted by browser/app)
 # - Firefox Sync / Chrome sync data
 # - Current session tabs
+# - Termius SSH connections and settings
 #
 # Does NOT backup: cache, history, extensions, themes, or other data.
-# Typical backup size: <10MB (vs 3GB+ for full profiles)
+# Typical backup size: <15MB (vs 3GB+ for full profiles)
 #
 # See CLAUDE.md for setup instructions and troubleshooting.
 #
@@ -19,7 +20,7 @@
 with lib;
 
 let
-  cfg = config.programs.browser-backup;
+  cfg = config.programs.app-backup;
 
   # Essential Chrome files for login/session restoration
   # These are the minimum files needed to preserve:
@@ -67,9 +68,26 @@ let
     "installs.ini"
   ];
 
-  # The browser-backup script
-  browser-backup = pkgs.writeShellApplication {
-    name = "browser-backup";
+  # Essential Termius files for login/session restoration
+  # Termius is an Electron app, stores data like Chrome
+  # - Cookies: session cookies for Termius cloud login
+  # - Local Storage: auth tokens, saved hosts, SSH keys, settings
+  # - IndexedDB: structured data for connections
+  termiusEssentialFiles = [
+    "Cookies"
+    "Cookies-journal"
+    "Preferences"
+    "Network Persistent State"
+  ];
+
+  termiusEssentialDirs = [
+    "Local Storage/leveldb"
+    "IndexedDB/file__0.indexeddb.leveldb"
+  ];
+
+  # The app-backup script
+  app-backup = pkgs.writeShellApplication {
+    name = "app-backup";
     runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs findutils libsecret ];
     text = ''
       set -euo pipefail
@@ -86,18 +104,22 @@ let
       log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
       log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
 
-      # Load configuration
-      CONFIG_FILE="$HOME/.config/browser-backup/config"
+      # Load configuration (check new path first, then legacy)
+      CONFIG_FILE="$HOME/.config/app-backup/config"
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_error "Config file not found: $CONFIG_FILE"
+        CONFIG_FILE="$HOME/.config/browser-backup/config"
+      fi
+      if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Config file not found. Run: nixos-rebuild switch"
       fi
       # shellcheck source=/dev/null
       source "$CONFIG_FILE"
 
-      # Validate required config
-      : "''${BROWSER_BACKUP_REPO:?BROWSER_BACKUP_REPO not set in config}"
+      # Validate required config (support both old and new variable names)
+      APP_BACKUP_REPO="''${APP_BACKUP_REPO:-''${BROWSER_BACKUP_REPO:-}}"
+      : "''${APP_BACKUP_REPO:?APP_BACKUP_REPO not set in config}"
       : "''${AGE_RECIPIENT:?AGE_RECIPIENT not set in config}"
-      : "''${LOCAL_REPO_PATH:=$HOME/.local/share/browser-backup}"
+      : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
 
       # Parse arguments
       FORCE=false
@@ -107,34 +129,36 @@ let
           --force|-f) FORCE=true; shift ;;
           --push|-p) PUSH=true; shift ;;
           --help|-h)
-            echo "Usage: browser-backup [OPTIONS]"
+            echo "Usage: app-backup [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --force, -f    Force backup even if browsers are running"
+            echo "  --force, -f    Force backup even if apps are running"
             echo "  --push, -p     Push encrypted archives to GitHub after backup"
             echo "  --help, -h     Show this help"
             echo ""
             echo "This backs up ONLY essential files for login restoration:"
             echo "  Chrome: cookies, login data, sessions, preferences"
             echo "  Firefox: cookies, logins, sessions, sync data"
+            echo "  Termius: session tokens, saved hosts, SSH keys"
             exit 0
             ;;
           *) log_error "Unknown option: $1" ;;
         esac
       done
 
-      # Check if browsers are running
-      check_browsers() {
+      # Check if apps are running
+      check_apps() {
         local running=""
         pgrep -x "chrome" >/dev/null 2>&1 && running="Chrome"
         pgrep -x "firefox" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x "firefox-bin" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x ".firefox-wrapped" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
+        pgrep -f "[T]ermius" >/dev/null 2>&1 && running="''${running:+$running, }Termius"
         if [[ -n "$running" ]]; then
           if [[ "$FORCE" == "true" ]]; then
-            log_warn "Browsers running ($running) - continuing with --force"
+            log_warn "Apps running ($running) - continuing with --force"
           else
-            log_error "Browsers are running: $running. Close them or use --force"
+            log_error "Apps are running: $running. Close them or use --force"
           fi
         fi
       }
@@ -259,6 +283,66 @@ let
         return 0
       }
 
+      # Create Termius archive with only essential files
+      backup_termius() {
+        local termius_dir="$HOME/.config/Termius"
+        local archive="$TEMP_DIR/termius-profile.tar.gz"
+        local staging_dir="$TEMP_DIR/termius-staging"
+
+        if [[ ! -d "$termius_dir" ]]; then
+          log_warn "Termius directory not found: $termius_dir"
+          return 1
+        fi
+
+        log_info "Backing up Termius essential files..."
+
+        # Create staging directory for archive contents
+        mkdir -p "$staging_dir"
+
+        # Build list of files that exist and copy to staging
+        local count=0
+        cd "$termius_dir"
+
+        # Copy essential files
+        for f in ${lib.concatMapStringsSep " " (f: ''"${f}"'') termiusEssentialFiles}; do
+          if [[ -f "$f" ]]; then
+            cp "$f" "$staging_dir/"
+            ((count++)) || true
+          fi
+        done
+
+        # Copy essential directories (recursively)
+        for d in ${lib.concatMapStringsSep " " (d: ''"${d}"'') termiusEssentialDirs}; do
+          if [[ -d "$d" ]]; then
+            mkdir -p "$staging_dir/$d"
+            cp -r "$d"/* "$staging_dir/$d/" 2>/dev/null || true
+            ((count++)) || true
+          fi
+        done
+
+        if [[ $count -eq 0 ]]; then
+          log_warn "No Termius files found to backup"
+          return 1
+        fi
+
+        log_info "Found $count essential Termius items"
+
+        # Create archive from staging directory
+        tar --create --gzip --file="$archive" \
+          --directory="$staging_dir" \
+          --sort=name \
+          --mtime='2024-01-01' \
+          .
+
+        # Clean up staging
+        rm -rf "$staging_dir"
+
+        local size
+        size=$(du -h "$archive" | cut -f1)
+        log_success "Termius archive: $size"
+        return 0
+      }
+
       # Encrypt with age (only needs public key - no 1Password needed)
       encrypt_archive() {
         local src="$1" dst="$2"
@@ -290,10 +374,10 @@ let
       }
 
       # Main
-      log_info "Browser Profile Backup (Essential Files Only)"
+      log_info "App Profile Backup (Essential Files Only)"
       echo ""
 
-      check_browsers
+      check_apps
 
       # Create secure temp directory
       TEMP_DIR=$(mktemp -d)
@@ -310,6 +394,11 @@ let
         encrypt_archive "$TEMP_DIR/firefox-profile.tar.gz" "$TEMP_DIR/firefox-profile.tar.gz.age"
       fi
 
+      # Termius backup
+      if backup_termius; then
+        encrypt_archive "$TEMP_DIR/termius-profile.tar.gz" "$TEMP_DIR/termius-profile.tar.gz.age"
+      fi
+
       # Push to GitHub if requested
       if [[ "$PUSH" == "true" ]]; then
         echo ""
@@ -320,7 +409,7 @@ let
         mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
         if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
           log_info "Cloning repository..."
-          git clone "$BROWSER_BACKUP_REPO" "$LOCAL_REPO_PATH"
+          git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
         else
           log_info "Updating repository..."
           # Reset any uncommitted changes from interrupted backups
@@ -359,11 +448,11 @@ let
     '';
   };
 
-  # The browser-restore script
+  # The app-restore script
   # NOTE: Do NOT include _1password-cli in runtimeInputs - we need the system wrapper
   # at /run/wrappers/bin/op which has permissions to communicate with the desktop app
-  browser-restore = pkgs.writeShellApplication {
-    name = "browser-restore";
+  app-restore = pkgs.writeShellApplication {
+    name = "app-restore";
     runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs libsecret ];
     text = ''
       set -euo pipefail
@@ -380,17 +469,21 @@ let
       log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
       log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
 
-      # Load configuration
-      CONFIG_FILE="$HOME/.config/browser-backup/config"
+      # Load configuration (check new path first, then legacy)
+      CONFIG_FILE="$HOME/.config/app-backup/config"
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_error "Config file not found: $CONFIG_FILE"
+        CONFIG_FILE="$HOME/.config/browser-backup/config"
+      fi
+      if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Config file not found. Run: nixos-rebuild switch"
       fi
       # shellcheck source=/dev/null
       source "$CONFIG_FILE"
 
-      # Validate required config
-      : "''${BROWSER_BACKUP_REPO:?BROWSER_BACKUP_REPO not set in config}"
-      : "''${LOCAL_REPO_PATH:=$HOME/.local/share/browser-backup}"
+      # Validate required config (support both old and new variable names)
+      APP_BACKUP_REPO="''${APP_BACKUP_REPO:-''${BROWSER_BACKUP_REPO:-}}"
+      : "''${APP_BACKUP_REPO:?APP_BACKUP_REPO not set in config}"
+      : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
       : "''${BACKUP_RETENTION:=3}"
 
       # Check for 1Password or file-based key
@@ -409,36 +502,38 @@ let
           --force|-f) FORCE=true; shift ;;
           --pull|-p) PULL=true; shift ;;
           --help|-h)
-            echo "Usage: browser-restore [OPTIONS]"
+            echo "Usage: app-restore [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --force, -f    Force restore even if browsers are running"
+            echo "  --force, -f    Force restore even if apps are running"
             echo "  --pull, -p     Pull latest from GitHub before restoring"
             echo "  --help, -h     Show this help"
             echo ""
             echo "This restores essential files for login restoration:"
             echo "  Chrome: cookies, login data, sessions, preferences"
             echo "  Firefox: cookies, logins, sessions, sync data"
+            echo "  Termius: session tokens, saved hosts, SSH keys"
             echo ""
-            echo "Files are merged into existing browser profiles."
+            echo "Files are merged into existing app profiles."
             exit 0
             ;;
           *) log_error "Unknown option: $1" ;;
         esac
       done
 
-      # Check if browsers are running
-      check_browsers() {
+      # Check if apps are running
+      check_apps() {
         local running=""
         pgrep -x "chrome" >/dev/null 2>&1 && running="Chrome"
         pgrep -x "firefox" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x "firefox-bin" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x ".firefox-wrapped" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
+        pgrep -f "[T]ermius" >/dev/null 2>&1 && running="''${running:+$running, }Termius"
         if [[ -n "$running" ]]; then
           if [[ "$FORCE" == "true" ]]; then
-            log_warn "Browsers running ($running) - continuing with --force"
+            log_warn "Apps running ($running) - continuing with --force"
           else
-            log_error "Browsers are running: $running. Close them or use --force"
+            log_error "Apps are running: $running. Close them or use --force"
           fi
         fi
       }
@@ -688,11 +783,58 @@ let
         return 0
       }
 
+      # Restore Termius essential files (merge into existing profile)
+      restore_termius() {
+        local age_file="$1"
+        local termius_dir="$HOME/.config/Termius"
+
+        if [[ ! -f "$age_file" ]]; then
+          log_warn "Termius backup not found: $age_file"
+          return 1
+        fi
+
+        log_info "Restoring Termius essential files..."
+
+        # Decrypt
+        local tar_file="$TEMP_DIR/termius-profile.tar.gz"
+        local extract_dir="$TEMP_DIR/termius-extract"
+        mkdir -p "$extract_dir"
+
+        get_age_key | age --decrypt --identity - --output "$tar_file" "$age_file"
+        tar --extract --gzip --file="$tar_file" --directory="$extract_dir"
+
+        # Backup files that will be overwritten
+        backup_essential_files "$termius_dir" "$extract_dir"
+        prune_essential_backups "$termius_dir" "$BACKUP_RETENTION"
+
+        # Ensure target directory exists
+        mkdir -p "$termius_dir"
+
+        # Copy files from archive to termius dir (merge)
+        local file_count=0
+        cd "$extract_dir"
+        find . -type f | while read -r f; do
+          local src="$extract_dir/$f"
+          local dst="$termius_dir/$f"
+          mkdir -p "$(dirname "$dst")"
+          cp "$src" "$dst"
+        done
+        file_count=$(find "$extract_dir" -type f 2>/dev/null | wc -l)
+        cd /
+
+        # Cleanup
+        shred -u "$tar_file" 2>/dev/null || rm -f "$tar_file"
+        rm -rf "$extract_dir"
+
+        log_success "Restored $file_count Termius essential files"
+        return 0
+      }
+
       # Main
-      log_info "Browser Profile Restore (Essential Files Only)"
+      log_info "App Profile Restore (Essential Files Only)"
       echo ""
 
-      check_browsers
+      check_apps
 
       # Pull from GitHub if requested
       LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
@@ -701,7 +843,7 @@ let
         mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
         if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
           log_info "Cloning repository..."
-          git clone "$BROWSER_BACKUP_REPO" "$LOCAL_REPO_PATH"
+          git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
         else
           log_info "Updating repository..."
           # Reset any uncommitted changes from interrupted backups
@@ -726,16 +868,31 @@ let
       # Restore Firefox
       restore_firefox "$LOCAL_REPO_PATH/firefox-profile.tar.gz.age" || true
 
+      # Restore Termius
+      restore_termius "$LOCAL_REPO_PATH/termius-profile.tar.gz.age" || true
+
       echo ""
       log_success "Restore complete!"
-      log_info "You can now start your browsers."
+      log_info "You can now start your apps."
     '';
   };
 
+  # Backward compatibility wrapper for browser-backup
+  browser-backup-compat = pkgs.writeShellScriptBin "browser-backup" ''
+    echo -e "\033[1;33m[DEPRECATED]\033[0m browser-backup has been renamed to app-backup" >&2
+    exec ${app-backup}/bin/app-backup "$@"
+  '';
+
+  # Backward compatibility wrapper for browser-restore
+  browser-restore-compat = pkgs.writeShellScriptBin "browser-restore" ''
+    echo -e "\033[1;33m[DEPRECATED]\033[0m browser-restore has been renamed to app-restore" >&2
+    exec ${app-restore}/bin/app-restore "$@"
+  '';
+
 in
 {
-  options.programs.browser-backup = {
-    enable = mkEnableOption "browser profile backup/restore";
+  options.programs.app-backup = {
+    enable = mkEnableOption "app profile backup/restore (browsers, Termius, etc.)";
 
     repoUrl = mkOption {
       type = types.str;
@@ -775,7 +932,7 @@ in
 
     localRepoPath = mkOption {
       type = types.str;
-      default = "~/.local/share/browser-backup";
+      default = "~/.local/share/app-backup";
       description = "Local clone location for the backup repo";
     };
 
@@ -790,14 +947,18 @@ in
     assertions = [
       {
         assertion = cfg.ageKey1Password != null || cfg.ageKeyPath != null;
-        message = "browser-backup: Either ageKey1Password or ageKeyPath must be set";
+        message = "app-backup: Either ageKey1Password or ageKeyPath must be set";
       }
     ];
 
     # Install the scripts and dependencies
     home.packages = [
-      browser-backup
-      browser-restore
+      app-backup
+      app-restore
+      # Backward compatibility
+      browser-backup-compat
+      browser-restore-compat
+      # Dependencies
       pkgs.age
       pkgs.git
       pkgs.git-lfs
@@ -805,11 +966,11 @@ in
     ];
 
     # Generate the configuration file
-    xdg.configFile."browser-backup/config" = {
+    xdg.configFile."app-backup/config" = {
       text = ''
-        # Browser Backup Configuration
+        # App Backup Configuration
         # Generated by Home Manager - do not edit manually
-        BROWSER_BACKUP_REPO="${cfg.repoUrl}"
+        APP_BACKUP_REPO="${cfg.repoUrl}"
         AGE_RECIPIENT="${cfg.ageRecipient}"
         LOCAL_REPO_PATH="${cfg.localRepoPath}"
         BACKUP_RETENTION=${toString cfg.backupRetention}

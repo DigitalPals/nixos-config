@@ -22,7 +22,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   ├── home.nix                    # Main Home Manager config
 │   ├── ghostty.nix                 # Terminal config
 │   ├── neovim.nix
-│   ├── browser-backup/             # Browser profile backup/restore
+│   ├── app-backup/                 # App profile backup/restore (browsers, Termius)
 │   │   └── default.nix
 │   ├── hyprland/                   # Hyprland WM config (modular)
 │   │   ├── default.nix
@@ -49,8 +49,8 @@ Forge is a Rust TUI application for managing NixOS installations and updates. Co
 # From installed system
 forge                    # Interactive TUI menu
 forge update            # Update flake + rebuild + CLI tools
-forge browser backup    # Backup browser profiles
-forge browser restore   # Restore browser profiles
+forge apps backup       # Backup app profiles (browsers, Termius)
+forge apps restore      # Restore app profiles
 
 # From NixOS ISO (fresh install)
 nix run github:DigitalPals/nixos-config
@@ -63,9 +63,11 @@ nix run github:DigitalPals/nixos-config
 | `forge` | Interactive TUI with main menu |
 | `forge install [hostname] [disk]` | Fresh NixOS installation |
 | `forge update` | Update flake, rebuild, update CLI tools |
-| `forge browser backup` | Backup + push browser profiles |
-| `forge browser restore` | Pull + restore browser profiles |
-| `forge browser status` | Check for profile updates |
+| `forge apps backup` | Backup + push app profiles |
+| `forge apps restore` | Pull + restore app profiles |
+| `forge apps status` | Check for profile updates |
+
+Note: `forge browser` is still supported as an alias for `forge apps`.
 
 ### Fresh Installation from ISO
 
@@ -194,9 +196,15 @@ rm ~/.config/noctalia/.deployed-hash
 sudo nixos-rebuild switch --flake .
 ```
 
-## Browser Profile Backup/Restore
+## App Profile Backup/Restore
 
-Encrypted browser profile backup system using Age encryption and a private GitHub repository. Supports 1Password integration for automatic key retrieval across machines.
+Encrypted app profile backup system using Age encryption and a private GitHub repository. Supports 1Password integration for automatic key retrieval across machines.
+
+### Supported Applications
+
+- **Chrome**: Cookies, login data, sessions, preferences
+- **Firefox**: Cookies, logins, sessions, sync data
+- **Termius**: Session tokens, saved hosts, SSH keys, settings
 
 ### Setup with 1Password (Recommended)
 
@@ -215,7 +223,7 @@ Encrypted browser profile backup system using Age encryption and a private GitHu
 
 3. Configure in `home/home.nix`:
    ```nix
-   programs.browser-backup = {
+   programs.app-backup = {
      enable = true;
      # Repo is pre-configured to: git@github.com:DigitalPals/private-settings.git
      ageRecipient = "age1...your-public-key...";
@@ -229,7 +237,7 @@ Encrypted browser profile backup system using Age encryption and a private GitHu
 
 If not using 1Password, you can use a file-based key:
 ```nix
-programs.browser-backup = {
+programs.app-backup = {
   enable = true;
   ageRecipient = "age1...";
   ageKeyPath = "~/.config/age/key.txt";  # Fallback if ageKey1Password not set
@@ -240,34 +248,41 @@ programs.browser-backup = {
 
 Via Forge TUI (recommended):
 ```bash
-forge browser backup     # Backup + push profiles to GitHub
-forge browser restore    # Restore profiles from GitHub
-forge browser status     # Check for remote updates
-forge browser            # Interactive menu
+forge apps backup        # Backup + push profiles to GitHub
+forge apps restore       # Restore profiles from GitHub
+forge apps status        # Check for remote updates
+forge apps               # Interactive menu
+
+# Backward compatibility alias
+forge browser backup     # Same as forge apps backup
 ```
 
 Via standalone scripts (after Home Manager activation):
 ```bash
-browser-backup --push          # Backup + push
-browser-restore --pull         # Pull + restore
+app-backup --push          # Backup + push
+app-restore --pull         # Pull + restore
+
+# Deprecated aliases (still work)
+browser-backup --push      # Same as app-backup
+browser-restore --pull     # Same as app-restore
 ```
 
 ### New Machine Bootstrap
 
 1. Install NixOS with Forge: `nix run github:DigitalPals/nixos-config`
 2. Sign in to 1Password desktop app (unlocks the CLI)
-3. Run `forge browser restore`
-4. Open browsers - sessions restored
+3. Run `forge apps restore`
+4. Open apps - sessions restored (Chrome, Firefox, Termius)
 
 The age key is retrieved from 1Password on-the-fly - no manual key management needed!
 
 ### Troubleshooting
 
-- **"Browsers are running"**: Close Chrome/Firefox or use `--force`
+- **"Apps are running"**: Close Chrome/Firefox/Termius or use `--force`
 - **"1Password not unlocked"**: Open 1Password app and sign in
 - **"op: command not found"**: Rebuild to install 1Password CLI
 - **"Git push failed"**: Check SSH key is in 1Password agent
-- **"Config not found"**: Enable `programs.browser-backup` and rebuild
+- **"Config not found"**: Enable `programs.app-backup` and rebuild
 
 ### Security Notes
 

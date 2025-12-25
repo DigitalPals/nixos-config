@@ -1,4 +1,4 @@
-//! Browser management screens
+//! App profile management screens (browsers, Termius, etc.)
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
@@ -7,12 +7,12 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, BrowserOp, BROWSER_MENU_ITEMS};
+use crate::app::{App, AppOp, APP_MENU_ITEMS};
 use crate::ui::layout::centered_rect;
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, MenuList};
 
-/// Draw browser menu
+/// Draw app profiles menu
 pub fn draw_menu(frame: &mut Frame, selected: usize, _app: &App) {
     let area = frame.area();
     let chunks = Layout::default()
@@ -26,7 +26,7 @@ pub fn draw_menu(frame: &mut Frame, selected: usize, _app: &App) {
 
     // Header
     let header = Paragraph::new(Line::from(Span::styled(
-        " Browser Profiles ",
+        " App Profiles ",
         theme::title(),
     )))
     .alignment(Alignment::Center)
@@ -38,7 +38,7 @@ pub fn draw_menu(frame: &mut Frame, selected: usize, _app: &App) {
     frame.render_widget(header, chunks[0]);
 
     // Menu
-    let menu = MenuList::new(BROWSER_MENU_ITEMS.to_vec(), selected);
+    let menu = MenuList::new(APP_MENU_ITEMS.to_vec(), selected);
     frame.render_widget(menu, chunks[1]);
 
     // Footer
@@ -56,7 +56,7 @@ pub fn draw_menu(frame: &mut Frame, selected: usize, _app: &App) {
 }
 
 /// Draw running operation screen
-pub fn draw_running(frame: &mut Frame, operation: &BrowserOp, output: &[String], app: &App) {
+pub fn draw_running(frame: &mut Frame, operation: &AppOp, output: &[String], app: &App) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -69,8 +69,8 @@ pub fn draw_running(frame: &mut Frame, operation: &BrowserOp, output: &[String],
 
     // Header
     let title = match operation {
-        BrowserOp::Backup => " Backing Up Browser Profiles ",
-        BrowserOp::Restore => " Restoring Browser Profiles ",
+        AppOp::Backup => " Backing Up App Profiles ",
+        AppOp::Restore => " Restoring App Profiles ",
     };
     let header = Paragraph::new(Line::from(Span::styled(title, theme::title())))
         .alignment(Alignment::Center)
@@ -112,7 +112,7 @@ pub fn draw_status(frame: &mut Frame, output: &[String], _app: &App) {
 
     // Header
     let header = Paragraph::new(Line::from(Span::styled(
-        " Browser Profile Status ",
+        " App Profile Status ",
         theme::title(),
     )))
     .alignment(Alignment::Center)
@@ -159,9 +159,9 @@ pub fn draw_complete(
 
     // Header
     let (title, style) = if success {
-        (" ✓ Operation Complete ", theme::success())
+        (" Operation Complete ", theme::success())
     } else {
-        (" ✗ Operation Failed ", theme::error())
+        (" Operation Failed ", theme::error())
     };
     let header = Paragraph::new(Line::from(Span::styled(title, style)))
         .alignment(Alignment::Center)
