@@ -108,13 +108,22 @@
                     "id": "KeepAwake"
                 },
                 {
-                    "displayMode": "onhover",
-                    "id": "Volume"
-                },
-                {
                     "hideWhenZero": true,
                     "id": "NotificationHistory",
                     "showUnreadBadge": true
+                },
+                {
+                    "deviceNativePath": "",
+                    "displayMode": "onhover",
+                    "hideIfNotDetected": true,
+                    "id": "Battery",
+                    "showNoctaliaPerformance": false,
+                    "showPowerProfiles": false,
+                    "warningThreshold": 30
+                },
+                {
+                    "displayMode": "onhover",
+                    "id": "Volume"
                 },
                 {
                     "blacklist": [
