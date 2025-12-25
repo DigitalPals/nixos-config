@@ -83,6 +83,25 @@ in
     categories = [ "Office" "Security" ];
   };
 
+  xdg.desktopEntries.onlyoffice-desktopeditors = {
+    name = "OnlyOffice Desktop Editors";
+    exec = "onlyoffice-desktopeditors --enable-features=UseOzonePlatform,WaylandWindowDecorations --ozone-platform=wayland %U";
+    icon = "onlyoffice-desktopeditors";
+    comment = "Office productivity suite";
+    categories = [ "Office" ];
+    mimeType = [
+      "application/vnd.oasis.opendocument.text"
+      "application/vnd.oasis.opendocument.spreadsheet"
+      "application/vnd.oasis.opendocument.presentation"
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      "application/msword"
+      "application/vnd.ms-excel"
+      "application/vnd.ms-powerpoint"
+    ];
+  };
+
   # Wallpapers
   home.file."Pictures/Wallpapers/01-black-widow-warrior-with-katana-ks.jpg".source = ../wallpapers/01-black-widow-warrior-with-katana-ks.jpg;
   home.file."Pictures/Wallpapers/05-joker-chaos-in-a-purple-suit-nq.jpg".source = ../wallpapers/05-joker-chaos-in-a-purple-suit-nq.jpg;
@@ -132,6 +151,7 @@ in
     # Productivity
     evince           # document/PDF viewer
     localsend        # local file sharing
+    onlyoffice-desktopeditors  # office suite
 
     # Fonts
     font-awesome
