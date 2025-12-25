@@ -18,6 +18,7 @@ pub fn draw_running(
     steps: &[StepStatus],
     output: &[String],
     complete: bool,
+    scroll_offset: Option<usize>,
     app: &App,
 ) {
     let area = frame.area();
@@ -51,13 +52,18 @@ pub fn draw_running(
     let progress = ProgressSteps::new(steps, app.spinner_state).title(" Progress ");
     frame.render_widget(progress, steps_area);
 
-    let log = LogView::new(output).title(" Output ");
+    let mut log = LogView::new(output).title(" Output ");
+    if let Some(offset) = scroll_offset {
+        log = log.scroll_offset(offset);
+    }
     frame.render_widget(log, output_area);
 
     // Footer
     let footer = if complete {
         Paragraph::new(Line::from(vec![
             Span::styled("[", theme::dim()),
+            Span::styled("↑↓", theme::key_hint()),
+            Span::styled("] Scroll  [", theme::dim()),
             Span::styled("Enter", theme::key_hint()),
             Span::styled("] Done  [", theme::dim()),
             Span::styled("q", theme::key_hint()),

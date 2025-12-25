@@ -1,4 +1,4 @@
-{ lib, rustPlatform, pkg-config }:
+{ lib, rustPlatform, pkg-config, makeWrapper, nvd }:
 
 rustPlatform.buildRustPackage {
   pname = "forge";
@@ -8,7 +8,12 @@ rustPlatform.buildRustPackage {
 
   cargoLock.lockFile = ./Cargo.lock;
 
-  nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [ pkg-config makeWrapper ];
+
+  postInstall = ''
+    wrapProgram $out/bin/forge \
+      --prefix PATH : ${lib.makeBinPath [ nvd ]}
+  '';
 
   meta = {
     description = "NixOS Configuration Tool - Copyright Cybex B.V.";

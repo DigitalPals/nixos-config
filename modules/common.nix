@@ -1,5 +1,5 @@
 # Common NixOS configuration shared across all machines
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, forge, ... }:
 
 {
   imports = [
@@ -22,8 +22,13 @@
   # Optimize store automatically
   nix.settings.auto-optimise-store = true;
 
-  # Create /bin/bash symlink for script compatibility
+  # Use bash as /bin/sh (instead of busybox ash)
   environment.binsh = "${pkgs.bash}/bin/bash";
+
+  # Create /bin/bash symlink for script compatibility (#!/bin/bash shebangs)
+  systemd.tmpfiles.rules = [
+    "L+ /bin/bash - - - - ${pkgs.bash}/bin/bash"
+  ];
 
   # Enable nix-ld for running dynamically linked executables
   programs.nix-ld = {
@@ -162,6 +167,8 @@
     efibootmgr
     lm_sensors
     powertop
+    nvd # Nix package version diff tool
+    forge
   ];
 
   # Security - passwordless sudo (account has no password)

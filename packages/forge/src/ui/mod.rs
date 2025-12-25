@@ -5,7 +5,12 @@ mod screens;
 pub mod theme;
 pub mod widgets;
 
-use ratatui::Frame;
+use ratatui::{
+    layout::Rect,
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
+};
 
 use crate::app::{App, AppMode, BrowserState, CreateHostState, InstallState, UpdateState};
 
@@ -40,9 +45,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
                 screens::install::draw_running(frame, host, disk, steps, &output_vec, app);
             }
-            InstallState::Complete { success, output } => {
+            InstallState::Complete {
+                success,
+                output,
+                scroll_offset,
+            } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::install::draw_complete(frame, *success, &output_vec, app);
+                screens::install::draw_complete(frame, *success, &output_vec, *scroll_offset, app);
             }
         },
         AppMode::Update(state) => match state {
@@ -50,15 +59,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 steps, output, ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_running(frame, steps, &output_vec, false, app);
+                screens::update::draw_running(frame, steps, &output_vec, false, None, app);
             }
             UpdateState::Complete {
                 steps,
                 output,
+                scroll_offset,
                 success: _,
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_running(frame, steps, &output_vec, true, app);
+                screens::update::draw_running(frame, steps, &output_vec, true, Some(*scroll_offset), app);
             }
         },
         AppMode::Browser(state) => match state {
@@ -75,9 +85,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
                 screens::browser::draw_status(frame, &output_vec, app);
             }
-            BrowserState::Complete { success, output } => {
+            BrowserState::Complete {
+                success,
+                output,
+                scroll_offset,
+            } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::browser::draw_complete(frame, *success, &output_vec, app);
+                screens::browser::draw_complete(frame, *success, &output_vec, *scroll_offset, app);
             }
         },
         AppMode::CreateHost(state) => match state {
@@ -158,4 +172,44 @@ pub fn draw(frame: &mut Frame, app: &App) {
         },
         AppMode::Quit => {}
     }
+
+    // Render exit confirmation popup on top of any screen
+    if app.show_exit_confirm {
+        draw_exit_confirm(frame);
+    }
+}
+
+/// Draw the exit confirmation popup centered on screen
+fn draw_exit_confirm(frame: &mut Frame) {
+    let area = frame.area();
+    let popup_width = 40;
+    let popup_height = 7;
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Draw popup content
+    let content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled("Are you sure you want to exit?", theme::text())),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[", theme::dim()),
+            Span::styled("Enter/Y", theme::key_hint()),
+            Span::styled("] Yes  [", theme::dim()),
+            Span::styled("Esc/N", theme::key_hint()),
+            Span::styled("] No", theme::dim()),
+        ]),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border_active())
+            .title(Span::styled(" Exit ", theme::title())),
+    );
+    frame.render_widget(content, popup_area);
 }

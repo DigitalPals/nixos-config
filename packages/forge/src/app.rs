@@ -100,6 +100,7 @@ pub enum InstallState {
     Complete {
         success: bool,
         output: VecDeque<String>,
+        scroll_offset: usize,
     },
 }
 
@@ -222,6 +223,7 @@ pub enum UpdateState {
         success: bool,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
+        scroll_offset: usize,
     },
 }
 
@@ -232,6 +234,7 @@ impl UpdateState {
             steps: vec![
                 StepStatus::new("Updating flake inputs"),
                 StepStatus::new("Rebuilding system"),
+                StepStatus::new("Comparing packages"),
                 StepStatus::new("Updating Claude Code"),
                 StepStatus::new("Updating Codex CLI"),
                 StepStatus::new("Checking browser profiles"),
@@ -256,6 +259,7 @@ pub enum BrowserState {
     Complete {
         success: bool,
         output: VecDeque<String>,
+        scroll_offset: usize,
     },
 }
 
@@ -547,10 +551,10 @@ impl App {
             AppMode::Install(InstallState::Complete { .. })
             | AppMode::Update(UpdateState::Complete { .. })
             | AppMode::Browser(BrowserState::Complete { .. }) => {
-                if key == KeyCode::Enter {
-                    Some(("complete", 0, None, None))
-                } else {
-                    None
+                match key {
+                    KeyCode::Enter => Some(("complete", 0, None, None)),
+                    KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
+                    _ => None,
                 }
             }
             AppMode::Browser(BrowserState::Status { .. }) => {
@@ -583,6 +587,9 @@ impl App {
             }
             Some(("complete", _, _, _)) => {
                 self.mode = AppMode::MainMenu { selected: 0 };
+            }
+            Some(("scroll", _, _, _)) => {
+                self.handle_scroll(key);
             }
             Some(("browser_done", _, _, _)) => {
                 self.mode = AppMode::Browser(BrowserState::Menu { selected: 0 });
@@ -638,6 +645,38 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Handle scroll keys for complete screens
+    fn handle_scroll(&mut self, key: KeyCode) {
+        match &mut self.mode {
+            AppMode::Install(InstallState::Complete {
+                output,
+                scroll_offset,
+                ..
+            })
+            | AppMode::Update(UpdateState::Complete {
+                output,
+                scroll_offset,
+                ..
+            })
+            | AppMode::Browser(BrowserState::Complete {
+                output,
+                scroll_offset,
+                ..
+            }) => match key {
+                KeyCode::Up => {
+                    *scroll_offset = scroll_offset.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    if *scroll_offset < output.len().saturating_sub(1) {
+                        *scroll_offset += 1;
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
 
     async fn handle_browser_menu_key(&mut self, key: KeyCode, selected: usize) -> Result<()> {
@@ -1441,12 +1480,14 @@ impl App {
                 self.mode = AppMode::Browser(BrowserState::Complete {
                     success,
                     output: output.clone(),
+                    scroll_offset: 0,
                 });
             }
             AppMode::Install(InstallState::Running { output, .. }) => {
                 self.mode = AppMode::Install(InstallState::Complete {
                     success,
                     output: output.clone(),
+                    scroll_offset: 0,
                 });
             }
             AppMode::Update(UpdateState::Running { steps, output, .. }) => {
@@ -1454,6 +1495,7 @@ impl App {
                     success,
                     steps: steps.clone(),
                     output: output.clone(),
+                    scroll_offset: 0,
                 });
             }
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
