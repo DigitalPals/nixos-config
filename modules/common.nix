@@ -73,8 +73,8 @@
     enable32Bit = true;
   };
 
-  # AMD CPU microcode updates
-  hardware.cpu.amd.updateMicrocode = true;
+  # CPU microcode updates (use mkDefault so Intel hosts can override)
+  hardware.cpu.amd.updateMicrocode = lib.mkDefault true;
 
   # Firmware for AMD GPUs and other hardware
   hardware.enableRedistributableFirmware = true;

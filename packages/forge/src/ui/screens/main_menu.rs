@@ -3,7 +3,7 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -23,7 +23,7 @@ const LOGO: &[&str] = &[
     r#"             @$$P                                               "#,
 ];
 
-pub fn draw(frame: &mut Frame, selected: usize, _app: &App) {
+pub fn draw(frame: &mut Frame, selected: usize, app: &App) {
     let area = frame.area();
 
     // Create main layout
@@ -45,6 +45,46 @@ pub fn draw(frame: &mut Frame, selected: usize, _app: &App) {
 
     // Footer with key hints
     draw_footer(frame, chunks[2]);
+
+    // Exit confirmation popup
+    if app.show_exit_confirm {
+        draw_exit_confirm(frame, area);
+    }
+}
+
+fn draw_exit_confirm(frame: &mut Frame, area: Rect) {
+    // Center the popup
+    let popup_width = 40;
+    let popup_height = 7;
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Draw popup content
+    let content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled("Are you sure you want to exit?", theme::text())),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[", theme::dim()),
+            Span::styled("Enter/Y", theme::key_hint()),
+            Span::styled("] Yes  [", theme::dim()),
+            Span::styled("Esc/N", theme::key_hint()),
+            Span::styled("] No", theme::dim()),
+        ]),
+    ])
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::warning())
+            .title(Span::styled(" Exit ", theme::warning())),
+    );
+
+    frame.render_widget(content, popup_area);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {

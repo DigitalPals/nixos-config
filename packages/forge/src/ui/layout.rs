@@ -1,5 +1,7 @@
 //! Common layout helpers
 
+#![allow(dead_code)]
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 /// Create a centered box with specified percentage width and height
@@ -50,6 +52,18 @@ pub fn progress_layout(area: Rect) -> (Rect, Rect) {
         .constraints([
             Constraint::Length(10), // Steps
             Constraint::Min(5),     // Output
+        ])
+        .split(area);
+    (chunks[0], chunks[1])
+}
+
+/// Split content area for host selection (list + preview)
+pub fn host_selection_layout(area: Rect) -> (Rect, Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(35), // Host list
+            Constraint::Percentage(65), // Preview panel
         ])
         .split(area);
     (chunks[0], chunks[1])

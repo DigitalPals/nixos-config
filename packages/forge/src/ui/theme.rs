@@ -1,5 +1,7 @@
 //! Cybex color theme
 
+#![allow(dead_code)]
+
 use ratatui::style::{Color, Modifier, Style};
 
 // Cybex brand colors - Cyan/Blue theme

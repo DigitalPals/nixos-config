@@ -5,12 +5,13 @@ mod app;
 mod commands;
 mod constants;
 mod system;
+mod templates;
 mod ui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -42,6 +43,11 @@ enum Commands {
         hostname: Option<String>,
         /// Target disk device (e.g., /dev/nvme0n1)
         disk: Option<String>,
+    },
+    /// Create a new host configuration
+    CreateHost {
+        /// Hostname for the new configuration
+        hostname: Option<String>,
     },
     /// Update flake inputs, rebuild system, and update CLI tools
     Update,
@@ -93,6 +99,10 @@ async fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Install { hostname, disk }) => {
             run_tui(AppMode::Install(app::InstallState::new(hostname, disk))).await
+        }
+        Some(Commands::CreateHost { hostname: _ }) => {
+            // Hostname is now entered at the end of the wizard, so we always start with hardware detection
+            run_tui(AppMode::CreateHost(app::CreateHostState::new())).await
         }
         Some(Commands::Update) => run_tui(AppMode::Update(app::UpdateState::new())).await,
         Some(Commands::Browser { action }) => match action {

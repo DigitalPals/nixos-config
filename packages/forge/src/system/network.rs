@@ -1,5 +1,7 @@
 //! Network connectivity utilities
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use std::process::Command;
 

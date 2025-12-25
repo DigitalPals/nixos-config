@@ -38,12 +38,11 @@ impl Widget for ProgressSteps<'_> {
             .steps
             .iter()
             .enumerate()
-            .map(|(i, step)| {
+            .map(|(_i, step)| {
                 let (icon, style) = match step.status {
                     StepState::Pending => ("[ ]", theme::dim()),
                     StepState::Running => {
                         let spinner = Spinner::new(self.spinner_state);
-                        let icon_str = format!("[{}]", spinner.char());
                         // We'll handle this specially
                         return Line::from(vec![
                             Span::styled(format!(" [{}] ", spinner.char()), theme::info()),

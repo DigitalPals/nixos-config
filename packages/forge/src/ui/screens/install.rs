@@ -7,39 +7,141 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, StepStatus, HOSTS};
+use crate::app::{App, StepStatus};
+use crate::system::config::HostConfig;
 use crate::system::disk::DiskInfo;
-use crate::ui::layout::{centered_rect, progress_layout};
+use crate::ui::layout::{centered_rect, host_selection_layout, progress_layout};
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, MenuList, ProgressSteps};
 
 /// Draw hostname selection screen
-pub fn draw_host_selection(frame: &mut Frame, selected: usize, _app: &App) {
+pub fn draw_host_selection(frame: &mut Frame, selected: usize, hosts: &[HostConfig], _app: &App) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(3),
             Constraint::Min(10),
             Constraint::Length(3),
         ])
-        .split(centered_rect(60, 80, area));
+        .split(centered_rect(85, 85, area));
 
     // Header
     draw_header(frame, chunks[0], "Select Target Host");
 
-    // Host list with descriptions
-    let items: Vec<String> = HOSTS
-        .iter()
-        .map(|(name, desc)| format!("{:<10} - {}", name, desc))
-        .collect();
+    // Split content into list and preview
+    let (list_area, preview_area) = host_selection_layout(chunks[1]);
+
+    // Host list with "New host configuration" as first option, then existing hosts
+    let mut items: Vec<String> = vec!["+ New host configuration".to_string()];
+    items.extend(hosts.iter().map(|h| h.name.clone()));
     let items_ref: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
 
-    let menu = MenuList::new(items_ref, selected).title(" Available Hosts ");
-    frame.render_widget(menu, chunks[1]);
+    let menu = MenuList::new(items_ref, selected).title(" Hosts ");
+    frame.render_widget(menu, list_area);
+
+    // Preview panel
+    draw_host_preview(frame, preview_area, selected, hosts);
 
     // Footer
     draw_footer(frame, chunks[2], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+}
+
+/// Draw the host preview panel
+fn draw_host_preview(frame: &mut Frame, area: Rect, selected: usize, hosts: &[HostConfig]) {
+    // If "New host configuration" is selected (index 0), show placeholder
+    if selected == 0 {
+        let content = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled("Create New Host", theme::title())),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Detect hardware and create a new",
+                theme::dim(),
+            )),
+            Line::from(Span::styled(
+                "host configuration for this machine.",
+                theme::dim(),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::border())
+                .title(Span::styled(" Preview ", theme::title())),
+        );
+        frame.render_widget(content, area);
+        return;
+    }
+
+    // Get the selected host (adjusted for "New host" option)
+    let host = &hosts[selected - 1];
+
+    // Build preview lines
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(&host.name, theme::title())),
+        Line::from(Span::styled(&host.description, theme::dim())),
+        Line::from(""),
+    ];
+
+    if let Some(ref metadata) = host.metadata {
+        // Form Factor
+        if let Some(ref form) = metadata.form_factor {
+            lines.push(Line::from(vec![
+                Span::styled("  Form:  ", theme::dim()),
+                Span::styled(form, theme::text()),
+            ]));
+        }
+
+        // CPU
+        if let Some(ref cpu) = metadata.cpu {
+            lines.push(Line::from(vec![
+                Span::styled("  CPU:   ", theme::dim()),
+                Span::styled(&cpu.model, theme::text()),
+            ]));
+        }
+
+        // GPU
+        if let Some(ref gpu) = metadata.gpu {
+            let gpu_text = gpu
+                .model
+                .as_ref()
+                .map(|m| format!("{} ({})", gpu.vendor, m))
+                .unwrap_or_else(|| gpu.vendor.clone());
+            lines.push(Line::from(vec![
+                Span::styled("  GPU:   ", theme::dim()),
+                Span::styled(gpu_text, theme::text()),
+            ]));
+        }
+
+        // RAM
+        if let Some(ref ram) = metadata.ram {
+            lines.push(Line::from(vec![
+                Span::styled("  RAM:   ", theme::dim()),
+                Span::styled(ram, theme::text()),
+            ]));
+        }
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  No hardware info available",
+            theme::dim(),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  (host-info.json not found)",
+            theme::dim(),
+        )));
+    }
+
+    let preview = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(Span::styled(" Preview ", theme::title())),
+    );
+    frame.render_widget(preview, area);
 }
 
 /// Draw disk selection screen

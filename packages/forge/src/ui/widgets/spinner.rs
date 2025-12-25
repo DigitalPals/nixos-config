@@ -25,6 +25,7 @@ impl Spinner {
         }
     }
 
+    #[allow(dead_code)]
     pub fn style(mut self, style: Style) -> Self {
         self.style = style;
         self

@@ -93,6 +93,7 @@ pub async fn run_command_with_timeout(
 }
 
 /// Execute a command with sudo
+#[allow(dead_code)]
 pub async fn run_sudo(
     tx: &mpsc::Sender<CommandMessage>,
     cmd: &str,

@@ -1,11 +1,13 @@
 //! Command execution module
 
 pub mod browser;
+pub mod create_host;
 pub mod executor;
 pub mod install;
 pub mod update;
 
 /// Standard step names for consistent messaging
+#[allow(dead_code)]
 pub mod steps {
     // Install steps
     pub const NETWORK: &str = "network";
@@ -27,6 +29,13 @@ pub mod steps {
     pub const BACKUP: &str = "Backup";
     pub const RESTORE: &str = "Restore";
     pub const UPDATE: &str = "Update";
+
+    // Create host steps
+    pub const HOST_DIR: &str = "host";
+    pub const HW_CONFIG: &str = "hardware";
+    pub const HOST_CONFIG: &str = "configuration";
+    pub const DISKO_CONFIG: &str = "disko";
+    pub const FLAKE_NIX: &str = "flake";
 }
 
 /// Messages sent from command execution to UI

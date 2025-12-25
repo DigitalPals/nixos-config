@@ -13,7 +13,9 @@ use tokio::sync::mpsc;
 
 use crate::commands::{self, CommandMessage};
 use crate::constants::{MAX_INPUT_LENGTH, OUTPUT_BUFFER_SIZE, SPINNER_TICK_MS};
+use crate::system::config::{discover_hosts, HostConfig};
 use crate::system::disk::DiskInfo;
+use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor};
 
 /// Regex to match ANSI escape codes.
 /// This pattern is a compile-time constant and cannot fail to compile.
@@ -26,11 +28,23 @@ fn strip_ansi_codes(s: &str) -> String {
     ANSI_RE.replace_all(s, "").to_string()
 }
 
-/// Available host configurations
-pub const HOSTS: &[(&str, &str)] = &[
-    ("kraken", "Desktop with NVIDIA RTX 5090"),
-    ("G1a", "HP ZBook Ultra G1a (AMD Strix Halo)"),
-];
+/// Check if a host directory already exists on the filesystem
+fn host_dir_exists(hostname: &str) -> bool {
+    // Check common config locations for existing host directory
+    let locations = [
+        format!("/tmp/nixos-config/hosts/{}", hostname),
+        format!(
+            "{}/nixos-config/hosts/{}",
+            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()),
+            hostname
+        ),
+        format!("/etc/nixos/hosts/{}", hostname),
+    ];
+
+    locations.iter().any(|p| std::path::Path::new(p).exists())
+}
+
+// Host configurations are now discovered dynamically - see discover_hosts() in system/config.rs
 
 /// Main menu items
 pub const MAIN_MENU_ITEMS: &[&str] = &[
@@ -53,8 +67,10 @@ pub const BROWSER_MENU_ITEMS: &[&str] = &[
 pub enum AppMode {
     MainMenu { selected: usize },
     Install(InstallState),
+    CreateHost(CreateHostState),
     Update(UpdateState),
     Browser(BrowserState),
+    #[allow(dead_code)]
     Quit,
 }
 
@@ -97,6 +113,7 @@ impl InstallState {
                     size: "Unknown".to_string(),
                     size_bytes: 0,
                     model: None,
+                    partitions: vec![],
                 };
                 InstallState::Confirm {
                     host,
@@ -117,6 +134,81 @@ impl InstallState {
     }
 }
 
+/// Configuration being built during host creation wizard
+#[derive(Debug, Clone)]
+pub struct NewHostConfig {
+    pub hostname: String,
+    pub cpu: CpuInfo,
+    pub gpu: GpuInfo,
+    pub form_factor: FormFactor,
+    pub disk: DiskInfo,
+}
+
+/// Create host wizard state machine
+/// Flow: DetectingHardware → ConfirmCpu → ConfirmGpu → ConfirmFormFactor → SelectDisk → EnterHostname → Review → Generating → Complete
+#[derive(Debug, Clone)]
+pub enum CreateHostState {
+    DetectingHardware,
+    ConfirmCpu {
+        cpu: CpuInfo,
+        detected_gpu: GpuInfo,
+        detected_form_factor: FormFactor,
+        override_menu: bool,
+        selected: usize,
+    },
+    ConfirmGpu {
+        cpu: CpuInfo,
+        gpu: GpuInfo,
+        detected_form_factor: FormFactor,
+        override_menu: bool,
+        selected: usize,
+    },
+    ConfirmFormFactor {
+        cpu: CpuInfo,
+        gpu: GpuInfo,
+        form_factor: FormFactor,
+        override_menu: bool,
+        selected: usize,
+    },
+    SelectDisk {
+        cpu: CpuInfo,
+        gpu: GpuInfo,
+        form_factor: FormFactor,
+        disks: Vec<DiskInfo>,
+        selected: usize,
+    },
+    EnterHostname {
+        cpu: CpuInfo,
+        gpu: GpuInfo,
+        form_factor: FormFactor,
+        disk: DiskInfo,
+        input: String,
+        error: Option<String>,
+    },
+    Review {
+        config: NewHostConfig,
+    },
+    Generating {
+        config: NewHostConfig,
+        step: usize,
+        steps: Vec<StepStatus>,
+        output: VecDeque<String>,
+    },
+    Complete {
+        success: bool,
+        hostname: String,
+        disk: DiskInfo,
+        #[allow(dead_code)]
+        proceed_to_install: Option<bool>,
+    },
+}
+
+impl CreateHostState {
+    pub fn new() -> Self {
+        CreateHostState::DetectingHardware
+    }
+}
+
 /// Update state machine
 #[derive(Debug, Clone)]
 pub enum UpdateState {
@@ -126,6 +218,7 @@ pub enum UpdateState {
         output: VecDeque<String>,
     },
     Complete {
+        #[allow(dead_code)]
         success: bool,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
@@ -242,9 +335,11 @@ pub struct UpdateSummary {
 pub struct App {
     pub mode: AppMode,
     pub should_quit: bool,
+    pub show_exit_confirm: bool,
     pub spinner_state: usize,
     pub last_tick: Instant,
     pub error: Option<String>,
+    pub hosts: Vec<HostConfig>,
     cmd_tx: Option<mpsc::Sender<CommandMessage>>,
     screen_log: Option<File>,
     pub screen_log_path: PathBuf,
@@ -277,9 +372,11 @@ impl App {
         Self {
             mode: initial_mode,
             should_quit: false,
+            show_exit_confirm: false,
             spinner_state: 0,
             last_tick: Instant::now(),
             error: None,
+            hosts: discover_hosts(),
             cmd_tx: None,
             screen_log,
             screen_log_path,
@@ -340,6 +437,43 @@ impl App {
                 // Load disk list
                 *disks = crate::system::disk::get_available_disks()?;
             }
+            AppMode::CreateHost(CreateHostState::DetectingHardware) => {
+                // Detect hardware and transition to ConfirmCpu
+                match crate::system::hardware::detect_all() {
+                    Ok(hw) => {
+                        // If CPU is unknown, force manual selection
+                        let cpu_override = hw.cpu.vendor == CpuVendor::Unknown;
+                        self.mode = AppMode::CreateHost(CreateHostState::ConfirmCpu {
+                            cpu: hw.cpu,
+                            detected_gpu: hw.gpu,
+                            detected_form_factor: hw.form_factor,
+                            override_menu: cpu_override,
+                            selected: 0,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!("Hardware detection failed: {}", e);
+                        // Fall back to manual selection with defaults
+                        self.mode = AppMode::CreateHost(CreateHostState::ConfirmCpu {
+                            cpu: crate::system::hardware::CpuInfo {
+                                vendor: CpuVendor::Unknown,
+                                model_name: "Unknown (detection failed)".to_string(),
+                            },
+                            detected_gpu: GpuInfo {
+                                vendor: GpuVendor::None,
+                                model: None,
+                            },
+                            detected_form_factor: FormFactor::Desktop,
+                            override_menu: true, // Force manual selection
+                            selected: 0,
+                        });
+                    }
+                }
+            }
+            AppMode::CreateHost(CreateHostState::SelectDisk { disks, .. }) => {
+                // Load disk list
+                *disks = crate::system::disk::get_available_disks()?;
+            }
             _ => {}
         }
         Ok(())
@@ -347,6 +481,20 @@ impl App {
 
     /// Handle keyboard input
     pub async fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+        // Handle exit confirmation dialog
+        if self.show_exit_confirm {
+            match key {
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.should_quit = true;
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    self.show_exit_confirm = false;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         // Global quit
         if matches!(key, KeyCode::Char('q') | KeyCode::Char('Q'))
             && matches!(
@@ -357,14 +505,19 @@ impl App {
                     | AppMode::Browser(BrowserState::Status { .. })
                     | AppMode::Update(UpdateState::Complete { .. })
                     | AppMode::Install(InstallState::Complete { .. })
+                    | AppMode::CreateHost(CreateHostState::Complete { .. })
             )
         {
-            self.should_quit = true;
+            self.show_exit_confirm = true;
             return Ok(());
         }
 
-        // Escape to go back
+        // Escape to go back (show confirm if on main menu)
         if key == KeyCode::Esc {
+            if matches!(self.mode, AppMode::MainMenu { .. }) {
+                self.show_exit_confirm = true;
+                return Ok(());
+            }
             self.handle_back().await?;
             return Ok(());
         }
@@ -388,7 +541,7 @@ impl App {
                 Some(host.clone()),
                 Some(disks.clone()),
             )),
-            AppMode::Install(InstallState::Confirm { host, disk, .. }) => {
+            AppMode::Install(InstallState::Confirm { host, disk: _, .. }) => {
                 Some(("install_confirm", 0, Some(host.clone()), None))
             }
             AppMode::Install(InstallState::Complete { .. })
@@ -407,6 +560,7 @@ impl App {
                     None
                 }
             }
+            AppMode::CreateHost(_) => Some(("create_host", 0, None, None)),
             _ => None,
         };
 
@@ -432,6 +586,9 @@ impl App {
             }
             Some(("browser_done", _, _, _)) => {
                 self.mode = AppMode::Browser(BrowserState::Menu { selected: 0 });
+            }
+            Some(("create_host", _, _, _)) => {
+                self.handle_create_host_key(key).await?;
             }
             _ => {}
         }
@@ -531,17 +688,25 @@ impl App {
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if let AppMode::Install(InstallState::SelectHost { selected }) = &mut self.mode {
-                    *selected = (*selected + 1).min(HOSTS.len() - 1);
+                    // +1 for "New host configuration" option
+                    *selected = (*selected + 1).min(self.hosts.len());
                 }
             }
             KeyCode::Enter => {
-                let host = HOSTS[selected].0.to_string();
-                self.mode = AppMode::Install(InstallState::SelectDisk {
-                    host,
-                    disks: Vec::new(),
-                    selected: 0,
-                });
-                self.start_initial_command().await?;
+                if selected == 0 {
+                    // "New host configuration" selected
+                    self.mode = AppMode::CreateHost(CreateHostState::new());
+                    self.start_initial_command().await?;
+                } else {
+                    // Existing host selected (index - 1 because of "New host" option)
+                    let host = self.hosts[selected - 1].name.clone();
+                    self.mode = AppMode::Install(InstallState::SelectDisk {
+                        host,
+                        disks: Vec::new(),
+                        selected: 0,
+                    });
+                    self.start_initial_command().await?;
+                }
             }
             _ => {}
         }
@@ -648,10 +813,352 @@ impl App {
         Ok(())
     }
 
+    /// Handle keyboard input for create host wizard
+    async fn handle_create_host_key(&mut self, key: KeyCode) -> Result<()> {
+        match &mut self.mode {
+            AppMode::CreateHost(CreateHostState::ConfirmCpu {
+                cpu,
+                detected_gpu,
+                detected_form_factor,
+                override_menu,
+                selected,
+            }) => {
+                if *override_menu {
+                    // Menu selection mode
+                    match key {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            *selected = selected.saturating_sub(1);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            *selected = (*selected + 1).min(1); // AMD or Intel
+                        }
+                        KeyCode::Enter => {
+                            let new_vendor = if *selected == 0 {
+                                CpuVendor::AMD
+                            } else {
+                                CpuVendor::Intel
+                            };
+                            let gpu = detected_gpu.clone();
+                            let form_factor = *detected_form_factor;
+                            // If GPU is None, force manual selection
+                            let gpu_override = gpu.vendor == GpuVendor::None;
+                            self.mode = AppMode::CreateHost(CreateHostState::ConfirmGpu {
+                                cpu: CpuInfo {
+                                    vendor: new_vendor,
+                                    model_name: format!("{} (manually selected)", new_vendor),
+                                },
+                                gpu,
+                                detected_form_factor: form_factor,
+                                override_menu: gpu_override,
+                                selected: 0,
+                            });
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // Confirmation mode
+                    match key {
+                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                            let cpu = cpu.clone();
+                            let gpu = detected_gpu.clone();
+                            let form_factor = *detected_form_factor;
+                            // If GPU is None, force manual selection
+                            let gpu_override = gpu.vendor == GpuVendor::None;
+                            self.mode = AppMode::CreateHost(CreateHostState::ConfirmGpu {
+                                cpu,
+                                gpu,
+                                detected_form_factor: form_factor,
+                                override_menu: gpu_override,
+                                selected: 0,
+                            });
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                            *override_menu = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            AppMode::CreateHost(CreateHostState::ConfirmGpu {
+                cpu,
+                gpu,
+                detected_form_factor,
+                override_menu,
+                selected,
+            }) => {
+                if *override_menu {
+                    // Menu selection mode (4 options: NVIDIA, AMD, Intel, None)
+                    match key {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            *selected = selected.saturating_sub(1);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            *selected = (*selected + 1).min(3);
+                        }
+                        KeyCode::Enter => {
+                            let new_vendor = match *selected {
+                                0 => GpuVendor::NVIDIA,
+                                1 => GpuVendor::AMD,
+                                2 => GpuVendor::Intel,
+                                _ => GpuVendor::None,
+                            };
+                            let cpu = cpu.clone();
+                            let form_factor = *detected_form_factor;
+                            self.mode = AppMode::CreateHost(CreateHostState::ConfirmFormFactor {
+                                cpu,
+                                gpu: GpuInfo {
+                                    vendor: new_vendor,
+                                    model: Some(format!("{} (manually selected)", new_vendor)),
+                                },
+                                form_factor,
+                                override_menu: false,
+                                selected: 0,
+                            });
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match key {
+                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                            let cpu = cpu.clone();
+                            let gpu = gpu.clone();
+                            let form_factor = *detected_form_factor;
+                            self.mode = AppMode::CreateHost(CreateHostState::ConfirmFormFactor {
+                                cpu,
+                                gpu,
+                                form_factor,
+                                override_menu: false,
+                                selected: 0,
+                            });
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                            *override_menu = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            AppMode::CreateHost(CreateHostState::ConfirmFormFactor {
+                cpu,
+                gpu,
+                form_factor,
+                override_menu,
+                selected,
+            }) => {
+                if *override_menu {
+                    // Menu selection mode (2 options: Desktop, Laptop)
+                    match key {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            *selected = selected.saturating_sub(1);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            *selected = (*selected + 1).min(1);
+                        }
+                        KeyCode::Enter => {
+                            let new_form_factor = if *selected == 0 {
+                                FormFactor::Desktop
+                            } else {
+                                FormFactor::Laptop
+                            };
+                            let cpu = cpu.clone();
+                            let gpu = gpu.clone();
+                            self.mode = AppMode::CreateHost(CreateHostState::SelectDisk {
+                                cpu,
+                                gpu,
+                                form_factor: new_form_factor,
+                                disks: Vec::new(),
+                                selected: 0,
+                            });
+                            self.start_initial_command().await?;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match key {
+                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                            let cpu = cpu.clone();
+                            let gpu = gpu.clone();
+                            let ff = *form_factor;
+                            self.mode = AppMode::CreateHost(CreateHostState::SelectDisk {
+                                cpu,
+                                gpu,
+                                form_factor: ff,
+                                disks: Vec::new(),
+                                selected: 0,
+                            });
+                            self.start_initial_command().await?;
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                            *override_menu = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            AppMode::CreateHost(CreateHostState::SelectDisk {
+                cpu,
+                gpu,
+                form_factor,
+                disks,
+                selected,
+            }) => {
+                match key {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        *selected = selected.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if !disks.is_empty() {
+                            *selected = (*selected + 1).min(disks.len() - 1);
+                        }
+                    }
+                    KeyCode::Enter => {
+                        // Transition to EnterHostname (hostname is now entered after disk selection)
+                        if !disks.is_empty() {
+                            self.mode = AppMode::CreateHost(CreateHostState::EnterHostname {
+                                cpu: cpu.clone(),
+                                gpu: gpu.clone(),
+                                form_factor: *form_factor,
+                                disk: disks[*selected].clone(),
+                                input: String::new(),
+                                error: None,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            AppMode::CreateHost(CreateHostState::EnterHostname {
+                cpu,
+                gpu,
+                form_factor,
+                disk,
+                input,
+                error,
+            }) => {
+                match key {
+                    KeyCode::Char(c) => {
+                        if input.len() < MAX_INPUT_LENGTH {
+                            // Only allow valid hostname characters
+                            if c.is_alphanumeric() || c == '-' {
+                                input.push(c.to_ascii_lowercase());
+                                *error = None;
+                            }
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        input.pop();
+                        *error = None;
+                    }
+                    KeyCode::Enter => {
+                        let hostname = input.trim().to_string();
+                        // Validate hostname
+                        if hostname.is_empty() {
+                            *error = Some("Hostname cannot be empty".to_string());
+                        } else if hostname.len() > 63 {
+                            *error = Some("Hostname too long (max 63 characters)".to_string());
+                        } else if !hostname.chars().next().unwrap().is_alphanumeric() {
+                            *error = Some("Hostname must start with a letter or number".to_string());
+                        } else if !hostname.chars().all(|c| c.is_alphanumeric() || c == '-') {
+                            *error = Some("Hostname can only contain letters, numbers, and hyphens".to_string());
+                        } else {
+                            // Check if host already exists (dynamic list or filesystem)
+                            let host_exists = self.hosts.iter().any(|h| h.name == hostname)
+                                || host_dir_exists(&hostname);
+                            if host_exists {
+                                *error = Some(format!("Host '{}' already exists", hostname));
+                            } else {
+                                // Proceed to Review with complete config
+                                let config = NewHostConfig {
+                                    hostname,
+                                    cpu: cpu.clone(),
+                                    gpu: gpu.clone(),
+                                    form_factor: *form_factor,
+                                    disk: disk.clone(),
+                                };
+                                self.mode = AppMode::CreateHost(CreateHostState::Review { config });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            AppMode::CreateHost(CreateHostState::Review { config }) => {
+                if key == KeyCode::Enter {
+                    // Start generating files
+                    let config = config.clone();
+                    let mut steps = vec![
+                        StepStatus::new("Creating host directory"),
+                        StepStatus::new("Generating hardware configuration"),
+                        StepStatus::new("Creating host configuration"),
+                        StepStatus::new("Creating disko configuration"),
+                        StepStatus::new("Updating flake.nix"),
+                    ];
+                    steps[0].status = StepState::Running;
+
+                    self.mode = AppMode::CreateHost(CreateHostState::Generating {
+                        config,
+                        step: 0,
+                        steps,
+                        output: VecDeque::new(),
+                    });
+
+                    if let Some(tx) = &self.cmd_tx {
+                        commands::create_host::start_create_host(tx.clone(), self.mode.clone())
+                            .await?;
+                    }
+                }
+            }
+
+            AppMode::CreateHost(CreateHostState::Complete {
+                hostname,
+                disk,
+                proceed_to_install: _,
+                success,
+            }) => {
+                if *success {
+                    match key {
+                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                            // Proceed to install
+                            let hostname = hostname.clone();
+                            let disk = disk.clone();
+                            self.mode = AppMode::Install(InstallState::Confirm {
+                                host: hostname,
+                                disk,
+                                input: String::new(),
+                            });
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                            self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // Failed - just go back on any key
+                    if key == KeyCode::Enter {
+                        self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
+                    }
+                }
+            }
+
+            _ => {}
+        }
+        Ok(())
+    }
+
     async fn handle_back(&mut self) -> Result<()> {
         let needs_disk_refresh = matches!(
             self.mode,
             AppMode::Install(InstallState::Confirm { .. })
+        );
+
+        let needs_create_host_disk_refresh = matches!(
+            self.mode,
+            AppMode::CreateHost(CreateHostState::EnterHostname { .. })
         );
 
         self.mode = match &self.mode {
@@ -676,11 +1183,85 @@ impl App {
             }
             AppMode::Install(InstallState::Complete { .. }) => AppMode::MainMenu { selected: 0 },
             AppMode::Update(UpdateState::Complete { .. }) => AppMode::MainMenu { selected: 1 },
+            // CreateHost back navigation
+            // New flow: DetectingHardware → ConfirmCpu → ConfirmGpu → ConfirmFormFactor → SelectDisk → EnterHostname → Review
+            AppMode::CreateHost(CreateHostState::DetectingHardware) => {
+                AppMode::Install(InstallState::SelectHost { selected: 0 })
+            }
+            AppMode::CreateHost(CreateHostState::ConfirmCpu { .. }) => {
+                // Go back to Install host selection (DetectingHardware auto-transitions)
+                AppMode::Install(InstallState::SelectHost { selected: 0 })
+            }
+            AppMode::CreateHost(CreateHostState::ConfirmGpu {
+                cpu,
+                gpu,
+                detected_form_factor,
+                ..
+            }) => AppMode::CreateHost(CreateHostState::ConfirmCpu {
+                cpu: cpu.clone(),
+                detected_gpu: gpu.clone(),
+                detected_form_factor: *detected_form_factor,
+                override_menu: false,
+                selected: 0,
+            }),
+            AppMode::CreateHost(CreateHostState::ConfirmFormFactor {
+                cpu,
+                gpu,
+                form_factor,
+                ..
+            }) => AppMode::CreateHost(CreateHostState::ConfirmGpu {
+                cpu: cpu.clone(),
+                gpu: gpu.clone(),
+                detected_form_factor: *form_factor,
+                override_menu: false,
+                selected: 0,
+            }),
+            AppMode::CreateHost(CreateHostState::SelectDisk {
+                cpu,
+                gpu,
+                form_factor,
+                ..
+            }) => AppMode::CreateHost(CreateHostState::ConfirmFormFactor {
+                cpu: cpu.clone(),
+                gpu: gpu.clone(),
+                form_factor: *form_factor,
+                override_menu: false,
+                selected: 0,
+            }),
+            AppMode::CreateHost(CreateHostState::EnterHostname {
+                cpu,
+                gpu,
+                form_factor,
+                ..
+            }) => {
+                // Go back to disk selection
+                AppMode::CreateHost(CreateHostState::SelectDisk {
+                    cpu: cpu.clone(),
+                    gpu: gpu.clone(),
+                    form_factor: *form_factor,
+                    disks: Vec::new(),
+                    selected: 0,
+                })
+            }
+            AppMode::CreateHost(CreateHostState::Review { config }) => {
+                // Go back to hostname entry
+                AppMode::CreateHost(CreateHostState::EnterHostname {
+                    cpu: config.cpu.clone(),
+                    gpu: config.gpu.clone(),
+                    form_factor: config.form_factor,
+                    disk: config.disk.clone(),
+                    input: config.hostname.clone(),
+                    error: None,
+                })
+            }
+            AppMode::CreateHost(CreateHostState::Complete { .. }) => {
+                AppMode::Install(InstallState::SelectHost { selected: 0 })
+            }
             _ => return Ok(()),
         };
 
         // Repopulate disk list if needed
-        if needs_disk_refresh {
+        if needs_disk_refresh || needs_create_host_disk_refresh {
             self.start_initial_command().await?;
         }
 
@@ -705,7 +1286,6 @@ impl App {
             CommandMessage::Done { success } => {
                 self.handle_command_done(success);
             }
-            _ => {}
         }
         Ok(())
     }
@@ -740,6 +1320,12 @@ impl App {
             }
             AppMode::Browser(BrowserState::Status { output }) => {
                 output.push_back(clean_line);
+            }
+            AppMode::CreateHost(CreateHostState::Generating { output, .. }) => {
+                output.push_back(clean_line.clone());
+                while output.len() > OUTPUT_BUFFER_SIZE {
+                    output.pop_front();
+                }
             }
             _ => {}
         }
@@ -788,6 +1374,15 @@ impl App {
                     steps[*step].status = StepState::Running;
                 }
             }
+            AppMode::CreateHost(CreateHostState::Generating { steps, step, .. }) => {
+                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                    s.status = StepState::Complete;
+                }
+                *step = (*step + 1).min(steps.len());
+                if *step < steps.len() {
+                    steps[*step].status = StepState::Running;
+                }
+            }
             _ => {}
         }
     }
@@ -803,6 +1398,12 @@ impl App {
                 self.error = Some(error.to_string());
             }
             AppMode::Install(InstallState::Running { steps, .. }) => {
+                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                    s.status = StepState::Failed;
+                }
+                self.error = Some(error.to_string());
+            }
+            AppMode::CreateHost(CreateHostState::Generating { steps, .. }) => {
                 if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
                     s.status = StepState::Failed;
                 }
@@ -853,6 +1454,14 @@ impl App {
                     success,
                     steps: steps.clone(),
                     output: output.clone(),
+                });
+            }
+            AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
+                self.mode = AppMode::CreateHost(CreateHostState::Complete {
+                    success,
+                    hostname: config.hostname.clone(),
+                    disk: config.disk.clone(),
+                    proceed_to_install: None,
                 });
             }
             _ => {}
