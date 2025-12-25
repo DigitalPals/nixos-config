@@ -4,6 +4,7 @@ pub mod apps;
 pub mod create_host;
 pub mod executor;
 pub mod install;
+pub mod keys;
 pub mod update;
 
 /// Standard step names for consistent messaging

@@ -399,6 +399,59 @@ let
         encrypt_archive "$TEMP_DIR/termius-profile.tar.gz" "$TEMP_DIR/termius-profile.tar.gz.age"
       fi
 
+      # Keys backup (encrypted with age key, same as app profiles)
+      backup_keys() {
+        local staging_dir="$TEMP_DIR/keys-staging"
+        mkdir -p "$staging_dir"
+        local count=0
+
+        # Add Age key if it exists locally
+        if [[ -n "''${AGE_KEY_PATH:-}" ]]; then
+          local age_key_path="''${AGE_KEY_PATH/#\~/$HOME}"
+          if [[ -f "$age_key_path" ]]; then
+            cp "$age_key_path" "$staging_dir/age-key.txt"
+            ((count++)) || true
+          fi
+        fi
+
+        # Add SSH key if it exists locally
+        if [[ -n "''${SSH_KEY_PATH:-}" ]]; then
+          local ssh_key_path="''${SSH_KEY_PATH/#\~/$HOME}"
+          if [[ -f "$ssh_key_path" ]]; then
+            cp "$ssh_key_path" "$staging_dir/id_ed25519"
+            ((count++)) || true
+            if [[ -f "''${ssh_key_path}.pub" ]]; then
+              cp "''${ssh_key_path}.pub" "$staging_dir/id_ed25519.pub"
+            fi
+          fi
+        fi
+
+        if [[ $count -eq 0 ]]; then
+          log_warn "No local keys found to backup"
+          return 1
+        fi
+
+        log_info "Backing up $count key(s)..."
+        local archive="$TEMP_DIR/keys.tar.gz"
+        tar --create --gzip --file="$archive" \
+          --directory="$staging_dir" \
+          --sort=name \
+          --mtime='2024-01-01' \
+          .
+
+        # Encrypt with age key (same as app profiles)
+        encrypt_archive "$archive" "$TEMP_DIR/keys.tar.gz.age"
+
+        # Cleanup
+        rm -rf "$staging_dir"
+
+        log_success "Keys backed up"
+        return 0
+      }
+
+      # Backup keys if they exist locally
+      backup_keys || true
+
       # Push to GitHub if requested
       if [[ "$PUSH" == "true" ]]; then
         echo ""
@@ -486,11 +539,8 @@ let
       : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
       : "''${BACKUP_RETENTION:=3}"
 
-      # Check for 1Password or file-based key
-      USE_1PASSWORD=false
-      if [[ -n "''${AGE_KEY_1PASSWORD:-}" ]]; then
-        USE_1PASSWORD=true
-      elif [[ -z "''${AGE_KEY_PATH:-}" ]]; then
+      # Validate that at least one key source is configured
+      if [[ -z "''${AGE_KEY_1PASSWORD:-}" && -z "''${AGE_KEY_PATH:-}" ]]; then
         log_error "Neither AGE_KEY_1PASSWORD nor AGE_KEY_PATH is set in config"
       fi
 
@@ -538,22 +588,27 @@ let
         fi
       }
 
-      # Get age key (from 1Password or file)
+      # Get age key (local file first, then 1Password fallback)
       # IMPORTANT: This function outputs ONLY the key to stdout (for piping to age)
       # All other messages must go to stderr
       get_age_key() {
-        if [[ "$USE_1PASSWORD" == "true" ]]; then
-          # Retrieve from 1Password - this will prompt for unlock if needed
-          log_info "Retrieving age key from 1Password..." >&2
-          op read "$AGE_KEY_1PASSWORD"
-        else
-          # Read from file
+        # Priority 1: Local file
+        if [[ -n "''${AGE_KEY_PATH:-}" ]]; then
           local key_path="''${AGE_KEY_PATH/#\~/$HOME}"
-          if [[ ! -f "$key_path" ]]; then
-            log_error "Age identity key not found: $key_path"
+          if [[ -f "$key_path" ]]; then
+            cat "$key_path"
+            return 0
           fi
-          cat "$key_path"
         fi
+
+        # Priority 2: 1Password
+        if [[ -n "''${AGE_KEY_1PASSWORD:-}" ]]; then
+          log_info "Local age key not found, retrieving from 1Password..." >&2
+          op read "$AGE_KEY_1PASSWORD"
+          return 0
+        fi
+
+        log_error "No age key available (checked local file and 1Password)"
       }
 
       # Backup essential files before overwriting
@@ -862,6 +917,76 @@ let
       chmod 700 "$TEMP_DIR"
       trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
 
+      # Restore keys FIRST (so age key is available for app restores)
+      restore_keys() {
+        local age_file="$LOCAL_REPO_PATH/keys.tar.gz.age"
+
+        if [[ ! -f "$age_file" ]]; then
+          log_info "No keys backup found - skipping keys restore"
+          return 0
+        fi
+
+        log_info "Restoring keys..."
+
+        # Decrypt using age key (local file first, then 1Password)
+        local tar_file="$TEMP_DIR/keys.tar.gz"
+        local extract_dir="$TEMP_DIR/keys-extract"
+        mkdir -p "$extract_dir"
+
+        get_age_key | age --decrypt --identity - --output "$tar_file" "$age_file" || {
+          log_warn "Failed to decrypt keys backup - continuing without keys restore"
+          return 1
+        }
+
+        tar --extract --gzip --file="$tar_file" --directory="$extract_dir"
+
+        local count=0
+
+        # Restore Age key (only if not already present, unless --force)
+        if [[ -f "$extract_dir/age-key.txt" && -n "''${AGE_KEY_PATH:-}" ]]; then
+          local age_key_path="''${AGE_KEY_PATH/#\~/$HOME}"
+          if [[ -f "$age_key_path" && "$FORCE" != "true" ]]; then
+            log_info "Age key already exists - skipping"
+          else
+            mkdir -p "$(dirname "$age_key_path")"
+            cp "$extract_dir/age-key.txt" "$age_key_path"
+            chmod 600 "$age_key_path"
+            log_success "Restored Age key to: $age_key_path"
+            ((count++)) || true
+          fi
+        fi
+
+        # Restore SSH key (only if not already present, unless --force)
+        if [[ -f "$extract_dir/id_ed25519" && -n "''${SSH_KEY_PATH:-}" ]]; then
+          local ssh_key_path="''${SSH_KEY_PATH/#\~/$HOME}"
+          if [[ -f "$ssh_key_path" && "$FORCE" != "true" ]]; then
+            log_info "SSH key already exists - skipping"
+          else
+            mkdir -p "$(dirname "$ssh_key_path")"
+            cp "$extract_dir/id_ed25519" "$ssh_key_path"
+            chmod 600 "$ssh_key_path"
+            log_success "Restored SSH key to: $ssh_key_path"
+            ((count++)) || true
+            if [[ -f "$extract_dir/id_ed25519.pub" ]]; then
+              cp "$extract_dir/id_ed25519.pub" "''${ssh_key_path}.pub"
+              chmod 644 "''${ssh_key_path}.pub"
+            fi
+          fi
+        fi
+
+        # Cleanup
+        shred -u "$tar_file" 2>/dev/null || rm -f "$tar_file"
+        rm -rf "$extract_dir"
+
+        if [[ $count -gt 0 ]]; then
+          log_success "Restored $count key(s)"
+        fi
+        return 0
+      }
+
+      # Restore keys first
+      restore_keys || true
+
       # Restore Chrome
       restore_chrome "$LOCAL_REPO_PATH/chrome-profile.tar.gz.age" || true
 
@@ -888,6 +1013,528 @@ let
     echo -e "\033[1;33m[DEPRECATED]\033[0m browser-restore has been renamed to app-restore" >&2
     exec ${app-restore}/bin/app-restore "$@"
   '';
+
+  # Keys setup script - retrieves keys from 1Password and stores locally
+  keys-setup = pkgs.writeShellApplication {
+    name = "keys-setup";
+    runtimeInputs = with pkgs; [ coreutils openssh ];
+    text = ''
+      set -euo pipefail
+
+      # Colors
+      RED='\033[0;31m'
+      GREEN='\033[0;32m'
+      YELLOW='\033[1;33m'
+      BLUE='\033[0;34m'
+      NC='\033[0m'
+
+      log_info() { echo -e "''${BLUE}[INFO]''${NC} $1"; }
+      log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $1"; }
+      log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
+      log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
+
+      # Load configuration
+      CONFIG_FILE="$HOME/.config/app-backup/config"
+      if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Config file not found. Run: nixos-rebuild switch"
+      fi
+      # shellcheck source=/dev/null
+      source "$CONFIG_FILE"
+
+      log_info "Key Setup - Retrieving keys from 1Password"
+      echo ""
+
+      # Check 1Password CLI is available
+      if ! command -v op &>/dev/null; then
+        log_error "1Password CLI (op) not found"
+      fi
+
+      # Check 1Password is signed in
+      if ! op account list &>/dev/null; then
+        log_error "Not signed in to 1Password. Open 1Password app and sign in."
+      fi
+
+      KEYS_CREATED=0
+
+      # Setup Age key
+      if [[ -n "''${AGE_KEY_1PASSWORD:-}" && -n "''${AGE_KEY_PATH:-}" ]]; then
+        AGE_KEY_PATH_EXPANDED="''${AGE_KEY_PATH/#\~/$HOME}"
+
+        if [[ -f "$AGE_KEY_PATH_EXPANDED" ]]; then
+          log_info "Age key already exists at: $AGE_KEY_PATH_EXPANDED"
+          read -rp "Overwrite? [y/N] " REPLY
+          if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Skipping Age key"
+          else
+            log_info "Retrieving Age key from 1Password..."
+            mkdir -p "$(dirname "$AGE_KEY_PATH_EXPANDED")"
+            op read "$AGE_KEY_1PASSWORD" > "$AGE_KEY_PATH_EXPANDED"
+            chmod 600 "$AGE_KEY_PATH_EXPANDED"
+            log_success "Age key saved to: $AGE_KEY_PATH_EXPANDED"
+            ((KEYS_CREATED++)) || true
+          fi
+        else
+          log_info "Retrieving Age key from 1Password..."
+          mkdir -p "$(dirname "$AGE_KEY_PATH_EXPANDED")"
+          op read "$AGE_KEY_1PASSWORD" > "$AGE_KEY_PATH_EXPANDED"
+          chmod 600 "$AGE_KEY_PATH_EXPANDED"
+          log_success "Age key saved to: $AGE_KEY_PATH_EXPANDED"
+          ((KEYS_CREATED++)) || true
+        fi
+      else
+        log_warn "Age key setup not configured (need both AGE_KEY_1PASSWORD and AGE_KEY_PATH)"
+      fi
+
+      # Setup SSH key
+      if [[ -n "''${SSH_KEY_1PASSWORD:-}" && -n "''${SSH_KEY_PATH:-}" ]]; then
+        SSH_KEY_PATH_EXPANDED="''${SSH_KEY_PATH/#\~/$HOME}"
+
+        if [[ -f "$SSH_KEY_PATH_EXPANDED" ]]; then
+          log_info "SSH key already exists at: $SSH_KEY_PATH_EXPANDED"
+          read -rp "Overwrite? [y/N] " REPLY
+          if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Skipping SSH key"
+          else
+            log_info "Retrieving SSH key from 1Password..."
+            mkdir -p "$(dirname "$SSH_KEY_PATH_EXPANDED")"
+            op read "$SSH_KEY_1PASSWORD" > "$SSH_KEY_PATH_EXPANDED"
+            chmod 600 "$SSH_KEY_PATH_EXPANDED"
+            # Generate public key from private key
+            ssh-keygen -y -f "$SSH_KEY_PATH_EXPANDED" > "''${SSH_KEY_PATH_EXPANDED}.pub"
+            chmod 644 "''${SSH_KEY_PATH_EXPANDED}.pub"
+            log_success "SSH key saved to: $SSH_KEY_PATH_EXPANDED"
+            log_success "Public key saved to: ''${SSH_KEY_PATH_EXPANDED}.pub"
+            ((KEYS_CREATED++)) || true
+          fi
+        else
+          log_info "Retrieving SSH key from 1Password..."
+          mkdir -p "$(dirname "$SSH_KEY_PATH_EXPANDED")"
+          op read "$SSH_KEY_1PASSWORD" > "$SSH_KEY_PATH_EXPANDED"
+          chmod 600 "$SSH_KEY_PATH_EXPANDED"
+          # Generate public key from private key
+          ssh-keygen -y -f "$SSH_KEY_PATH_EXPANDED" > "''${SSH_KEY_PATH_EXPANDED}.pub"
+          chmod 644 "''${SSH_KEY_PATH_EXPANDED}.pub"
+          log_success "SSH key saved to: $SSH_KEY_PATH_EXPANDED"
+          log_success "Public key saved to: ''${SSH_KEY_PATH_EXPANDED}.pub"
+          ((KEYS_CREATED++)) || true
+        fi
+      else
+        log_warn "SSH key setup not configured (need both SSH_KEY_1PASSWORD and SSH_KEY_PATH)"
+      fi
+
+      echo ""
+      if [[ $KEYS_CREATED -gt 0 ]]; then
+        log_success "Setup complete! $KEYS_CREATED key(s) created."
+        log_info "Local keys will now be used for backup/restore operations."
+      else
+        log_info "No keys were created."
+      fi
+    '';
+  };
+
+  # Keys backup script - backs up keys to passphrase-encrypted archive
+  keys-backup = pkgs.writeShellApplication {
+    name = "keys-backup";
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs ];
+    text = ''
+      set -euo pipefail
+
+      # Colors
+      RED='\033[0;31m'
+      GREEN='\033[0;32m'
+      YELLOW='\033[1;33m'
+      BLUE='\033[0;34m'
+      NC='\033[0m'
+
+      log_info() { echo -e "''${BLUE}[INFO]''${NC} $1"; }
+      log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $1"; }
+      log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
+      log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
+
+      # Load configuration
+      CONFIG_FILE="$HOME/.config/app-backup/config"
+      if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Config file not found. Run: nixos-rebuild switch"
+      fi
+      # shellcheck source=/dev/null
+      source "$CONFIG_FILE"
+
+      # Parse arguments
+      PUSH=false
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --push|-p) PUSH=true; shift ;;
+          --help|-h)
+            echo "Usage: keys-backup [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --push, -p     Push encrypted archive to GitHub after backup"
+            echo "  --help, -h     Show this help"
+            exit 0
+            ;;
+          *) log_error "Unknown option: $1" ;;
+        esac
+      done
+
+      log_info "Keys Backup"
+      echo ""
+
+      # Create secure temp directory
+      TEMP_DIR=$(mktemp -d)
+      chmod 700 "$TEMP_DIR"
+      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+
+      STAGING_DIR="$TEMP_DIR/keys-staging"
+      mkdir -p "$STAGING_DIR"
+
+      COUNT=0
+
+      # Add Age key if it exists locally
+      if [[ -n "''${AGE_KEY_PATH:-}" ]]; then
+        AGE_KEY_PATH_EXPANDED="''${AGE_KEY_PATH/#\~/$HOME}"
+        if [[ -f "$AGE_KEY_PATH_EXPANDED" ]]; then
+          cp "$AGE_KEY_PATH_EXPANDED" "$STAGING_DIR/age-key.txt"
+          ((COUNT++)) || true
+          log_info "Added Age key to backup"
+        fi
+      fi
+
+      # Add SSH key if it exists locally
+      if [[ -n "''${SSH_KEY_PATH:-}" ]]; then
+        SSH_KEY_PATH_EXPANDED="''${SSH_KEY_PATH/#\~/$HOME}"
+        if [[ -f "$SSH_KEY_PATH_EXPANDED" ]]; then
+          cp "$SSH_KEY_PATH_EXPANDED" "$STAGING_DIR/id_ed25519"
+          ((COUNT++)) || true
+          log_info "Added SSH private key to backup"
+          if [[ -f "''${SSH_KEY_PATH_EXPANDED}.pub" ]]; then
+            cp "''${SSH_KEY_PATH_EXPANDED}.pub" "$STAGING_DIR/id_ed25519.pub"
+            log_info "Added SSH public key to backup"
+          fi
+        fi
+      fi
+
+      if [[ $COUNT -eq 0 ]]; then
+        log_error "No keys found to backup. Run 'keys-setup' first."
+      fi
+
+      log_info "Creating keys archive..."
+      ARCHIVE="$TEMP_DIR/keys.tar.gz"
+      tar --create --gzip --file="$ARCHIVE" \
+        --directory="$STAGING_DIR" \
+        --sort=name \
+        --mtime='2024-01-01' \
+        .
+
+      # Get passphrase for encryption
+      PASSPHRASE=""
+      if [[ -n "''${KEYS_PASSPHRASE_1PASSWORD:-}" ]]; then
+        log_info "Retrieving keys passphrase from 1Password..."
+        PASSPHRASE=$(op read "$KEYS_PASSPHRASE_1PASSWORD")
+      else
+        read -rsp "Enter passphrase for keys backup: " PASSPHRASE
+        echo ""
+        read -rsp "Confirm passphrase: " PASSPHRASE2
+        echo ""
+        if [[ "$PASSPHRASE" != "$PASSPHRASE2" ]]; then
+          log_error "Passphrases do not match"
+        fi
+      fi
+
+      # Encrypt with passphrase
+      log_info "Encrypting keys archive..."
+      ENCRYPTED="$TEMP_DIR/keys.tar.gz.age"
+      echo "$PASSPHRASE" | age --encrypt --passphrase --output "$ENCRYPTED" "$ARCHIVE"
+
+      # Cleanup unencrypted archive
+      shred -u "$ARCHIVE" 2>/dev/null || rm -f "$ARCHIVE"
+      rm -rf "$STAGING_DIR"
+
+      SIZE=$(du -h "$ENCRYPTED" | cut -f1)
+      log_success "Keys archive created: $SIZE"
+
+      # Push to GitHub if requested
+      if [[ "$PUSH" == "true" ]]; then
+        echo ""
+        log_info "Pushing to GitHub..."
+
+        LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
+        : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
+        mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
+
+        if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
+          log_info "Cloning repository..."
+          git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
+        else
+          log_info "Updating repository..."
+          git -C "$LOCAL_REPO_PATH" reset --hard HEAD
+          git -C "$LOCAL_REPO_PATH" pull --rebase
+        fi
+
+        # Copy encrypted file
+        cp "$ENCRYPTED" "$LOCAL_REPO_PATH/"
+
+        # Commit and push
+        cd "$LOCAL_REPO_PATH"
+        git add -A
+        if git diff --staged --quiet; then
+          log_info "No changes to commit"
+        else
+          git commit -m "Keys backup $(date +%Y-%m-%d\ %H:%M)"
+          git push
+          log_success "Pushed to GitHub"
+        fi
+      else
+        log_info "Encrypted file: $ENCRYPTED"
+        log_info "Use --push to upload to GitHub"
+        # Keep temp dir if user might want the file
+        trap - EXIT INT TERM
+      fi
+
+      echo ""
+      log_success "Keys backup complete!"
+    '';
+  };
+
+  # Keys restore script - restores keys from passphrase-encrypted archive
+  keys-restore = pkgs.writeShellApplication {
+    name = "keys-restore";
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs openssh ];
+    text = ''
+      set -euo pipefail
+
+      # Colors
+      RED='\033[0;31m'
+      GREEN='\033[0;32m'
+      YELLOW='\033[1;33m'
+      BLUE='\033[0;34m'
+      NC='\033[0m'
+
+      log_info() { echo -e "''${BLUE}[INFO]''${NC} $1"; }
+      log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $1"; }
+      log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
+      log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
+
+      # Load configuration
+      CONFIG_FILE="$HOME/.config/app-backup/config"
+      if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Config file not found. Run: nixos-rebuild switch"
+      fi
+      # shellcheck source=/dev/null
+      source "$CONFIG_FILE"
+
+      # Parse arguments
+      PULL=false
+      FORCE=false
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --pull|-p) PULL=true; shift ;;
+          --force|-f) FORCE=true; shift ;;
+          --help|-h)
+            echo "Usage: keys-restore [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --pull, -p     Pull latest from GitHub before restoring"
+            echo "  --force, -f    Force overwrite of existing keys"
+            echo "  --help, -h     Show this help"
+            exit 0
+            ;;
+          *) log_error "Unknown option: $1" ;;
+        esac
+      done
+
+      log_info "Keys Restore"
+      echo ""
+
+      # Pull from GitHub if requested
+      LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
+      : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
+
+      if [[ "$PULL" == "true" ]]; then
+        log_info "Pulling from GitHub..."
+        mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
+        if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
+          log_info "Cloning repository..."
+          git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
+        else
+          log_info "Updating repository..."
+          git -C "$LOCAL_REPO_PATH" reset --hard HEAD
+          git -C "$LOCAL_REPO_PATH" pull --rebase
+        fi
+        echo ""
+      fi
+
+      AGE_FILE="$LOCAL_REPO_PATH/keys.tar.gz.age"
+      if [[ ! -f "$AGE_FILE" ]]; then
+        log_error "Keys backup not found: $AGE_FILE"
+      fi
+
+      # Get passphrase for decryption
+      PASSPHRASE=""
+      if [[ -n "''${KEYS_PASSPHRASE_1PASSWORD:-}" ]]; then
+        log_info "Retrieving keys passphrase from 1Password..."
+        PASSPHRASE=$(op read "$KEYS_PASSPHRASE_1PASSWORD")
+      else
+        read -rsp "Enter passphrase for keys backup: " PASSPHRASE
+        echo ""
+      fi
+
+      # Create secure temp directory
+      TEMP_DIR=$(mktemp -d)
+      chmod 700 "$TEMP_DIR"
+      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+
+      # Decrypt
+      log_info "Decrypting keys archive..."
+      TAR_FILE="$TEMP_DIR/keys.tar.gz"
+      echo "$PASSPHRASE" | age --decrypt --passphrase --output "$TAR_FILE" "$AGE_FILE" || {
+        log_error "Failed to decrypt keys backup (wrong passphrase?)"
+      }
+
+      EXTRACT_DIR="$TEMP_DIR/keys-extract"
+      mkdir -p "$EXTRACT_DIR"
+      tar --extract --gzip --file="$TAR_FILE" --directory="$EXTRACT_DIR"
+
+      COUNT=0
+
+      # Restore Age key
+      if [[ -f "$EXTRACT_DIR/age-key.txt" && -n "''${AGE_KEY_PATH:-}" ]]; then
+        AGE_KEY_PATH_EXPANDED="''${AGE_KEY_PATH/#\~/$HOME}"
+        if [[ -f "$AGE_KEY_PATH_EXPANDED" && "$FORCE" != "true" ]]; then
+          log_warn "Age key already exists at $AGE_KEY_PATH_EXPANDED - skipping (use --force to overwrite)"
+        else
+          mkdir -p "$(dirname "$AGE_KEY_PATH_EXPANDED")"
+          cp "$EXTRACT_DIR/age-key.txt" "$AGE_KEY_PATH_EXPANDED"
+          chmod 600 "$AGE_KEY_PATH_EXPANDED"
+          log_success "Restored Age key to: $AGE_KEY_PATH_EXPANDED"
+          ((COUNT++)) || true
+        fi
+      fi
+
+      # Restore SSH key
+      if [[ -f "$EXTRACT_DIR/id_ed25519" && -n "''${SSH_KEY_PATH:-}" ]]; then
+        SSH_KEY_PATH_EXPANDED="''${SSH_KEY_PATH/#\~/$HOME}"
+        if [[ -f "$SSH_KEY_PATH_EXPANDED" && "$FORCE" != "true" ]]; then
+          log_warn "SSH key already exists at $SSH_KEY_PATH_EXPANDED - skipping (use --force to overwrite)"
+        else
+          mkdir -p "$(dirname "$SSH_KEY_PATH_EXPANDED")"
+          cp "$EXTRACT_DIR/id_ed25519" "$SSH_KEY_PATH_EXPANDED"
+          chmod 600 "$SSH_KEY_PATH_EXPANDED"
+          log_success "Restored SSH key to: $SSH_KEY_PATH_EXPANDED"
+          ((COUNT++)) || true
+          if [[ -f "$EXTRACT_DIR/id_ed25519.pub" ]]; then
+            cp "$EXTRACT_DIR/id_ed25519.pub" "''${SSH_KEY_PATH_EXPANDED}.pub"
+            chmod 644 "''${SSH_KEY_PATH_EXPANDED}.pub"
+            log_success "Restored SSH public key to: ''${SSH_KEY_PATH_EXPANDED}.pub"
+          else
+            # Generate public key if not in backup
+            ssh-keygen -y -f "$SSH_KEY_PATH_EXPANDED" > "''${SSH_KEY_PATH_EXPANDED}.pub"
+            chmod 644 "''${SSH_KEY_PATH_EXPANDED}.pub"
+            log_success "Generated SSH public key: ''${SSH_KEY_PATH_EXPANDED}.pub"
+          fi
+        fi
+      fi
+
+      # Cleanup
+      shred -u "$TAR_FILE" 2>/dev/null || rm -f "$TAR_FILE"
+      rm -rf "$EXTRACT_DIR"
+
+      echo ""
+      if [[ $COUNT -gt 0 ]]; then
+        log_success "Restored $COUNT key(s)"
+      else
+        log_info "No keys were restored"
+      fi
+    '';
+  };
+
+  # Keys status script - shows status of local keys
+  keys-status = pkgs.writeShellApplication {
+    name = "keys-status";
+    runtimeInputs = with pkgs; [ coreutils ];
+    text = ''
+      set -euo pipefail
+
+      # Colors
+      RED='\033[0;31m'
+      GREEN='\033[0;32m'
+      YELLOW='\033[1;33m'
+      BLUE='\033[0;34m'
+      NC='\033[0m'
+
+      log_info() { echo -e "''${BLUE}[INFO]''${NC} $1"; }
+      log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $1"; }
+      log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
+      log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; }
+
+      # Load configuration
+      CONFIG_FILE="$HOME/.config/app-backup/config"
+      if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Config file not found. Run: nixos-rebuild switch"
+        exit 1
+      fi
+      # shellcheck source=/dev/null
+      source "$CONFIG_FILE"
+
+      echo -e "''${BLUE}Keys Status''${NC}"
+      echo ""
+
+      # Check Age key
+      echo -e "''${BLUE}Age Key:''${NC}"
+      if [[ -n "''${AGE_KEY_PATH:-}" ]]; then
+        AGE_KEY_PATH_EXPANDED="''${AGE_KEY_PATH/#\~/$HOME}"
+        if [[ -f "$AGE_KEY_PATH_EXPANDED" ]]; then
+          echo -e "  Local: ''${GREEN}✓''${NC} $AGE_KEY_PATH_EXPANDED"
+        else
+          echo -e "  Local: ''${YELLOW}✗''${NC} $AGE_KEY_PATH_EXPANDED (not found)"
+        fi
+      else
+        echo -e "  Local: ''${YELLOW}✗''${NC} Not configured"
+      fi
+      if [[ -n "''${AGE_KEY_1PASSWORD:-}" ]]; then
+        echo -e "  1Password: ''${GREEN}✓''${NC} $AGE_KEY_1PASSWORD"
+      else
+        echo -e "  1Password: ''${YELLOW}✗''${NC} Not configured"
+      fi
+
+      echo ""
+
+      # Check SSH key
+      echo -e "''${BLUE}SSH Key:''${NC}"
+      if [[ -n "''${SSH_KEY_PATH:-}" ]]; then
+        SSH_KEY_PATH_EXPANDED="''${SSH_KEY_PATH/#\~/$HOME}"
+        if [[ -f "$SSH_KEY_PATH_EXPANDED" ]]; then
+          echo -e "  Local: ''${GREEN}✓''${NC} $SSH_KEY_PATH_EXPANDED"
+          if [[ -f "''${SSH_KEY_PATH_EXPANDED}.pub" ]]; then
+            echo -e "  Public: ''${GREEN}✓''${NC} ''${SSH_KEY_PATH_EXPANDED}.pub"
+          fi
+        else
+          echo -e "  Local: ''${YELLOW}✗''${NC} $SSH_KEY_PATH_EXPANDED (not found)"
+        fi
+      else
+        echo -e "  Local: ''${YELLOW}✗''${NC} Not configured"
+      fi
+      if [[ -n "''${SSH_KEY_1PASSWORD:-}" ]]; then
+        echo -e "  1Password: ''${GREEN}✓''${NC} $SSH_KEY_1PASSWORD"
+      else
+        echo -e "  1Password: ''${YELLOW}✗''${NC} Not configured"
+      fi
+
+      echo ""
+
+      # Check backup
+      echo -e "''${BLUE}Keys Backup:''${NC}"
+      LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
+      : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
+      KEYS_FILE="$LOCAL_REPO_PATH/keys.tar.gz.age"
+      if [[ -f "$KEYS_FILE" ]]; then
+        SIZE=$(du -h "$KEYS_FILE" | cut -f1)
+        MTIME=$(stat -c %y "$KEYS_FILE" | cut -d. -f1)
+        echo -e "  Backup: ''${GREEN}✓''${NC} $KEYS_FILE ($SIZE, $MTIME)"
+      else
+        echo -e "  Backup: ''${YELLOW}✗''${NC} No backup found"
+      fi
+    '';
+  };
 
 in
 {
@@ -924,10 +1571,41 @@ in
       type = types.nullOr types.str;
       default = null;
       description = ''
-        Path to age identity key file (fallback if ageKey1Password not set).
-        Not recommended - prefer 1Password integration.
+        Path to age identity key file for local storage.
+        When both ageKeyPath and ageKey1Password are set, local file is checked first.
       '';
       example = "~/.config/age/key.txt";
+    };
+
+    sshKey1Password = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = ''
+        1Password secret reference for the SSH private key.
+        Format: op://vault/item/field
+        Example: op://Private/SSH Key (Kraken)/private key
+      '';
+      example = "op://Private/SSH Key (Kraken)/private key";
+    };
+
+    sshKeyPath = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = ''
+        Path to SSH private key file for local storage.
+        When both sshKeyPath and sshKey1Password are set, local file is checked first.
+      '';
+      example = "~/.ssh/id_ed25519";
+    };
+
+    keysPassphrase1Password = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = ''
+        1Password reference for the passphrase to encrypt/decrypt keys backup.
+        If not set, will prompt interactively during backup/restore.
+      '';
+      example = "op://Private/keys-backup-passphrase/password";
     };
 
     localRepoPath = mkOption {
@@ -955,6 +1633,11 @@ in
     home.packages = [
       app-backup
       app-restore
+      # Keys management
+      keys-setup
+      keys-backup
+      keys-restore
+      keys-status
       # Backward compatibility
       browser-backup-compat
       browser-restore-compat
@@ -963,6 +1646,7 @@ in
       pkgs.git
       pkgs.git-lfs
       pkgs._1password-cli
+      pkgs.openssh
     ];
 
     # Generate the configuration file
@@ -976,8 +1660,14 @@ in
         BACKUP_RETENTION=${toString cfg.backupRetention}
       '' + optionalString (cfg.ageKey1Password != null) ''
         AGE_KEY_1PASSWORD="${cfg.ageKey1Password}"
-      '' + optionalString (cfg.ageKeyPath != null && cfg.ageKey1Password == null) ''
+      '' + optionalString (cfg.ageKeyPath != null) ''
         AGE_KEY_PATH="${cfg.ageKeyPath}"
+      '' + optionalString (cfg.sshKey1Password != null) ''
+        SSH_KEY_1PASSWORD="${cfg.sshKey1Password}"
+      '' + optionalString (cfg.sshKeyPath != null) ''
+        SSH_KEY_PATH="${cfg.sshKeyPath}"
+      '' + optionalString (cfg.keysPassphrase1Password != null) ''
+        KEYS_PASSPHRASE_1PASSWORD="${cfg.keysPassphrase1Password}"
       '';
       force = true;
     };

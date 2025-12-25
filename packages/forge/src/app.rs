@@ -70,6 +70,7 @@ pub enum AppMode {
     CreateHost(CreateHostState),
     Update(UpdateState),
     Apps(AppProfileState),
+    Keys(KeysState),
     #[allow(dead_code)]
     Quit,
 }
@@ -295,6 +296,63 @@ pub enum AppOp {
     Restore,
 }
 
+/// Key management state
+#[derive(Debug, Clone)]
+pub enum KeysState {
+    Running {
+        operation: KeysOp,
+        output: VecDeque<String>,
+        force: bool,
+    },
+    Complete {
+        success: bool,
+        output: VecDeque<String>,
+        scroll_offset: usize,
+    },
+}
+
+impl KeysState {
+    pub fn new_setup() -> Self {
+        KeysState::Running {
+            operation: KeysOp::Setup,
+            output: VecDeque::new(),
+            force: false,
+        }
+    }
+
+    pub fn new_backup() -> Self {
+        KeysState::Running {
+            operation: KeysOp::Backup,
+            output: VecDeque::new(),
+            force: false,
+        }
+    }
+
+    pub fn new_restore(force: bool) -> Self {
+        KeysState::Running {
+            operation: KeysOp::Restore,
+            output: VecDeque::new(),
+            force,
+        }
+    }
+
+    pub fn new_status() -> Self {
+        KeysState::Running {
+            operation: KeysOp::Status,
+            output: VecDeque::new(),
+            force: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum KeysOp {
+    Setup,
+    Backup,
+    Restore,
+    Status,
+}
+
 /// Step progress status
 #[derive(Debug, Clone)]
 pub struct StepStatus {
@@ -437,6 +495,26 @@ impl App {
                     commands::apps::start_status(tx.clone()).await?;
                 }
             }
+            AppMode::Keys(KeysState::Running {
+                operation, force, ..
+            }) => {
+                if let Some(tx) = &self.cmd_tx {
+                    match operation {
+                        KeysOp::Setup => {
+                            commands::keys::start_setup(tx.clone()).await?;
+                        }
+                        KeysOp::Backup => {
+                            commands::keys::start_backup(tx.clone()).await?;
+                        }
+                        KeysOp::Restore => {
+                            commands::keys::start_restore(tx.clone(), *force).await?;
+                        }
+                        KeysOp::Status => {
+                            commands::keys::start_status(tx.clone()).await?;
+                        }
+                    }
+                }
+            }
             AppMode::Install(InstallState::SelectDisk { disks, .. }) => {
                 // Load disk list
                 *disks = crate::system::disk::get_available_disks()?;
@@ -507,6 +585,7 @@ impl App {
                     | AppMode::Apps(AppProfileState::Menu { .. })
                     | AppMode::Apps(AppProfileState::Complete { .. })
                     | AppMode::Apps(AppProfileState::Status { .. })
+                    | AppMode::Keys(KeysState::Complete { .. })
                     | AppMode::Update(UpdateState::Complete { .. })
                     | AppMode::Install(InstallState::Complete { .. })
                     | AppMode::CreateHost(CreateHostState::Complete { .. })
@@ -550,7 +629,8 @@ impl App {
             }
             AppMode::Install(InstallState::Complete { .. })
             | AppMode::Update(UpdateState::Complete { .. })
-            | AppMode::Apps(AppProfileState::Complete { .. }) => {
+            | AppMode::Apps(AppProfileState::Complete { .. })
+            | AppMode::Keys(KeysState::Complete { .. }) => {
                 match key {
                     KeyCode::Enter => Some(("complete", 0, None, None)),
                     KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
@@ -661,6 +741,11 @@ impl App {
                 ..
             })
             | AppMode::Apps(AppProfileState::Complete {
+                output,
+                scroll_offset,
+                ..
+            })
+            | AppMode::Keys(KeysState::Complete {
                 output,
                 scroll_offset,
                 ..
@@ -1206,6 +1291,9 @@ impl App {
             | AppMode::Apps(AppProfileState::Status { .. }) => {
                 AppMode::Apps(AppProfileState::Menu { selected: 0 })
             }
+            AppMode::Keys(KeysState::Complete { .. }) => {
+                AppMode::MainMenu { selected: 2 }
+            }
             AppMode::Install(InstallState::SelectHost { .. }) => {
                 AppMode::MainMenu { selected: 0 }
             }
@@ -1358,7 +1446,13 @@ impl App {
                 }
             }
             AppMode::Apps(AppProfileState::Status { output }) => {
-                output.push_back(clean_line);
+                output.push_back(clean_line.clone());
+            }
+            AppMode::Keys(KeysState::Running { output, .. }) => {
+                output.push_back(clean_line.clone());
+                while output.len() > OUTPUT_BUFFER_SIZE {
+                    output.pop_front();
+                }
             }
             AppMode::CreateHost(CreateHostState::Generating { output, .. }) => {
                 output.push_back(clean_line.clone());
@@ -1478,6 +1572,13 @@ impl App {
         match &mut self.mode {
             AppMode::Apps(AppProfileState::Running { output, .. }) => {
                 self.mode = AppMode::Apps(AppProfileState::Complete {
+                    success,
+                    output: output.clone(),
+                    scroll_offset: 0,
+                });
+            }
+            AppMode::Keys(KeysState::Running { output, .. }) => {
+                self.mode = AppMode::Keys(KeysState::Complete {
                     success,
                     output: output.clone(),
                     scroll_offset: 0,

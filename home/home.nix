@@ -167,10 +167,16 @@ in
   programs.firefox.enable = true;
 
   # App profile backup/restore (browsers, Termius - encrypted, synced via GitHub)
+  # Keys are stored locally with 1Password as fallback
   programs.app-backup = {
     enable = true;
     ageRecipient = "age160gkdyge3henu4r643066rnkwnfqc4xhzx47tprcmqj9lxcr9cuqvvw4qu";
+    # Age key - for encrypting/decrypting app backups
     ageKey1Password = "op://Private/age-key/private-key";
+    ageKeyPath = "~/.config/age/key.txt";
+    # SSH key - for GitHub authentication
+    sshKey1Password = "op://Private/kuhnsbkyjjmpjtvgpeiqqlczeu/private key";
+    sshKeyPath = "~/.ssh/id_ed25519";
   };
 
   # Set Google Chrome as default browser

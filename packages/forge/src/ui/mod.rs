@@ -12,7 +12,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, UpdateState};
+use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, KeysState, UpdateState};
 
 /// Main draw function - dispatches to appropriate screen
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -92,6 +92,22 @@ pub fn draw(frame: &mut Frame, app: &App) {
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
                 screens::apps::draw_complete(frame, *success, &output_vec, *scroll_offset, app);
+            }
+        },
+        AppMode::Keys(state) => match state {
+            KeysState::Running {
+                operation, output, ..
+            } => {
+                let output_vec: Vec<String> = output.iter().cloned().collect();
+                screens::keys::draw_running(frame, operation, &output_vec, app);
+            }
+            KeysState::Complete {
+                success,
+                output,
+                scroll_offset,
+            } => {
+                let output_vec: Vec<String> = output.iter().cloned().collect();
+                screens::keys::draw_complete(frame, *success, &output_vec, *scroll_offset, app);
             }
         },
         AppMode::CreateHost(state) => match state {

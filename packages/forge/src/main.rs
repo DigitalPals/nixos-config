@@ -58,6 +58,11 @@ enum Commands {
         #[command(subcommand)]
         action: Option<AppsAction>,
     },
+    /// Key management (Age and SSH keys)
+    Keys {
+        #[command(subcommand)]
+        action: KeysAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -75,6 +80,22 @@ enum AppsAction {
         force: bool,
     },
     /// Check for app profile updates
+    Status,
+}
+
+#[derive(Subcommand)]
+enum KeysAction {
+    /// Setup keys from 1Password (one-time initial setup)
+    Setup,
+    /// Backup keys to passphrase-encrypted archive
+    Backup,
+    /// Restore keys from passphrase-encrypted archive
+    Restore {
+        /// Force overwrite of existing keys
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Show key status
     Status,
 }
 
@@ -118,6 +139,20 @@ async fn main() -> Result<()> {
                 run_tui(AppMode::Apps(app::AppProfileState::new_status())).await
             }
             None => run_tui(AppMode::Apps(app::AppProfileState::new_menu())).await,
+        },
+        Some(Commands::Keys { action }) => match action {
+            KeysAction::Setup => {
+                run_tui(AppMode::Keys(app::KeysState::new_setup())).await
+            }
+            KeysAction::Backup => {
+                run_tui(AppMode::Keys(app::KeysState::new_backup())).await
+            }
+            KeysAction::Restore { force } => {
+                run_tui(AppMode::Keys(app::KeysState::new_restore(force))).await
+            }
+            KeysAction::Status => {
+                run_tui(AppMode::Keys(app::KeysState::new_status())).await
+            }
         },
         None => run_tui(AppMode::MainMenu { selected: 0 }).await,
     }
