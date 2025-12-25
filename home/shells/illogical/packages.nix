@@ -58,6 +58,9 @@ in
     # Python environment for color extraction
     pythonEnv
 
+    # CLI tools
+    eza  # Modern ls replacement (used by fish aliases)
+
     # Fonts for Material Design
     material-symbols
     rubik

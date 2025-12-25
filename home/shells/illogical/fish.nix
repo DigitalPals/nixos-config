@@ -10,6 +10,11 @@
       # No greeting (illogical style)
       set -g fish_greeting
 
+      # Add blank line after command output for visual separation
+      function postexec_newline --on-event fish_postexec
+        echo
+      end
+
       # Add ~/.local/bin to PATH if not already present
       if not contains ~/.local/bin $PATH
         set -gx PATH ~/.local/bin $PATH
@@ -115,8 +120,4 @@
     enableFishIntegration = true;
   };
 
-  # Required CLI tools
-  home.packages = with pkgs; [
-    eza
-  ];
 }
