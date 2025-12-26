@@ -52,22 +52,98 @@ pub async fn start_status(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     Ok(())
 }
 
-/// Start a quick background check for app profile updates (non-blocking, silent on failure)
+/// Start parallel background checks for all update types (non-blocking, silent on failure)
 pub async fn start_quick_update_check(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     tokio::spawn(async move {
-        let available = check_updates_available().await.unwrap_or(false);
-        // Only send if updates are available (fail silently otherwise)
-        if available {
+        // Run both checks in parallel
+        let (nixos_result, apps_result) = tokio::join!(
+            check_nixos_config_updates(),
+            check_app_updates_available(),
+        );
+
+        let commits = nixos_result.unwrap_or_default();
+        let nixos_config = !commits.is_empty();
+        let app_profiles = apps_result.unwrap_or(false);
+
+        // Only send message if at least one update is available
+        if nixos_config || app_profiles {
             let _ = tx
-                .send(CommandMessage::AppUpdatesAvailable { available: true })
+                .send(CommandMessage::UpdatesAvailable {
+                    nixos_config,
+                    app_profiles,
+                    commits,
+                })
                 .await;
         }
     });
     Ok(())
 }
 
+/// Check for nixos-config updates and return pending commits (hash, message)
+async fn check_nixos_config_updates() -> Result<Vec<(String, String)>> {
+    // The nixos-config repo location (symlinked from /etc/nixos)
+    let config_dir = if std::path::Path::new("/etc/nixos/.git").exists() {
+        std::path::PathBuf::from("/etc/nixos")
+    } else {
+        dirs::home_dir()
+            .map(|h| h.join("nixos-config"))
+            .ok_or_else(|| anyhow::anyhow!("No home directory"))?
+    };
+
+    // If no git repo, no updates to check
+    if !config_dir.join(".git").exists() {
+        return Ok(vec![]);
+    }
+
+    // Fetch from remote (with timeout for startup check)
+    let fetch_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        run_capture(
+            "git",
+            &["-C", config_dir.to_str().unwrap_or("."), "fetch", "origin"],
+        ),
+    )
+    .await;
+
+    match fetch_result {
+        Ok(Ok((true, _, _))) => {}
+        _ => return Ok(vec![]), // Timeout or fetch failed - fail silently
+    }
+
+    // Get list of commits on origin/main not in HEAD
+    let (ok, log_output, _) = run_capture(
+        "git",
+        &[
+            "-C",
+            config_dir.to_str().unwrap_or("."),
+            "log",
+            "HEAD..origin/main",
+            "--pretty=format:%h|%s",
+        ],
+    )
+    .await?;
+
+    if !ok || log_output.trim().is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Parse output into (hash, message) pairs
+    let commits: Vec<(String, String)> = log_output
+        .lines()
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '|').collect();
+            (
+                parts.first().unwrap_or(&"").to_string(),
+                parts.get(1).unwrap_or(&"").to_string(),
+            )
+        })
+        .collect();
+
+    Ok(commits)
+}
+
 /// Check if remote has newer app profiles (quick, non-blocking)
-async fn check_updates_available() -> Result<bool> {
+async fn check_app_updates_available() -> Result<bool> {
     // Check both new and legacy paths
     let local_repo = dirs::home_dir()
         .map(|h| {
@@ -121,35 +197,32 @@ async fn check_updates_available() -> Result<bool> {
         return Ok(false);
     }
 
-    // Compare local HEAD with remote HEAD
-    let (_, local_head, _) = run_capture(
-        "git",
-        &["-C", local_repo.to_str().unwrap_or("."), "rev-parse", "HEAD"],
-    )
-    .await?;
-
+    // Count commits on origin that aren't in local HEAD
     // Try origin/main first, then origin/master
-    let (remote_ok, remote_head, _) = run_capture(
+    let (ok, count_str, _) = run_capture(
         "git",
         &[
             "-C",
             local_repo.to_str().unwrap_or("."),
-            "rev-parse",
-            "origin/main",
+            "rev-list",
+            "HEAD..origin/main",
+            "--count",
         ],
     )
     .await?;
 
-    let remote_head = if remote_ok {
-        remote_head
+    let count: usize = if ok {
+        count_str.trim().parse().unwrap_or(0)
     } else {
-        let (master_ok, master_head, _) = run_capture(
+        // Try origin/master as fallback
+        let (master_ok, master_count, _) = run_capture(
             "git",
             &[
                 "-C",
                 local_repo.to_str().unwrap_or("."),
-                "rev-parse",
-                "origin/master",
+                "rev-list",
+                "HEAD..origin/master",
+                "--count",
             ],
         )
         .await?;
@@ -157,11 +230,11 @@ async fn check_updates_available() -> Result<bool> {
         if !master_ok {
             return Ok(false);
         }
-        master_head
+        master_count.trim().parse().unwrap_or(0)
     };
 
-    // Updates available if heads differ
-    Ok(local_head.trim() != remote_head.trim())
+    // Updates available if there are commits on origin we don't have
+    Ok(count > 0)
 }
 
 /// Helper to send stdout message

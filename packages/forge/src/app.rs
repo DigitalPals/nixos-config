@@ -393,13 +393,50 @@ pub struct UpdateSummary {
     pub log_path: String,
 }
 
+/// Information about a pending commit
+#[derive(Debug, Clone)]
+pub struct CommitInfo {
+    pub hash: String,
+    pub message: String,
+}
+
+/// Tracks which updates are available for the combined dialog
+#[derive(Debug, Clone, Default)]
+pub struct PendingUpdates {
+    pub nixos_config: bool,
+    pub app_profiles: bool,
+    /// Pending commits for nixos-config
+    pub commits: Vec<CommitInfo>,
+    /// Selected option in the dialog (0 = first option)
+    pub selected: usize,
+    /// True when viewing the commit list
+    pub viewing_commits: bool,
+    /// Scroll position in commit list
+    pub commit_scroll: usize,
+}
+
+impl PendingUpdates {
+    pub fn has_updates(&self) -> bool {
+        self.nixos_config || self.app_profiles
+    }
+
+    pub fn clear(&mut self) {
+        self.nixos_config = false;
+        self.app_profiles = false;
+        self.commits.clear();
+        self.selected = 0;
+        self.viewing_commits = false;
+        self.commit_scroll = 0;
+    }
+}
+
 /// Main application state
 pub struct App {
     pub mode: AppMode,
     pub should_quit: bool,
     pub show_exit_confirm: bool,
-    /// Show dialog when app profile updates are available
-    pub show_update_dialog: bool,
+    /// Available updates detected during startup check
+    pub pending_updates: PendingUpdates,
     /// Whether the startup update check is in progress
     pub startup_check_running: bool,
     pub spinner_state: usize,
@@ -439,7 +476,7 @@ impl App {
             mode: initial_mode,
             should_quit: false,
             show_exit_confirm: false,
-            show_update_dialog: false,
+            pending_updates: PendingUpdates::default(),
             startup_check_running: false,
             spinner_state: 0,
             last_tick: Instant::now(),
@@ -461,6 +498,81 @@ impl App {
             let _ = writeln!(file, "{}", line);
             let _ = file.flush();
         }
+    }
+
+    /// Get the number of options in the update dialog
+    fn get_update_dialog_option_count(&self) -> usize {
+        // Options in order:
+        // 1. "View NixOS updates" (when nixos_config)
+        // 2. "Update app profiles" (when app_profiles)
+        // 3. "Update all" (when both)
+        // 4. "Dismiss" (always)
+        let mut count = 0;
+        if self.pending_updates.nixos_config {
+            count += 1; // "View NixOS updates"
+        }
+        if self.pending_updates.app_profiles {
+            count += 1; // "Update app profiles"
+        }
+        if self.pending_updates.nixos_config && self.pending_updates.app_profiles {
+            count += 1; // "Update all"
+        }
+        count += 1; // "Dismiss"
+        count
+    }
+
+    /// Handle selection in the update dialog
+    async fn handle_update_dialog_select(&mut self) -> Result<()> {
+        let has_nixos = self.pending_updates.nixos_config;
+        let has_apps = self.pending_updates.app_profiles;
+        let both = has_nixos && has_apps;
+        let selected = self.pending_updates.selected;
+
+        // Options in order:
+        // 1. "View NixOS updates" (idx 0 when nixos_config)
+        // 2. "Update app profiles" (idx 1 when both, idx 0 when only apps)
+        // 3. "Update all" (idx 2 when both)
+        // 4. "Dismiss" (last)
+
+        let mut idx = 0;
+
+        // Check if View NixOS updates was selected
+        if has_nixos {
+            if selected == idx {
+                // Show commit list view
+                self.pending_updates.viewing_commits = true;
+                self.pending_updates.commit_scroll = 0;
+                return Ok(());
+            }
+            idx += 1;
+        }
+
+        // Check if Update app profiles was selected
+        if has_apps {
+            if selected == idx {
+                self.pending_updates.clear();
+                self.mode = AppMode::Apps(AppProfileState::new_restore(false));
+                self.start_initial_command().await?;
+                return Ok(());
+            }
+            idx += 1;
+        }
+
+        // Check if Update all was selected
+        if both {
+            if selected == idx {
+                // Run system update (prioritize system update)
+                self.pending_updates.clear();
+                self.mode = AppMode::Update(UpdateState::new());
+                self.start_initial_command().await?;
+                return Ok(());
+            }
+            // idx += 1; // Not needed, dismiss is last
+        }
+
+        // Dismiss selected (or fallback)
+        self.pending_updates.clear();
+        Ok(())
     }
 
     /// Called on each tick to update animations
@@ -590,17 +702,55 @@ impl App {
             return Ok(());
         }
 
-        // Handle update dialog
-        if self.show_update_dialog {
+        // Handle commit list view
+        if self.pending_updates.viewing_commits {
             match key {
-                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.show_update_dialog = false;
-                    // Navigate to restore and start it
-                    self.mode = AppMode::Apps(AppProfileState::new_restore(false));
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.pending_updates.commit_scroll > 0 {
+                        self.pending_updates.commit_scroll -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let max = self.pending_updates.commits.len().saturating_sub(1);
+                    if self.pending_updates.commit_scroll < max {
+                        self.pending_updates.commit_scroll += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    // Run system update
+                    self.pending_updates.clear();
+                    self.mode = AppMode::Update(UpdateState::new());
                     self.start_initial_command().await?;
                 }
+                KeyCode::Esc | KeyCode::Backspace => {
+                    // Go back to main dialog
+                    self.pending_updates.viewing_commits = false;
+                    self.pending_updates.commit_scroll = 0;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        // Handle update dialog
+        if self.pending_updates.has_updates() {
+            match key {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.pending_updates.selected > 0 {
+                        self.pending_updates.selected -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let max = self.get_update_dialog_option_count() - 1;
+                    if self.pending_updates.selected < max {
+                        self.pending_updates.selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    self.handle_update_dialog_select().await?;
+                }
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                    self.show_update_dialog = false;
+                    self.pending_updates.clear();
                 }
                 _ => {}
             }
@@ -1443,10 +1593,22 @@ impl App {
             CommandMessage::Done { success } => {
                 self.handle_command_done(success);
             }
-            CommandMessage::AppUpdatesAvailable { available } => {
+            CommandMessage::UpdatesAvailable {
+                nixos_config,
+                app_profiles,
+                commits,
+            } => {
                 self.startup_check_running = false;
-                if available && matches!(self.mode, AppMode::MainMenu { .. }) {
-                    self.show_update_dialog = true;
+                if (nixos_config || app_profiles) && matches!(self.mode, AppMode::MainMenu { .. }) {
+                    self.pending_updates.nixos_config = nixos_config;
+                    self.pending_updates.app_profiles = app_profiles;
+                    self.pending_updates.commits = commits
+                        .into_iter()
+                        .map(|(hash, message)| CommitInfo { hash, message })
+                        .collect();
+                    self.pending_updates.selected = 0;
+                    self.pending_updates.viewing_commits = false;
+                    self.pending_updates.commit_scroll = 0;
                 }
             }
         }

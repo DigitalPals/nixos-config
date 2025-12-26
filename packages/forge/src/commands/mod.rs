@@ -54,6 +54,11 @@ pub enum CommandMessage {
     StepSkipped { step: String },
     /// Command fully completed
     Done { success: bool },
-    /// App profile updates are available
-    AppUpdatesAvailable { available: bool },
+    /// Updates available notification (sent after startup checks complete)
+    UpdatesAvailable {
+        nixos_config: bool,
+        app_profiles: bool,
+        /// Pending commits for nixos-config (hash, message)
+        commits: Vec<(String, String)>,
+    },
 }
