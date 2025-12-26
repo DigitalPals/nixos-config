@@ -53,9 +53,6 @@ pub const HOSTS_SUBDIR: &str = "hosts";
 /// Flake.nix filename
 pub const FLAKE_NIX: &str = "flake.nix";
 
-/// Flake.lock filename
-pub const FLAKE_LOCK: &str = "flake.lock";
-
 /// Mount point for NixOS installation
 pub const INSTALL_MOUNT_POINT: &str = "/mnt";
 
@@ -100,16 +97,6 @@ pub const CLAUDE_CLI_PATH: &str = ".local/bin/claude";
 
 /// Codex CLI path (relative to home)
 pub const CODEX_CLI_PATH: &str = ".npm-global/bin/codex";
-
-// =============================================================================
-// System Paths
-// =============================================================================
-
-/// NixOS system profiles directory
-pub const NIX_PROFILES_DIR: &str = "/nix/var/nix/profiles";
-
-/// Current system symlink
-pub const CURRENT_SYSTEM_LINK: &str = "/run/current-system";
 
 // =============================================================================
 // Helper Functions

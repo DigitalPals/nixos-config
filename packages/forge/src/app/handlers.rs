@@ -252,8 +252,31 @@ impl App {
     async fn handle_main_menu_select(&mut self, selected: usize) -> Result<()> {
         match selected {
             0 => {
-                // Install
-                self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
+                // Install - check if running from Live ISO
+                if !crate::system::is_live_iso_environment() {
+                    use std::collections::VecDeque;
+                    let mut output = VecDeque::new();
+                    output.push_back(
+                        "Error: Install can only be run from a NixOS Live ISO.".to_string(),
+                    );
+                    output.push_back("".to_string());
+                    output.push_back(
+                        "You appear to be running on an installed system.".to_string(),
+                    );
+                    output.push_back("".to_string());
+                    output.push_back("To install NixOS:".to_string());
+                    output.push_back("  1. Boot from a NixOS minimal ISO".to_string());
+                    output.push_back("  2. Connect to WiFi: nmtui".to_string());
+                    output.push_back("  3. Run: nix run github:DigitalPals/nixos-config".to_string());
+                    output.push_back("  4. Select 'Install NixOS' from the menu".to_string());
+                    self.mode = AppMode::Install(InstallState::Complete {
+                        success: false,
+                        output,
+                        scroll_offset: 0,
+                    });
+                } else {
+                    self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
+                }
             }
             1 => {
                 // Update
