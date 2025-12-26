@@ -51,13 +51,14 @@ fn load_host_metadata(host_path: &Path) -> Option<HostMetadata> {
 /// Discover available hosts from the hosts/ directory
 /// Checks multiple locations in order: /tmp/nixos-config, ~/nixos-config, /etc/nixos
 pub fn discover_hosts() -> Vec<HostConfig> {
+    use crate::constants::{HOSTS_SUBDIR, NIXOS_CONFIG_HOME_DIR, NIXOS_CONFIG_SYSTEM, NIXOS_CONFIG_TEMP};
+
     let locations = [
-        "/tmp/nixos-config/hosts".to_string(),
-        format!(
-            "{}/nixos-config/hosts",
-            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string())
-        ),
-        "/etc/nixos/hosts".to_string(),
+        format!("{}/{}", NIXOS_CONFIG_TEMP, HOSTS_SUBDIR),
+        dirs::home_dir()
+            .map(|h| format!("{}/{}/{}", h.display(), NIXOS_CONFIG_HOME_DIR, HOSTS_SUBDIR))
+            .unwrap_or_default(),
+        format!("{}/{}", NIXOS_CONFIG_SYSTEM, HOSTS_SUBDIR),
     ];
 
     // Find first existing hosts directory
@@ -171,4 +172,112 @@ pub fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_tilde_with_home() {
+        let path = "~/test/path";
+        let expanded = expand_tilde(path);
+        // Should expand to home directory
+        assert!(!expanded.starts_with("~"), "Tilde should be expanded");
+        assert!(expanded.contains("test/path"), "Path suffix should be preserved");
+    }
+
+    #[test]
+    fn test_expand_tilde_no_tilde() {
+        let path = "/absolute/path";
+        let expanded = expand_tilde(path);
+        assert_eq!(expanded, path, "Path without tilde should remain unchanged");
+    }
+
+    #[test]
+    fn test_expand_tilde_only_tilde() {
+        let path = "~";
+        let expanded = expand_tilde(path);
+        // ~ alone is not expanded (only ~/)
+        assert_eq!(expanded, "~", "Single tilde should remain unchanged");
+    }
+
+    #[test]
+    fn test_expand_tilde_in_middle() {
+        let path = "/some/~/path";
+        let expanded = expand_tilde(path);
+        assert_eq!(expanded, path, "Tilde in middle of path should not expand");
+    }
+
+    #[test]
+    fn test_parse_host_description_with_dash() {
+        let content = "# hostname - This is a description\n{ config }:";
+        let description = parse_host_description(content);
+        assert_eq!(description, "This is a description");
+    }
+
+    #[test]
+    fn test_parse_host_description_no_dash() {
+        let content = "# Just a comment\n{ config }:";
+        let description = parse_host_description(content);
+        assert_eq!(description, "Host configuration");
+    }
+
+    #[test]
+    fn test_parse_host_description_empty() {
+        let content = "";
+        let description = parse_host_description(content);
+        assert_eq!(description, "Host configuration");
+    }
+
+    #[test]
+    fn test_parse_host_description_no_comment() {
+        let content = "{ config }:";
+        let description = parse_host_description(content);
+        assert_eq!(description, "Host configuration");
+    }
+
+    #[test]
+    fn test_browser_backup_config_default() {
+        let config = BrowserBackupConfig::default();
+        assert!(config.repo.is_empty());
+        assert!(config.age_recipient.is_empty());
+        assert!(config.age_key_1password.is_none());
+        assert!(config.age_key_path.is_none());
+        assert!(config.local_repo_path.is_empty());
+        assert_eq!(config.backup_retention, 0);
+    }
+
+    #[test]
+    fn test_host_config_clone() {
+        let config = HostConfig {
+            name: "testhost".to_string(),
+            description: "Test description".to_string(),
+            metadata: None,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.name, "testhost");
+        assert_eq!(cloned.description, "Test description");
+        assert!(cloned.metadata.is_none());
+    }
+
+    #[test]
+    fn test_host_metadata_with_values() {
+        let metadata = HostMetadata {
+            cpu: Some(CpuMeta {
+                vendor: "AMD".to_string(),
+                model: "Ryzen 9".to_string(),
+            }),
+            gpu: Some(GpuMeta {
+                vendor: "NVIDIA".to_string(),
+                model: Some("RTX 5090".to_string()),
+            }),
+            form_factor: Some("Desktop".to_string()),
+            ram: Some("64 GB".to_string()),
+        };
+        assert_eq!(metadata.cpu.as_ref().unwrap().vendor, "AMD");
+        assert_eq!(metadata.gpu.as_ref().unwrap().vendor, "NVIDIA");
+        assert_eq!(metadata.form_factor, Some("Desktop".to_string()));
+        assert_eq!(metadata.ram, Some("64 GB".to_string()));
+    }
 }

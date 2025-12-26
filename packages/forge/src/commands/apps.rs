@@ -65,30 +65,21 @@ pub async fn start_quick_update_check(tx: mpsc::Sender<CommandMessage>) -> Resul
         let nixos_config = !commits.is_empty();
         let app_profiles = apps_result.unwrap_or(false);
 
-        // Only send message if at least one update is available
-        if nixos_config || app_profiles {
-            let _ = tx
-                .send(CommandMessage::UpdatesAvailable {
-                    nixos_config,
-                    app_profiles,
-                    commits,
-                })
-                .await;
-        }
+        // Always send message to clear startup_check_running flag
+        let _ = tx
+            .send(CommandMessage::UpdatesAvailable {
+                nixos_config,
+                app_profiles,
+                commits,
+            })
+            .await;
     });
     Ok(())
 }
 
 /// Check for nixos-config updates and return pending commits (hash, message)
 async fn check_nixos_config_updates() -> Result<Vec<(String, String)>> {
-    // The nixos-config repo location (symlinked from /etc/nixos)
-    let config_dir = if std::path::Path::new("/etc/nixos/.git").exists() {
-        std::path::PathBuf::from("/etc/nixos")
-    } else {
-        dirs::home_dir()
-            .map(|h| h.join("nixos-config"))
-            .ok_or_else(|| anyhow::anyhow!("No home directory"))?
-    };
+    let config_dir = crate::constants::nixos_config_dir();
 
     // If no git repo, no updates to check
     if !config_dir.join(".git").exists() {
@@ -144,17 +135,11 @@ async fn check_nixos_config_updates() -> Result<Vec<(String, String)>> {
 
 /// Check if remote has newer app profiles (quick, non-blocking)
 async fn check_app_updates_available() -> Result<bool> {
-    // Check both new and legacy paths
-    let local_repo = dirs::home_dir()
-        .map(|h| {
-            let new_path = h.join(".local/share/app-backup");
-            if new_path.join(".git").exists() {
-                new_path
-            } else {
-                h.join(".local/share/browser-backup")
-            }
-        })
-        .ok_or_else(|| anyhow::anyhow!("No home directory"))?;
+    let local_repo = crate::constants::app_backup_data_dir();
+
+    if local_repo.as_os_str().is_empty() {
+        return Ok(false);
+    }
 
     // If no local repo, no updates available (user needs to run restore first)
     if !local_repo.join(".git").exists() {
@@ -307,17 +292,7 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     out(tx, "==============================================").await;
     out(tx, "").await;
 
-    // Check both new and legacy paths
-    let local_repo = dirs::home_dir()
-        .map(|h| {
-            let new_path = h.join(".local/share/app-backup");
-            if new_path.join(".git").exists() {
-                new_path
-            } else {
-                h.join(".local/share/browser-backup")
-            }
-        })
-        .unwrap_or_default();
+    let local_repo = crate::constants::app_backup_data_dir();
 
     if !local_repo.join(".git").exists() {
         out(tx, "  Local repository not found.").await;

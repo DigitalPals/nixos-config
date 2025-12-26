@@ -6,18 +6,15 @@ use tokio::sync::mpsc;
 
 use super::executor::{run_capture, run_command};
 use super::CommandMessage;
-use crate::constants::{PRIMARY_USER_GID, PRIMARY_USER_UID};
+use crate::constants::{
+    self, INSTALL_MOUNT_POINT, INSTALL_SYMLINK_PATH, NIXOS_CONFIG_HOME_DIR,
+    PRIMARY_USER_GID, PRIMARY_USER_UID,
+};
 
 const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
-const SYMLINK_PATH: &str = "/mnt/etc/nixos";
 
 /// The primary user configured in this NixOS setup
 const PRIMARY_USER: &str = "john";
-
-/// Get a unique temporary config directory path to avoid conflicts with concurrent installations
-fn get_temp_config_dir() -> String {
-    format!("/tmp/nixos-config-{}", std::process::id())
-}
 
 /// Regex to match disko device declarations.
 /// This pattern is a compile-time constant and cannot fail to compile.
@@ -28,12 +25,12 @@ static DISK_DEVICE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 /// Get the config directory path for the mounted system
 fn get_config_dir() -> String {
-    format!("/mnt/home/{}/nixos-config", PRIMARY_USER)
+    format!("{}/home/{}/{}", INSTALL_MOUNT_POINT, PRIMARY_USER, NIXOS_CONFIG_HOME_DIR)
 }
 
 /// Get the symlink target (path on the installed system, not /mnt)
 fn get_symlink_target() -> String {
-    format!("/home/{}/nixos-config", PRIMARY_USER)
+    format!("/home/{}/{}", PRIMARY_USER, NIXOS_CONFIG_HOME_DIR)
 }
 
 /// Start the installation process
@@ -101,7 +98,8 @@ async fn run_install(
         .await?;
 
     // Remove existing temp config
-    let temp_config = get_temp_config_dir();
+    let temp_config = constants::temp_config_dir();
+    let temp_config_str = temp_config.to_string_lossy();
     let _ = std::fs::remove_dir_all(&temp_config);
 
     let success = run_command(
@@ -111,7 +109,7 @@ async fn run_install(
             "-p",
             "git",
             "--run",
-            &format!("git clone --depth 1 {} {}", REPO_URL, temp_config),
+            &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
         ],
     )
     .await?;
@@ -161,7 +159,7 @@ async fn run_install(
     }
 
     // Check disko config file exists
-    let disko_file = format!("{}/modules/disko/{}.nix", temp_config, hostname);
+    let disko_file = format!("{}/modules/disko/{}.nix", temp_config_str, hostname);
     if !std::path::Path::new(&disko_file).exists() {
         tx.send(CommandMessage::StepFailed {
             step: "disk".to_string(),
@@ -195,7 +193,7 @@ async fn run_install(
     .await?;
 
     // Pre-fetch disko (optional optimization, log if it fails)
-    match run_command(tx, "nix", &["build", &format!("{}#disko", temp_config), "--no-link"]).await {
+    match run_command(tx, "nix", &["build", &format!("{}#disko", temp_config_str), "--no-link"]).await {
         Ok(true) => tracing::info!("Disko pre-fetch succeeded"),
         Ok(false) => tracing::warn!("Disko pre-fetch failed - continuing anyway"),
         Err(e) => tracing::warn!("Disko pre-fetch error: {} - continuing anyway", e),
@@ -207,12 +205,12 @@ async fn run_install(
         "nix",
         &[
             "run",
-            &format!("{}#disko", temp_config),
+            &format!("{}#disko", temp_config_str),
             "--",
             "--mode",
             "destroy,format,mount",
             "--flake",
-            &format!("{}#{}", temp_config, hostname),
+            &format!("{}#{}", temp_config_str, hostname),
         ],
     )
     .await?;
@@ -244,29 +242,29 @@ async fn run_install(
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid config directory path"))?;
     std::fs::create_dir_all(config_parent)?;
-    copy_dir_recursive(&temp_config, &config_dir)?;
+    copy_dir_recursive(&temp_config_str, &config_dir)?;
 
     // Remove .git from copied config
     let _ = std::fs::remove_dir_all(format!("{}/.git", config_dir));
 
     // Create symlink
-    let symlink_parent = std::path::Path::new(SYMLINK_PATH)
+    let symlink_parent = std::path::Path::new(INSTALL_SYMLINK_PATH)
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("Invalid symlink path: cannot determine parent of {}", SYMLINK_PATH))?;
+        .ok_or_else(|| anyhow::anyhow!("Invalid symlink path: cannot determine parent of {}", INSTALL_SYMLINK_PATH))?;
     std::fs::create_dir_all(symlink_parent)
         .with_context(|| format!("Failed to create directory: {}", symlink_parent.display()))?;
     // Remove existing path (could be file, symlink, or directory)
     // Check is_symlink() FIRST since symlinks to dirs return true for is_dir()
-    let symlink_path = std::path::Path::new(SYMLINK_PATH);
+    let symlink_path = std::path::Path::new(INSTALL_SYMLINK_PATH);
     if symlink_path.is_symlink() || symlink_path.is_file() {
-        std::fs::remove_file(SYMLINK_PATH)
-            .with_context(|| format!("Failed to remove existing symlink/file at {}", SYMLINK_PATH))?;
+        std::fs::remove_file(INSTALL_SYMLINK_PATH)
+            .with_context(|| format!("Failed to remove existing symlink/file at {}", INSTALL_SYMLINK_PATH))?;
     } else if symlink_path.is_dir() {
-        std::fs::remove_dir_all(SYMLINK_PATH)
-            .with_context(|| format!("Failed to remove existing directory at {}", SYMLINK_PATH))?;
+        std::fs::remove_dir_all(INSTALL_SYMLINK_PATH)
+            .with_context(|| format!("Failed to remove existing directory at {}", INSTALL_SYMLINK_PATH))?;
     }
-    std::os::unix::fs::symlink(&symlink_target, SYMLINK_PATH)
-        .with_context(|| format!("Failed to create symlink {} -> {}", SYMLINK_PATH, symlink_target))?;
+    std::os::unix::fs::symlink(&symlink_target, INSTALL_SYMLINK_PATH)
+        .with_context(|| format!("Failed to create symlink {} -> {}", INSTALL_SYMLINK_PATH, symlink_target))?;
 
     // Initialize git repo (optional, log failures)
     match run_command(

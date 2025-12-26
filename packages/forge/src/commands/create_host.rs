@@ -213,28 +213,27 @@ async fn run_create_host(
 
 /// Get the configuration directory path
 fn get_config_dir() -> Result<String> {
-    // Check common locations
-    let locations = [
-        // Live ISO cloned location
-        format!("/tmp/nixos-config-{}", std::process::id()),
-        "/tmp/nixos-config".to_string(),
-        // Installed system location
-        format!(
-            "{}/nixos-config",
-            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string())
-        ),
-        "/etc/nixos".to_string(),
-    ];
+    // First try PID-specific temp directory (for concurrent installs)
+    let temp_dir = crate::constants::temp_config_dir();
+    if temp_dir.join(crate::constants::FLAKE_NIX).exists() {
+        return Ok(temp_dir.to_string_lossy().to_string());
+    }
 
-    for loc in &locations {
-        if Path::new(loc).join("flake.nix").exists() {
-            return Ok(loc.clone());
-        }
+    // Try static temp location
+    let temp_static = Path::new(crate::constants::NIXOS_CONFIG_TEMP);
+    if temp_static.join(crate::constants::FLAKE_NIX).exists() {
+        return Ok(temp_static.to_string_lossy().to_string());
+    }
+
+    // Use the standard nixos_config_dir which checks ~/nixos-config and /etc/nixos
+    let config_dir = crate::constants::nixos_config_dir();
+    if config_dir.join(crate::constants::FLAKE_NIX).exists() {
+        return Ok(config_dir.to_string_lossy().to_string());
     }
 
     // If none found, try to get the current working directory
     let cwd = std::env::current_dir()?;
-    if cwd.join("flake.nix").exists() {
+    if cwd.join(crate::constants::FLAKE_NIX).exists() {
         return Ok(cwd.to_string_lossy().to_string());
     }
 

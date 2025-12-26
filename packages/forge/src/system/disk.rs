@@ -337,12 +337,194 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_size() {
+    fn test_parse_size_terabytes() {
         assert_eq!(parse_size("1T"), 1024 * 1024 * 1024 * 1024);
-        // 1.8T should be approximately 1.8 TB
-        assert!(parse_size("1.8T") > 1024 * 1024 * 1024 * 1024);
-        assert!(parse_size("1.8T") < 2 * 1024 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size("2T"), 2 * 1024 * 1024 * 1024 * 1024);
+        // Fractional terabytes
+        let size_1_8t = parse_size("1.8T");
+        assert!(size_1_8t > 1024 * 1024 * 1024 * 1024, "1.8T should be > 1TB");
+        assert!(size_1_8t < 2 * 1024 * 1024 * 1024 * 1024, "1.8T should be < 2TB");
+    }
+
+    #[test]
+    fn test_parse_size_gigabytes() {
         assert_eq!(parse_size("500G"), 500 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size("1G"), 1024 * 1024 * 1024);
+        // Fractional gigabytes
+        let size_1_5g = parse_size("1.5G");
+        assert!(size_1_5g > 1024 * 1024 * 1024, "1.5G should be > 1GB");
+        assert!(size_1_5g < 2 * 1024 * 1024 * 1024, "1.5G should be < 2GB");
+    }
+
+    #[test]
+    fn test_parse_size_megabytes() {
         assert_eq!(parse_size("256M"), 256 * 1024 * 1024);
+        assert_eq!(parse_size("512M"), 512 * 1024 * 1024);
+        assert_eq!(parse_size("1M"), 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_kilobytes() {
+        assert_eq!(parse_size("1K"), 1024);
+        assert_eq!(parse_size("512K"), 512 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_bytes() {
+        assert_eq!(parse_size("1024"), 1024);
+        assert_eq!(parse_size("512"), 512);
+    }
+
+    #[test]
+    fn test_parse_size_edge_cases() {
+        assert_eq!(parse_size(""), 0);
+        assert_eq!(parse_size("   "), 0);
+        assert_eq!(parse_size("invalid"), 0);
+        assert_eq!(parse_size("0G"), 0);
+    }
+
+    #[test]
+    fn test_os_type_display() {
+        assert_eq!(format!("{}", OsType::NixOS), "NixOS");
+        assert_eq!(format!("{}", OsType::Fedora), "Fedora");
+        assert_eq!(format!("{}", OsType::Ubuntu), "Ubuntu");
+        assert_eq!(format!("{}", OsType::Debian), "Debian");
+        assert_eq!(format!("{}", OsType::Arch), "Arch");
+        assert_eq!(format!("{}", OsType::Windows), "Windows");
+        assert_eq!(format!("{}", OsType::Other("Pop!_OS".to_string())), "Pop!_OS");
+        assert_eq!(format!("{}", OsType::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn test_os_type_equality() {
+        assert_eq!(OsType::NixOS, OsType::NixOS);
+        assert_ne!(OsType::NixOS, OsType::Ubuntu);
+        assert_eq!(OsType::Other("Foo".to_string()), OsType::Other("Foo".to_string()));
+        assert_ne!(OsType::Other("Foo".to_string()), OsType::Other("Bar".to_string()));
+    }
+
+    #[test]
+    fn test_parse_os_release_nixos() {
+        let content = r#"ID=nixos
+NAME="NixOS"
+VERSION="23.11"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::NixOS));
+    }
+
+    #[test]
+    fn test_parse_os_release_fedora() {
+        let content = r#"ID=fedora
+NAME="Fedora Linux"
+VERSION="39"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::Fedora));
+    }
+
+    #[test]
+    fn test_parse_os_release_ubuntu() {
+        let content = r#"ID=ubuntu
+NAME="Ubuntu"
+VERSION="22.04"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::Ubuntu));
+    }
+
+    #[test]
+    fn test_parse_os_release_arch() {
+        let content = r#"ID=arch
+NAME="Arch Linux"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::Arch));
+    }
+
+    #[test]
+    fn test_parse_os_release_archlinux() {
+        let content = r#"ID=archlinux
+NAME="Arch Linux"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::Arch));
+    }
+
+    #[test]
+    fn test_parse_os_release_other() {
+        let content = r#"ID=manjaro
+NAME="Manjaro Linux"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::Other("Manjaro".to_string())));
+    }
+
+    #[test]
+    fn test_parse_os_release_quoted_id() {
+        let content = r#"ID="fedora"
+NAME="Fedora Linux"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, Some(OsType::Fedora));
+    }
+
+    #[test]
+    fn test_parse_os_release_empty() {
+        let content = "";
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, None);
+    }
+
+    #[test]
+    fn test_parse_os_release_no_id() {
+        let content = r#"NAME="Some Linux"
+VERSION="1.0"
+"#;
+        let os_type = parse_os_release(content);
+        assert_eq!(os_type, None);
+    }
+
+    #[test]
+    fn test_disk_info_clone() {
+        let disk = DiskInfo {
+            path: "/dev/nvme0n1".to_string(),
+            size: "1T".to_string(),
+            size_bytes: 1024 * 1024 * 1024 * 1024,
+            model: Some("Samsung SSD".to_string()),
+            partitions: vec![],
+        };
+        let cloned = disk.clone();
+        assert_eq!(cloned.path, "/dev/nvme0n1");
+        assert_eq!(cloned.size, "1T");
+        assert_eq!(cloned.model, Some("Samsung SSD".to_string()));
+    }
+
+    #[test]
+    fn test_partition_info_clone() {
+        let partition = PartitionInfo {
+            path: "/dev/nvme0n1p1".to_string(),
+            size: "512M".to_string(),
+            fstype: "vfat".to_string(),
+            label: Some("EFI".to_string()),
+            os_type: None,
+        };
+        let cloned = partition.clone();
+        assert_eq!(cloned.path, "/dev/nvme0n1p1");
+        assert_eq!(cloned.fstype, "vfat");
+        assert_eq!(cloned.label, Some("EFI".to_string()));
+    }
+
+    #[test]
+    fn test_disk_info_equality() {
+        let disk1 = DiskInfo {
+            path: "/dev/sda".to_string(),
+            size: "500G".to_string(),
+            size_bytes: 500 * 1024 * 1024 * 1024,
+            model: None,
+            partitions: vec![],
+        };
+        let disk2 = disk1.clone();
+        assert_eq!(disk1, disk2);
     }
 }

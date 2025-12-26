@@ -255,6 +255,7 @@ mod tests {
     fn test_cpu_vendor_display() {
         assert_eq!(format!("{}", CpuVendor::AMD), "AMD");
         assert_eq!(format!("{}", CpuVendor::Intel), "Intel");
+        assert_eq!(format!("{}", CpuVendor::Unknown), "Unknown");
     }
 
     #[test]
@@ -262,6 +263,7 @@ mod tests {
         assert_eq!(format!("{}", GpuVendor::NVIDIA), "NVIDIA");
         assert_eq!(format!("{}", GpuVendor::AMD), "AMD");
         assert_eq!(format!("{}", GpuVendor::Intel), "Intel");
+        assert_eq!(format!("{}", GpuVendor::None), "None (integrated/software)");
     }
 
     #[test]
@@ -271,14 +273,121 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_gpu_model() {
+    fn test_extract_gpu_model_nvidia() {
         let nvidia_line = "01:00.0 VGA compatible controller: NVIDIA Corporation GA102 [GeForce RTX 3090] [10de:2204]";
         let model = extract_gpu_model(nvidia_line, "NVIDIA");
         assert!(model.is_some());
-        assert!(model.unwrap().contains("RTX 3090"));
+        let model_str = model.unwrap();
+        assert!(model_str.contains("NVIDIA"), "Model should contain vendor prefix");
+        assert!(model_str.contains("RTX 3090"), "Model should contain GPU name");
+    }
 
+    #[test]
+    fn test_extract_gpu_model_amd() {
         let amd_line = "06:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 21 [Radeon RX 6800/6800 XT] [1002:73bf]";
         let model = extract_gpu_model(amd_line, "AMD");
         assert!(model.is_some());
+        let model_str = model.unwrap();
+        assert!(model_str.contains("AMD"), "Model should contain vendor prefix");
+        assert!(model_str.contains("Navi") || model_str.contains("Radeon"), "Model should contain GPU identifier");
+    }
+
+    #[test]
+    fn test_extract_gpu_model_intel() {
+        let intel_line = "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630 [8086:3e92]";
+        let model = extract_gpu_model(intel_line, "Intel");
+        assert!(model.is_some());
+        let model_str = model.unwrap();
+        assert!(model_str.contains("Intel"), "Model should contain vendor prefix");
+        assert!(model_str.contains("UHD") || model_str.contains("Graphics"), "Model should contain GPU identifier");
+    }
+
+    #[test]
+    fn test_extract_gpu_model_display_controller() {
+        // Some AMD GPUs show as Display controller instead of VGA compatible controller
+        let amd_display = "c1:00.0 Display controller: Advanced Micro Devices, Inc. [AMD/ATI] Device 1900 [1002:1900]";
+        let model = extract_gpu_model(amd_display, "AMD");
+        assert!(model.is_some());
+    }
+
+    #[test]
+    fn test_extract_gpu_model_no_brackets() {
+        // Line without PCI ID brackets should return None
+        let no_brackets = "01:00.0 VGA compatible controller: Unknown GPU";
+        let model = extract_gpu_model(no_brackets, "Unknown");
+        assert!(model.is_none());
+    }
+
+    #[test]
+    fn test_cpu_vendor_equality() {
+        assert_eq!(CpuVendor::AMD, CpuVendor::AMD);
+        assert_ne!(CpuVendor::AMD, CpuVendor::Intel);
+        assert_ne!(CpuVendor::Intel, CpuVendor::Unknown);
+    }
+
+    #[test]
+    fn test_gpu_vendor_equality() {
+        assert_eq!(GpuVendor::NVIDIA, GpuVendor::NVIDIA);
+        assert_ne!(GpuVendor::NVIDIA, GpuVendor::AMD);
+        assert_ne!(GpuVendor::AMD, GpuVendor::Intel);
+        assert_ne!(GpuVendor::Intel, GpuVendor::None);
+    }
+
+    #[test]
+    fn test_form_factor_equality() {
+        assert_eq!(FormFactor::Laptop, FormFactor::Laptop);
+        assert_eq!(FormFactor::Desktop, FormFactor::Desktop);
+        assert_ne!(FormFactor::Laptop, FormFactor::Desktop);
+    }
+
+    #[test]
+    fn test_cpu_info_clone() {
+        let cpu = CpuInfo {
+            vendor: CpuVendor::AMD,
+            model_name: "AMD Ryzen 9 7950X".to_string(),
+        };
+        let cloned = cpu.clone();
+        assert_eq!(cloned.vendor, CpuVendor::AMD);
+        assert_eq!(cloned.model_name, "AMD Ryzen 9 7950X");
+    }
+
+    #[test]
+    fn test_gpu_info_clone() {
+        let gpu = GpuInfo {
+            vendor: GpuVendor::NVIDIA,
+            model: Some("GeForce RTX 5090".to_string()),
+        };
+        let cloned = gpu.clone();
+        assert_eq!(cloned.vendor, GpuVendor::NVIDIA);
+        assert_eq!(cloned.model, Some("GeForce RTX 5090".to_string()));
+    }
+
+    #[test]
+    fn test_gpu_info_none_model() {
+        let gpu = GpuInfo {
+            vendor: GpuVendor::None,
+            model: None,
+        };
+        assert_eq!(gpu.vendor, GpuVendor::None);
+        assert!(gpu.model.is_none());
+    }
+
+    #[test]
+    fn test_hardware_info_clone() {
+        let hw = HardwareInfo {
+            cpu: CpuInfo {
+                vendor: CpuVendor::Intel,
+                model_name: "Intel Core i9-14900K".to_string(),
+            },
+            gpu: GpuInfo {
+                vendor: GpuVendor::NVIDIA,
+                model: Some("RTX 4090".to_string()),
+            },
+            form_factor: FormFactor::Desktop,
+        };
+        let cloned = hw.clone();
+        assert_eq!(cloned.cpu.vendor, CpuVendor::Intel);
+        assert_eq!(cloned.gpu.vendor, GpuVendor::NVIDIA);
+        assert_eq!(cloned.form_factor, FormFactor::Desktop);
     }
 }
