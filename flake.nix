@@ -147,6 +147,16 @@
       G1a = mkNixosSystem {
         hostname = "G1a";
       };
+
+      # Forge Installer ISO
+      # Build: nix build .#nixosConfigurations.iso.config.system.build.isoImage
+      iso = nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit inputs plymouth-cybex; };
+        modules = [
+          ./modules/iso
+        ];
+      };
     };
 
     packages.${system} = {

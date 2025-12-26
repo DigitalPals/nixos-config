@@ -94,6 +94,10 @@
   services.power-profiles-daemon.enable = lib.mkDefault true;
   services.upower.enable = true;
 
+  # USB drive automounting (required for Nautilus to show removable drives)
+  services.udisks2.enable = true;
+  services.gvfs.enable = true;
+
   # Swap (zram for memory pressure handling)
   zramSwap = {
     enable = true;

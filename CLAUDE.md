@@ -17,6 +17,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   ├── desktop-environments.nix
 │   ├── gaming.nix
 │   ├── disko/                      # Disk partitioning configs
+│   ├── iso/                        # Forge installer ISO config
 │   └── hardware/
 │       ├── nvidia.nix              # NVIDIA driver config
 │       └── intel.nix               # Intel GPU config (unused)
@@ -81,6 +82,26 @@ Note: `forge browser` is still supported as an alias for `forge apps`.
 4. Select "Install NixOS", choose host and disk
 5. Enter LUKS passphrase when prompted
 6. Reboot and select a shell from the boot menu
+
+### Building the Forge ISO
+
+Build a custom ISO that boots directly into Forge:
+
+```bash
+nix build .#nixosConfigurations.iso.config.system.build.isoImage
+```
+
+The ISO will be at `result/iso/NixOS-Cybex-<version>.iso`. Flash to USB:
+
+```bash
+sudo dd if=result/iso/NixOS-Cybex-*.iso of=/dev/sdX bs=4M status=progress
+```
+
+The ISO automatically:
+1. Boots with Plymouth cybex theme
+2. Auto-logins and checks internet connectivity
+3. Opens `nmtui` if WiFi needed
+4. Launches Forge installer from GitHub
 
 ## Rebuilding the System
 
