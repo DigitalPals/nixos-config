@@ -61,11 +61,19 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     out(tx, "==============================================").await;
     out(tx, "").await;
 
-    // Save flake.lock hash before update
-    let lock_before = get_flake_lock_hash(&flake_dir).await;
     let flake_path = flake_dir.to_str().unwrap_or(".");
 
-    // Step 1: Flake update
+    // Step 1: Pull configuration updates
+    let pull_result = pull_config_updates(tx, flake_path).await;
+    if let Err(e) = pull_result {
+        tracing::warn!("Failed to check for config updates: {}", e);
+        // Non-fatal - continue with update even if pull check fails
+    }
+
+    // Save flake.lock hash before update
+    let lock_before = get_flake_lock_hash(&flake_dir).await;
+
+    // Step 2: Flake update
     let (success, _stdout, _stderr) =
         run_capture("nix", &["flake", "update", flake_path]).await?;
 
@@ -371,6 +379,95 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
 
     out(tx, "").await;
     out(tx, "==============================================").await;
+
+    Ok(())
+}
+
+/// Pull configuration updates from remote repository
+async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &str) -> Result<()> {
+    // Check if this is a git repository
+    let git_dir = std::path::Path::new(config_path).join(".git");
+    if !git_dir.exists() {
+        out(tx, "  - Not a git repository, skipping pull").await;
+        tx.send(CommandMessage::StepSkipped {
+            step: "pull".to_string(),
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // Fetch from remote
+    let (fetch_ok, _, _) = run_capture("git", &["-C", config_path, "fetch", "origin"]).await?;
+
+    if !fetch_ok {
+        out(tx, "  - Unable to fetch from remote").await;
+        tx.send(CommandMessage::StepSkipped {
+            step: "pull".to_string(),
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // Check if there are unpulled commits
+    let (count_ok, count_str, _) = run_capture(
+        "git",
+        &["-C", config_path, "rev-list", "HEAD..origin/main", "--count"],
+    )
+    .await?;
+
+    let count: usize = if count_ok {
+        count_str.trim().parse().unwrap_or(0)
+    } else {
+        // Try origin/master as fallback
+        let (master_ok, master_count, _) = run_capture(
+            "git",
+            &[
+                "-C",
+                config_path,
+                "rev-list",
+                "HEAD..origin/master",
+                "--count",
+            ],
+        )
+        .await?;
+
+        if master_ok {
+            master_count.trim().parse().unwrap_or(0)
+        } else {
+            0
+        }
+    };
+
+    if count == 0 {
+        out(tx, "  - No configuration updates to pull").await;
+        tx.send(CommandMessage::StepSkipped {
+            step: "pull".to_string(),
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // Pull the updates
+    let (pull_ok, _, stderr) =
+        run_capture("git", &["-C", config_path, "pull", "--ff-only"]).await?;
+
+    if pull_ok {
+        out(tx, &format!("  ✓ Pulled {} commit(s)", count)).await;
+        tx.send(CommandMessage::StepComplete {
+            step: "pull".to_string(),
+        })
+        .await?;
+    } else {
+        out(tx, "  ✗ Failed to pull configuration updates").await;
+        if !stderr.is_empty() {
+            out(tx, &format!("    {}", stderr.trim())).await;
+        }
+        tx.send(CommandMessage::StepFailed {
+            step: "pull".to_string(),
+            error: "Git pull failed".to_string(),
+        })
+        .await?;
+    }
 
     Ok(())
 }

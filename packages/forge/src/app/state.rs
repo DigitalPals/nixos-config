@@ -193,6 +193,7 @@ impl UpdateState {
         UpdateState::Running {
             step: 0,
             steps: vec![
+                StepStatus::new("Pulling configuration updates"),
                 StepStatus::new("Updating flake inputs"),
                 StepStatus::new("Rebuilding system"),
                 StepStatus::new("Comparing packages"),
