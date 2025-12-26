@@ -98,6 +98,12 @@
   services.udisks2.enable = true;
   services.gvfs.enable = true;
 
+  # Network discovery for Nautilus (SMB shares, printers, etc.)
+  services.avahi = {
+    enable = true;
+    nssmdns4 = true;
+  };
+
   # Swap (zram for memory pressure handling)
   zramSwap = {
     enable = true;
