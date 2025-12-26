@@ -22,6 +22,9 @@
 
     # Shell aliases
     shellAliases = {
+      # eza for better ls
+      ls = "eza --icons";
+
       # Nix shortcuts (auto-detects hostname from flake)
       rebuild = "sudo nixos-rebuild switch --flake /etc/nixos";
       rebuild-test = "sudo nixos-rebuild test --flake /etc/nixos";
@@ -207,4 +210,9 @@
     enable = true;
     enableFishIntegration = true;
   };
+
+  # Required CLI tools
+  home.packages = with pkgs; [
+    eza
+  ];
 }
