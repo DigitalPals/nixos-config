@@ -148,6 +148,43 @@ The selected shell persists for that boot session. To change shells, reboot and 
 
 **Solution:** Added resume hook to call `nvidia-sleep.sh resume` and extended `nvidia-resume` service for suspend-then-hibernate (`modules/hardware/nvidia.nix:44-53`).
 
+## Strix Halo (G1a) Suspend/Resume Issue
+
+**Problem:** Intermittent suspend/resume failure on HP ZBook Ultra G1a (AMD Strix Halo). The display doesn't wake up, showing errors:
+
+```
+amd_pmc: Last suspend didn't reach deepest state
+amdgpu: resume of IP block <vpe_v6_1> failed -110
+amdgpu: amdgpu_device_ip_resume failed (-110)
+```
+
+**Root cause:** The VPE (Video Processing Engine) block times out during resume. The VPE_IDLE_TIMEOUT is set to 1 second, but Strix Halo needs ~2 seconds after resume before VPE can be safely power-gated. This affects ~8% of suspend/resume cycles.
+
+**Upstream fix:** A kernel patch increasing VPE_IDLE_TIMEOUT from 1s to 2s has been [submitted](https://www.mail-archive.com/amd-gfx@lists.freedesktop.org/msg127724.html) but not yet merged as of kernel 6.18.
+
+**What doesn't work:**
+- `amd_iommu=off` - Wrong issue; error is timeout (-110), not IOMMU (-6)
+- `mem_sleep_default=deep` - S3 not supported; only s2idle available (ACPI: S0 S4 S5)
+- Hibernate - Requires disk-based swap ≥ RAM size; system uses zram only
+
+**Potential workarounds (not yet tested):**
+- `amdgpu.ip_block_mask=0xfffff7ff` - Disables VPE (block 11); may break hardware video processing
+- `amdgpu.pg_mask=0` - Disables all power gating; increases power consumption
+
+**Current status:** Living with intermittent failures. Most suspend/resume cycles work. Monitor upstream for VPE_IDLE_TIMEOUT patch merge.
+
+**Debugging commands:**
+```bash
+# Check last suspend errors
+journalctl -b -1 | grep -iE "(suspend|resume|vpe|amdgpu.*failed)"
+
+# Check available sleep states (only s2idle on this hardware)
+cat /sys/power/mem_sleep
+
+# List IP blocks and their positions
+sudo dmesg | grep "detected ip block"
+```
+
 ## Key NVIDIA Settings
 
 All NVIDIA config is in `modules/hardware/nvidia.nix`:
