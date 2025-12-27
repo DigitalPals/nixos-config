@@ -132,8 +132,8 @@ impl App {
             AppMode::Install(InstallState::EnterCredentials { host, .. }) => {
                 Some(("install_credentials", 0, Some(host.clone()), None))
             }
-            AppMode::Install(InstallState::Confirm { host, disk: _, .. }) => {
-                Some(("install_confirm", 0, Some(host.clone()), None))
+            AppMode::Install(InstallState::Overview { host, disk: _, .. }) => {
+                Some(("install_overview", 0, Some(host.clone()), None))
             }
             AppMode::Install(InstallState::Complete { .. })
             | AppMode::Update(UpdateState::Complete { .. })
@@ -171,8 +171,8 @@ impl App {
             Some(("install_credentials", _, Some(host), _)) => {
                 self.handle_credentials_key(key, &host).await?;
             }
-            Some(("install_confirm", _, Some(host), _)) => {
-                self.handle_confirm_key_action(key, &host).await?;
+            Some(("install_overview", _, Some(host), _)) => {
+                self.handle_overview_key_action(key, &host).await?;
             }
             Some(("complete", _, _, _)) => {
                 self.mode = AppMode::MainMenu { selected: 0 };
@@ -512,11 +512,12 @@ impl App {
                     } else if let Some(err) = validate_password(&credentials.password, &credentials.confirm_password) {
                         *error = Some(err);
                     } else {
-                        // All valid, proceed to confirmation
-                        self.mode = AppMode::Install(InstallState::Confirm {
+                        // All valid, proceed to overview
+                        self.mode = AppMode::Install(InstallState::Overview {
                             host: host.clone(),
                             disk: disk.clone(),
                             credentials: credentials.clone(),
+                            hardware_config: None,
                             input: String::new(),
                         });
                     }
@@ -527,8 +528,8 @@ impl App {
         Ok(())
     }
 
-    async fn handle_confirm_key_action(&mut self, key: KeyCode, host: &str) -> Result<()> {
-        let (disk, credentials, should_start) = if let AppMode::Install(InstallState::Confirm {
+    async fn handle_overview_key_action(&mut self, key: KeyCode, host: &str) -> Result<()> {
+        let (disk, credentials, should_start) = if let AppMode::Install(InstallState::Overview {
             disk,
             credentials,
             input,
@@ -721,18 +722,8 @@ impl App {
             }
             AppMode::CreateHost(CreateHostState::Review { .. }) => key == KeyCode::Enter,
             AppMode::CreateHost(CreateHostState::Complete { success, .. }) => {
-                if *success {
-                    matches!(
-                        key,
-                        KeyCode::Char('y')
-                            | KeyCode::Char('Y')
-                            | KeyCode::Enter
-                            | KeyCode::Char('n')
-                            | KeyCode::Char('N')
-                    )
-                } else {
-                    key == KeyCode::Enter
-                }
+                // Auto-proceed on any key for success, Enter for failure
+                *success || key == KeyCode::Enter
             }
             _ => false,
         };
@@ -921,25 +912,16 @@ impl App {
                 }
                 new_mode
             }
-            AppMode::CreateHost(CreateHostState::Complete {
-                hostname,
-                disk,
-                success,
-                ..
-            }) => {
+            AppMode::CreateHost(CreateHostState::Complete { config, success }) => {
                 if success {
-                    match key {
-                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                            AppMode::Install(InstallState::EnterCredentials {
-                                host: hostname,
-                                disk,
-                                credentials: InstallCredentials::default(),
-                                active_field: CredentialField::Username,
-                                error: None,
-                            })
-                        }
-                        _ => AppMode::Install(InstallState::SelectHost { selected: 0 }),
-                    }
+                    // Auto-proceed to install credentials entry
+                    AppMode::Install(InstallState::EnterCredentials {
+                        host: config.hostname.clone(),
+                        disk: config.disk.clone(),
+                        credentials: InstallCredentials::default(),
+                        active_field: CredentialField::Username,
+                        error: None,
+                    })
                 } else {
                     AppMode::Install(InstallState::SelectHost { selected: 0 })
                 }
@@ -961,7 +943,7 @@ impl App {
         let needs_disk_refresh = matches!(
             old_mode,
             AppMode::Install(InstallState::EnterCredentials { .. })
-                | AppMode::Install(InstallState::Confirm { .. })
+                | AppMode::Install(InstallState::Overview { .. })
                 | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
         );
 
@@ -986,7 +968,7 @@ impl App {
                     selected: 0,
                 })
             }
-            AppMode::Install(InstallState::Confirm { host, disk, credentials, .. }) => {
+            AppMode::Install(InstallState::Overview { host, disk, credentials, .. }) => {
                 // Go back to credentials entry, keeping the entered credentials
                 AppMode::Install(InstallState::EnterCredentials {
                     host,

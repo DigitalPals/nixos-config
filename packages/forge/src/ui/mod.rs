@@ -42,8 +42,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     frame, host, disk, credentials, active_field, error.as_deref(), app,
                 );
             }
-            InstallState::Confirm { host, disk, input, .. } => {
-                screens::install::draw_confirm(frame, host, disk, input, app);
+            InstallState::Overview { host, disk, input, hardware_config, .. } => {
+                screens::install::draw_overview(frame, host, disk, input, hardware_config.as_ref(), app);
             }
             InstallState::Running {
                 host,
@@ -188,13 +188,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
                 screens::create_host::draw_generating(frame, config, steps, &output_vec, app);
             }
-            CreateHostState::Complete {
-                success,
-                hostname,
-                disk,
-                ..
-            } => {
-                screens::create_host::draw_complete(frame, *success, hostname, disk, app);
+            CreateHostState::Complete { success, config } => {
+                screens::create_host::draw_complete(frame, *success, config, app);
             }
         },
         AppMode::Quit => {}

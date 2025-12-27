@@ -71,10 +71,11 @@ pub enum InstallState {
         active_field: CredentialField,
         error: Option<String>,
     },
-    Confirm {
+    Overview {
         host: String,
         disk: DiskInfo,
         credentials: InstallCredentials,
+        hardware_config: Option<NewHostConfig>,
         input: String,
     },
     Running {
@@ -223,10 +224,7 @@ pub enum CreateHostState {
     },
     Complete {
         success: bool,
-        hostname: String,
-        disk: DiskInfo,
-        #[allow(dead_code)]
-        proceed_to_install: Option<bool>,
+        config: NewHostConfig,
     },
 }
 

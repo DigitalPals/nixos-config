@@ -375,16 +375,26 @@ pub fn draw_enter_credentials(
     );
 }
 
-/// Draw confirmation screen
-pub fn draw_confirm(frame: &mut Frame, host: &str, disk: &DiskInfo, input: &str, _app: &App) {
+/// Draw overview/confirmation screen
+pub fn draw_overview(
+    frame: &mut Frame,
+    host: &str,
+    disk: &DiskInfo,
+    input: &str,
+    hardware_config: Option<&crate::app::state::NewHostConfig>,
+    _app: &App,
+) {
     let area = frame.area();
-    let center = centered_rect(60, 60, area);
+    let center = centered_rect(70, 70, area);
+
+    // Calculate details height based on whether we have hardware info
+    let details_height = if hardware_config.is_some() { 10 } else { 6 };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(6),
+            Constraint::Length(details_height),
             Constraint::Length(5),
             Constraint::Min(3),
         ])
@@ -403,33 +413,49 @@ pub fn draw_confirm(frame: &mut Frame, host: &str, disk: &DiskInfo, input: &str,
     );
     frame.render_widget(warning, chunks[0]);
 
-    // Details
-    let details = Paragraph::new(vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Host: ", theme::dim()),
-            Span::styled(host, theme::text()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Disk: ", theme::dim()),
-            Span::styled(&disk.path, theme::text()),
-            Span::styled(format!(" ({})", disk.size), theme::dim()),
-        ]),
-        Line::from(""),
-    ])
-    .block(
+    // Build details lines
+    let mut detail_lines = vec![Line::from("")];
+
+    detail_lines.push(Line::from(vec![
+        Span::styled("  Hostname: ", theme::dim()),
+        Span::styled(host, theme::text()),
+    ]));
+
+    detail_lines.push(Line::from(vec![
+        Span::styled("  Disk:     ", theme::dim()),
+        Span::styled(&disk.path, theme::text()),
+        Span::styled(format!(" ({})", disk.size), theme::dim()),
+    ]));
+
+    // Add hardware info if available (new host)
+    if let Some(hw) = hardware_config {
+        detail_lines.push(Line::from(vec![
+            Span::styled("  CPU:      ", theme::dim()),
+            Span::styled(format!("{}", hw.cpu.vendor), theme::text()),
+        ]));
+        detail_lines.push(Line::from(vec![
+            Span::styled("  GPU:      ", theme::dim()),
+            Span::styled(format!("{}", hw.gpu.vendor), theme::text()),
+        ]));
+        detail_lines.push(Line::from(vec![
+            Span::styled("  Type:     ", theme::dim()),
+            Span::styled(format!("{:?}", hw.form_factor), theme::text()),
+        ]));
+    }
+
+    detail_lines.push(Line::from(""));
+
+    let details = Paragraph::new(detail_lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(theme::border()),
+            .border_style(theme::border())
+            .title(" Installation Overview "),
     );
     frame.render_widget(details, chunks[1]);
 
     // Input prompt
     let prompt = Paragraph::new(vec![
-        Line::from(Span::styled(
-            "Type 'yes' to continue:",
-            theme::text(),
-        )),
+        Line::from(Span::styled("Type 'yes' to continue:", theme::text())),
         Line::from(""),
         Line::from(vec![
             Span::styled("> ", theme::info()),

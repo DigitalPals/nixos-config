@@ -240,9 +240,7 @@ impl App {
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
                 self.mode = AppMode::CreateHost(CreateHostState::Complete {
                     success,
-                    hostname: config.hostname.clone(),
-                    disk: config.disk.clone(),
-                    proceed_to_install: None,
+                    config: config.clone(),
                 });
             }
             _ => {}

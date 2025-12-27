@@ -9,7 +9,6 @@ use ratatui::{
 
 use super::helpers::{draw_footer, draw_header};
 use crate::app::{App, NewHostConfig, StepStatus};
-use crate::system::disk::DiskInfo;
 use crate::ui::layout::{centered_rect, progress_layout};
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, ProgressSteps};
@@ -160,8 +159,7 @@ pub fn draw_generating(
 pub fn draw_complete(
     frame: &mut Frame,
     success: bool,
-    hostname: &str,
-    _disk: &DiskInfo,
+    config: &crate::app::state::NewHostConfig,
     _app: &App,
 ) {
     let area = frame.area();
@@ -192,27 +190,24 @@ pub fn draw_complete(
     frame.render_widget(header, chunks[0]);
 
     if success {
-        // Success message with install prompt
+        // Success message - auto-proceeding to install
         let message = Paragraph::new(vec![
             Line::from(""),
             Line::from(vec![
                 Span::styled("Host '", theme::text()),
-                Span::styled(hostname, theme::info()),
+                Span::styled(&config.hostname, theme::info()),
                 Span::styled("' has been created.", theme::text()),
             ]),
             Line::from(""),
             Line::from(Span::styled(
-                "Would you like to proceed with installation?",
-                theme::text(),
+                "Proceeding to installation...",
+                theme::info(),
             )),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("[", theme::dim()),
-                Span::styled("Y", theme::key_hint()),
-                Span::styled("]es, install now  [", theme::dim()),
-                Span::styled("N", theme::key_hint()),
-                Span::styled("]o, return to menu", theme::dim()),
-            ]),
+            Line::from(Span::styled(
+                "Press any key to continue",
+                theme::dim(),
+            )),
         ])
         .alignment(Alignment::Center)
         .block(
@@ -221,7 +216,7 @@ pub fn draw_complete(
                 .border_style(theme::border()),
         );
         frame.render_widget(message, chunks[1]);
-        draw_footer(frame, chunks[2], &["y Install", "n Menu", "q Quit"]);
+        draw_footer(frame, chunks[2], &["Any key Continue", "q Quit"]);
     } else {
         // Failure message
         let message = Paragraph::new(vec![

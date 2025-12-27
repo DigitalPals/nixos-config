@@ -257,6 +257,21 @@ async fn run_install(
     std::fs::write(&disko_default_file, &updated_disko)
         .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
 
+    // Verify passwordFile injection succeeded
+    if updated_disko.contains("passwordFile") {
+        tx.send(CommandMessage::Stdout(
+            "LUKS passwordFile configured successfully".to_string(),
+        ))
+        .await?;
+        tracing::info!("passwordFile injection confirmed in disko config");
+    } else {
+        tx.send(CommandMessage::Stderr(
+            "WARNING: passwordFile injection may have failed!".to_string(),
+        ))
+        .await?;
+        tracing::error!("passwordFile NOT found in modified disko config");
+    }
+
     // Pre-fetch disko (optional optimization, log if it fails)
     match run_command(tx, "nix", &["build", &format!("{}#disko", temp_config_str), "--no-link"]).await {
         Ok(true) => tracing::info!("Disko pre-fetch succeeded"),
