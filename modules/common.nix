@@ -50,8 +50,8 @@
   # Firewall
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ ];
-    allowedUDPPorts = [ ];
+    allowedTCPPorts = [ 53317 ]; # LocalSend
+    allowedUDPPorts = [ 53317 ]; # LocalSend
   };
 
   # Disable NetworkManager-wait-online to speed up boot

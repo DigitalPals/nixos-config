@@ -102,6 +102,11 @@ ${masterConfig}
   windowrule = size 875 600, class:^(1[pP]assword)$
   windowrule = noscreenshare, class:^(1[pP]assword)$
 
+  # Floating windows - LocalSend
+  windowrule = float, class:^(localsend_app)$
+  windowrule = center, class:^(localsend_app)$
+  windowrule = size 875 600, class:^(localsend_app)$
+
   # Floating windows - Calculator
   windowrule = float, class:org.gnome.Calculator
 
