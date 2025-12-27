@@ -239,10 +239,11 @@ async fn run_install(
     // Escape single quotes in password for shell
     // Use run_command_sensitive to avoid logging the password
     // --yes-wipe-all-disks skips the "are you sure?" confirmation (already confirmed in wizard)
+    // LUKS format needs password twice (enter + verify), so we provide it with printf
     let escaped_password = password.replace('\'', "'\"'\"'");
     let disko_script = format!(
-        "echo -n '{}' | nix run {}#disko -- --yes-wipe-all-disks --mode destroy,format,mount --flake {}#{}",
-        escaped_password, temp_config_str, temp_config_str, hostname
+        "printf '%s\\n%s\\n' '{}' '{}' | nix run {}#disko -- --yes-wipe-all-disks --mode destroy,format,mount --flake {}#{}",
+        escaped_password, escaped_password, temp_config_str, temp_config_str, hostname
     );
     let success = run_command_sensitive(tx, "sh", &["-c", &disko_script]).await?;
 
