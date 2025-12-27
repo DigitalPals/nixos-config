@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use crate::commands::update::flake::FlakeInputChange;
 use crate::system::config::HostConfig;
 use crate::system::disk::DiskInfo;
 use crate::system::hardware::{CpuInfo, FormFactor, GpuInfo};
@@ -344,8 +345,9 @@ pub enum StepState {
 /// Update summary data
 #[derive(Debug, Clone, Default)]
 pub struct UpdateSummary {
-    pub flake_changes: Vec<(String, String, String)>, // (input, old_rev, new_rev)
+    pub flake_changes: Vec<FlakeInputChange>,         // Flake input changes with commits
     pub package_changes: Vec<(String, String, String)>, // (pkg, old_ver, new_ver)
+    pub closure_summary: Option<String>,              // nvd closure size summary
     pub claude_old: Option<String>,
     pub claude_new: Option<String>,
     pub codex_old: Option<String>,

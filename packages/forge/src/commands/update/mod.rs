@@ -7,7 +7,7 @@
 //! - CLI tool updates (Claude Code, Codex)
 //! - Browser profile status check
 
-mod flake;
+pub mod flake;
 mod packages;
 mod tools;
 
@@ -18,8 +18,8 @@ use crate::app::UpdateSummary;
 use crate::commands::executor::{command_exists, get_output, run_capture};
 use crate::commands::CommandMessage;
 
-use flake::{get_flake_lock_hash, parse_flake_changes};
-use packages::parse_package_changes_from_history;
+use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
+use packages::{parse_package_changes_from_history, PackageCompareResult};
 use tools::{check_browser_status, clean_version, get_npm_package_version};
 
 /// Start the update process
@@ -70,12 +70,13 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         // Non-fatal - continue with update even if pull check fails
     }
 
-    // Save flake.lock hash before update
+    // Save flake.lock hash and backup before update
     let lock_before = get_flake_lock_hash(&flake_dir).await;
+    save_flake_lock_backup(&flake_dir).await;
 
     // Step 2: Flake update
     let (success, _stdout, _stderr) =
-        run_capture("nix", &["flake", "update", flake_path]).await?;
+        run_capture("nix", &["flake", "update", "--flake", flake_path]).await?;
 
     if !success {
         out(tx, "  ✗ Updating flake inputs").await;
@@ -135,7 +136,11 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     // Step 3: Compare packages
     out(tx, "").await;
     out(tx, "  Comparing packages...").await;
-    summary.package_changes = parse_package_changes_from_history(tx).await.unwrap_or_default();
+    let pkg_result = parse_package_changes_from_history(tx)
+        .await
+        .unwrap_or_else(|_| PackageCompareResult::default());
+    summary.package_changes = pkg_result.changes;
+    summary.closure_summary = pkg_result.closure_summary;
 
     if summary.package_changes.is_empty() {
         out(tx, "  - No package version changes").await;
@@ -285,12 +290,59 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     out(tx, "  Update Summary").await;
     out(tx, "==============================================").await;
 
-    // Flake changes
+    // Flake changes with commit messages
     if !summary.flake_changes.is_empty() {
         out(tx, "").await;
         out(tx, "  Flake inputs updated:").await;
-        for (input, old, new) in &summary.flake_changes {
-            out(tx, &format!("    {}: {} → {}", input, old, new)).await;
+        for change in &summary.flake_changes {
+            out(tx, "").await;
+            if change.total_commits > 0 {
+                out(
+                    tx,
+                    &format!(
+                        "  {} ({} commit{}):",
+                        change.name,
+                        change.total_commits,
+                        if change.total_commits == 1 { "" } else { "s" }
+                    ),
+                )
+                .await;
+
+                // Show commit messages
+                for commit in &change.commits {
+                    out(tx, &format!("    {} {}", commit.hash, commit.message)).await;
+                }
+
+                // If there are more commits than shown, add a link
+                if change.total_commits > change.commits.len() {
+                    if let Some(ref url) = change.compare_url {
+                        out(
+                            tx,
+                            &format!(
+                                "    ... and {} more → {}",
+                                change.total_commits - change.commits.len(),
+                                url
+                            ),
+                        )
+                        .await;
+                    }
+                }
+            } else {
+                // No commits fetched (API failed or other issue)
+                out(
+                    tx,
+                    &format!(
+                        "  {}: {} → {}",
+                        change.name,
+                        &change.old_rev[..7.min(change.old_rev.len())],
+                        &change.new_rev[..7.min(change.new_rev.len())]
+                    ),
+                )
+                .await;
+                if let Some(ref url) = change.compare_url {
+                    out(tx, &format!("    → {}", url)).await;
+                }
+            }
         }
     }
 
@@ -329,13 +381,19 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
         }
     }
 
-    // Package changes
+    // Package changes and closure summary
     if !summary.package_changes.is_empty() {
         out(tx, "").await;
         out(tx, "  Packages changed:").await;
         for (pkg, old, new) in &summary.package_changes {
             out(tx, &format!("    {}: {} → {}", pkg, old, new)).await;
         }
+    }
+
+    // Show closure summary (especially useful when no version changes)
+    if let Some(ref closure) = summary.closure_summary {
+        out(tx, "").await;
+        out(tx, &format!("  Closure: {}", closure)).await;
     }
 
     // Status section

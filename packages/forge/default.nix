@@ -1,4 +1,4 @@
-{ lib, rustPlatform, pkg-config, makeWrapper, nvd }:
+{ lib, rustPlatform, pkg-config, makeWrapper, openssl, nvd }:
 
 rustPlatform.buildRustPackage {
   pname = "forge";
@@ -9,6 +9,7 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   nativeBuildInputs = [ pkg-config makeWrapper ];
+  buildInputs = [ openssl ];
 
   postInstall = ''
     wrapProgram $out/bin/forge \
