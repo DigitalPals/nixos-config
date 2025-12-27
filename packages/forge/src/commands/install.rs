@@ -238,9 +238,10 @@ async fn run_install(
     // Run disko with password piped via stdin
     // Escape single quotes in password for shell
     // Use run_command_sensitive to avoid logging the password
+    // --yes-wipe-all-disks skips the "are you sure?" confirmation (already confirmed in wizard)
     let escaped_password = password.replace('\'', "'\"'\"'");
     let disko_script = format!(
-        "echo -n '{}' | nix run {}#disko -- --mode destroy,format,mount --flake {}#{}",
+        "echo -n '{}' | nix run {}#disko -- --yes-wipe-all-disks --mode destroy,format,mount --flake {}#{}",
         escaped_password, temp_config_str, temp_config_str, hostname
     );
     let success = run_command_sensitive(tx, "sh", &["-c", &disko_script]).await?;

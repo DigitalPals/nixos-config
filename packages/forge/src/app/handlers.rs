@@ -486,6 +486,12 @@ impl App {
                         CredentialField::ConfirmPassword => &mut credentials.confirm_password,
                     };
                     if field.len() < MAX_INPUT_LENGTH {
+                        // Auto-convert username to lowercase
+                        let c = if *active_field == CredentialField::Username {
+                            c.to_ascii_lowercase()
+                        } else {
+                            c
+                        };
                         field.push(c);
                     }
                     *error = None;
