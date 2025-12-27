@@ -11,6 +11,8 @@ use crate::app::{AppMode, CreateHostState, NewHostConfig};
 use crate::system::hardware::{FormFactor, GpuVendor};
 use crate::templates;
 
+const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
+
 /// Start the create host process
 pub async fn start_create_host(tx: mpsc::Sender<CommandMessage>, mode: AppMode) -> Result<()> {
     // Extract config from mode
@@ -47,6 +49,42 @@ async fn run_create_host(
     tx: &mpsc::Sender<CommandMessage>,
     config: &NewHostConfig,
 ) -> Result<()> {
+    // Clone repository if running from live ISO and no config exists
+    if crate::system::is_live_iso_environment() {
+        let temp_config = crate::constants::temp_config_dir();
+        if !temp_config.join(crate::constants::FLAKE_NIX).exists() {
+            tx.send(CommandMessage::Stdout(
+                "Cloning configuration repository...".to_string(),
+            ))
+            .await?;
+
+            let _ = fs::remove_dir_all(&temp_config);
+            let temp_config_str = temp_config.to_string_lossy();
+            std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes");
+
+            let success = run_command(
+                tx,
+                "nix-shell",
+                &[
+                    "-p",
+                    "git",
+                    "--run",
+                    &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
+                ],
+            )
+            .await?;
+
+            if !success {
+                anyhow::bail!("Failed to clone repository");
+            }
+
+            tx.send(CommandMessage::StepComplete {
+                step: "repository".to_string(),
+            })
+            .await?;
+        }
+    }
+
     // Determine the config directory
     // When running from live ISO, we clone to /tmp first
     // When running from installed system, we use the actual path

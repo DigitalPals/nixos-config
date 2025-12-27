@@ -93,35 +93,49 @@ async fn run_install(
     })
     .await?;
 
-    // Step 3: Clone configuration repository
-    tx.send(CommandMessage::Stdout("Cloning configuration repository...".to_string()))
-        .await?;
-
-    // Remove existing temp config
+    // Step 3: Clone configuration repository (skip if already cloned with new host)
     let temp_config = constants::temp_config_dir();
     let temp_config_str = temp_config.to_string_lossy();
-    let _ = std::fs::remove_dir_all(&temp_config);
+    let host_exists_in_temp = temp_config
+        .join(constants::HOSTS_SUBDIR)
+        .join(hostname)
+        .join("default.nix")
+        .exists();
 
-    let success = run_command(
-        tx,
-        "nix-shell",
-        &[
-            "-p",
-            "git",
-            "--run",
-            &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
-        ],
-    )
-    .await?;
-
-    if !success {
-        tx.send(CommandMessage::StepFailed {
-            step: "repository".to_string(),
-            error: "Failed to clone repository".to_string(),
-        })
+    if host_exists_in_temp {
+        // Host was just created by create_host flow, reuse the existing clone
+        tx.send(CommandMessage::Stdout(
+            "Using existing configuration (host already created)...".to_string(),
+        ))
         .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+    } else {
+        // Fresh install of existing host, clone from GitHub
+        tx.send(CommandMessage::Stdout("Cloning configuration repository...".to_string()))
+            .await?;
+
+        let _ = std::fs::remove_dir_all(&temp_config);
+
+        let success = run_command(
+            tx,
+            "nix-shell",
+            &[
+                "-p",
+                "git",
+                "--run",
+                &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
+            ],
+        )
+        .await?;
+
+        if !success {
+            tx.send(CommandMessage::StepFailed {
+                step: "repository".to_string(),
+                error: "Failed to clone repository".to_string(),
+            })
+            .await?;
+            tx.send(CommandMessage::Done { success: false }).await?;
+            return Ok(());
+        }
     }
 
     tx.send(CommandMessage::StepComplete {

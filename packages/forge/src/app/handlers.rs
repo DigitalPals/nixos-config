@@ -794,14 +794,26 @@ impl App {
                 }
             }
             AppMode::CreateHost(CreateHostState::Review { config }) => {
-                let mut steps = vec![
-                    StepStatus::new("Creating host directory"),
-                    StepStatus::new("Generating hardware configuration"),
-                    StepStatus::new("Creating host configuration"),
-                    StepStatus::new("Creating disko configuration"),
-                    StepStatus::new("Updating flake.nix"),
-                    StepStatus::new("Generating host metadata"),
-                ];
+                let mut steps = if crate::system::is_live_iso_environment() {
+                    vec![
+                        StepStatus::new("Cloning configuration repository"),
+                        StepStatus::new("Creating host directory"),
+                        StepStatus::new("Generating hardware configuration"),
+                        StepStatus::new("Creating host configuration"),
+                        StepStatus::new("Creating disko configuration"),
+                        StepStatus::new("Updating flake.nix"),
+                        StepStatus::new("Generating host metadata"),
+                    ]
+                } else {
+                    vec![
+                        StepStatus::new("Creating host directory"),
+                        StepStatus::new("Generating hardware configuration"),
+                        StepStatus::new("Creating host configuration"),
+                        StepStatus::new("Creating disko configuration"),
+                        StepStatus::new("Updating flake.nix"),
+                        StepStatus::new("Generating host metadata"),
+                    ]
+                };
                 steps[0].status = StepState::Running;
 
                 let new_mode = AppMode::CreateHost(CreateHostState::Generating {
