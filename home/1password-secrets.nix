@@ -26,6 +26,8 @@
     enable = true;
     enableDefaultConfig = false;
     matchBlocks."*" = {
+      # Try local key first, then fall back to 1Password agent
+      identityFile = "~/.ssh/id_ed25519";
       identityAgent = "~/.1password/agent.sock";
     };
   };
