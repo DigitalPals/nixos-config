@@ -82,7 +82,7 @@
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
-      home-manager.extraSpecialArgs = { inherit inputs hostname dots-hyprland rounded-polygon-qmljs quickshell; };
+      home-manager.extraSpecialArgs = { inherit inputs hostname dots-hyprland rounded-polygon-qmljs quickshell forge; };
       home-manager.users.john = import ./home/home.nix;
       # sharedModules removed - external modules now imported conditionally in home.nix
     };

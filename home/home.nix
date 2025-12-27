@@ -12,6 +12,7 @@ in
     ./neovim.nix      # Neovim with LazyVim dependencies
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers, Termius, etc.)
+    ./forge-notify.nix  # Background update checker
   ] ++ (if shell == "illogical" then [
     ./shells/illogical
   ] else if shell == "caelestia" then [
