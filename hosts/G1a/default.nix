@@ -28,9 +28,9 @@
       CPU_BOOST_ON_AC = 1;
       CPU_BOOST_ON_BAT = 0;
 
-      # Platform profile
+      # Platform profile (balanced on battery for smoother UI, low-power throttles GPU too much)
       PLATFORM_PROFILE_ON_AC = "performance";
-      PLATFORM_PROFILE_ON_BAT = "low-power";
+      PLATFORM_PROFILE_ON_BAT = "balanced";
 
       # Battery charge thresholds (if supported by hardware)
       START_CHARGE_THRESH_BAT0 = 20;
@@ -70,6 +70,16 @@
     "amdgpu.ppfeaturemask=0xffffffff"
     "amdgpu.dcdebugmask=0x10"  # Helps with display init on new AMD APUs
   ];
+
+  # AMD Wayland environment variables (equivalent to NVIDIA config)
+  environment.sessionVariables = {
+    # Force Qt to use native Wayland (improves Quickshell/QML performance)
+    QT_QPA_PLATFORM = "wayland";
+    # Help Electron/Chromium apps use Wayland
+    NIXOS_OZONE_WL = "1";
+    # Disable Qt window decorations (Hyprland handles them)
+    QT_WAYLAND_DISABLE_WINDOWDECORATION = "1";
+  };
 
   # LUKS configuration is handled by disko (modules/disko/G1a.nix)
   # Disko sets allowDiscards and bypassWorkqueues automatically
