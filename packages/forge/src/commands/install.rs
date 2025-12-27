@@ -11,6 +11,9 @@ use crate::constants::{
     PRIMARY_USER_GID, PRIMARY_USER_UID,
 };
 
+/// Path to the temporary LUKS password file (used by disko)
+const LUKS_PASSWORD_FILE: &str = "/tmp/luks-password";
+
 const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
 
 /// Regex to match disko device declarations.
@@ -18,6 +21,13 @@ const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
 static DISK_DEVICE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"device = "/dev/[^"]*""#)
         .expect("Disk device regex pattern is statically validated")
+});
+
+/// Regex to match the LUKS content section where we need to inject passwordFile.
+/// Matches: type = "luks"; name = "cryptroot";
+static LUKS_NAME_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"(name = "cryptroot";)"#)
+        .expect("LUKS name regex pattern is statically validated")
 });
 
 /// Default username used in the configuration
@@ -228,6 +238,25 @@ async fn run_install(
     ))
     .await?;
 
+    // Write password to temp file for disko (disko reads from passwordFile, not stdin)
+    std::fs::write(LUKS_PASSWORD_FILE, password.as_bytes())
+        .with_context(|| format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE))?;
+    // Restrict permissions to root only
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(LUKS_PASSWORD_FILE, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("Failed to set permissions on {}", LUKS_PASSWORD_FILE))?;
+    }
+
+    // Inject passwordFile into disko default.nix
+    let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
+    let disko_default_content = std::fs::read_to_string(&disko_default_file)
+        .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
+    let updated_disko = inject_luks_password_file(&disko_default_content);
+    std::fs::write(&disko_default_file, &updated_disko)
+        .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
+
     // Pre-fetch disko (optional optimization, log if it fails)
     match run_command(tx, "nix", &["build", &format!("{}#disko", temp_config_str), "--no-link"]).await {
         Ok(true) => tracing::info!("Disko pre-fetch succeeded"),
@@ -235,17 +264,28 @@ async fn run_install(
         Err(e) => tracing::warn!("Disko pre-fetch error: {} - continuing anyway", e),
     }
 
-    // Run disko with password piped via stdin
-    // Escape single quotes in password for shell
-    // Use run_command_sensitive to avoid logging the password
+    // Run disko with passwordFile (reads password from file, no stdin needed)
     // --yes-wipe-all-disks skips the "are you sure?" confirmation (already confirmed in wizard)
-    // LUKS format needs password twice (enter + verify), so we provide it with printf
-    let escaped_password = password.replace('\'', "'\"'\"'");
-    let disko_script = format!(
-        "printf '%s\\n%s\\n' '{}' '{}' | nix run {}#disko -- --yes-wipe-all-disks --mode destroy,format,mount --flake {}#{}",
-        escaped_password, escaped_password, temp_config_str, temp_config_str, hostname
-    );
-    let success = run_command_sensitive(tx, "sh", &["-c", &disko_script]).await?;
+    let success = run_command(
+        tx,
+        "nix",
+        &[
+            "run",
+            &format!("{}#disko", temp_config_str),
+            "--",
+            "--yes-wipe-all-disks",
+            "--mode",
+            "destroy,format,mount",
+            "--flake",
+            &format!("{}#{}", temp_config_str, hostname),
+        ],
+    )
+    .await?;
+
+    // Clean up password file immediately after disko (security)
+    if let Err(e) = std::fs::remove_file(LUKS_PASSWORD_FILE) {
+        tracing::warn!("Failed to remove LUKS password file: {}", e);
+    }
 
     if !success {
         tx.send(CommandMessage::StepFailed {
@@ -420,6 +460,17 @@ fn update_disk_device(content: &str, disk: &str) -> String {
     }
 
     result.to_string()
+}
+
+/// Inject passwordFile into disko LUKS configuration
+/// Adds `passwordFile = "/tmp/luks-password";` after `name = "cryptroot";`
+fn inject_luks_password_file(content: &str) -> String {
+    let replacement = format!(
+        r#"$1
+              passwordFile = "{}";"#,
+        LUKS_PASSWORD_FILE
+    );
+    LUKS_NAME_RE.replace_all(content, replacement.as_str()).to_string()
 }
 
 fn copy_dir_recursive(src: &str, dst: &str) -> std::io::Result<()> {
