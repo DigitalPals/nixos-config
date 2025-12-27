@@ -78,20 +78,20 @@
     forge = pkgs.callPackage ./packages/forge { };
 
     # Home Manager configuration (shell-agnostic - shell comes from osConfig)
-    mkHomeManagerConfig = { hostname }: {
+    mkHomeManagerConfig = { hostname, username }: {
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
-      home-manager.extraSpecialArgs = { inherit inputs hostname dots-hyprland rounded-polygon-qmljs quickshell forge; };
-      home-manager.users.john = import ./home/home.nix;
+      home-manager.extraSpecialArgs = { inherit inputs hostname username dots-hyprland rounded-polygon-qmljs quickshell forge; };
+      home-manager.users.${username} = import ./home/home.nix;
       # sharedModules removed - external modules now imported conditionally in home.nix
     };
 
     # Helper to create NixOS configurations with shell specialisations
-    mkNixosSystem = { hostname, extraModules ? [] }:
+    mkNixosSystem = { hostname, username ? "john", extraModules ? [] }:
       nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex forge; };
+        specialArgs = { inherit inputs plymouth-cybex forge username; };
         modules = [
           # Apply overlay for patched xdg-desktop-portal-gtk
           { nixpkgs.overlays = [ gtkPortalOverlay ]; }
@@ -106,7 +106,7 @@
 
           # Home Manager
           home-manager.nixosModules.home-manager
-          (mkHomeManagerConfig { inherit hostname; })
+          (mkHomeManagerConfig { inherit hostname username; })
 
           # Shell specialisations (boot menu entries)
           {

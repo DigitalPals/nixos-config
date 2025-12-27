@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
-use super::executor::{run_capture, run_command};
+use super::executor::{run_capture, run_command, run_command_sensitive};
 use super::CommandMessage;
 use crate::constants::{
     self, INSTALL_MOUNT_POINT, INSTALL_SYMLINK_PATH, NIXOS_CONFIG_HOME_DIR,
@@ -13,9 +13,6 @@ use crate::constants::{
 
 const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
 
-/// The primary user configured in this NixOS setup
-const PRIMARY_USER: &str = "john";
-
 /// Regex to match disko device declarations.
 /// This pattern is a compile-time constant and cannot fail to compile.
 static DISK_DEVICE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -23,14 +20,17 @@ static DISK_DEVICE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("Disk device regex pattern is statically validated")
 });
 
+/// Default username used in the configuration
+const DEFAULT_USERNAME: &str = "john";
+
 /// Get the config directory path for the mounted system
-fn get_config_dir() -> String {
-    format!("{}/home/{}/{}", INSTALL_MOUNT_POINT, PRIMARY_USER, NIXOS_CONFIG_HOME_DIR)
+fn get_config_dir(username: &str) -> String {
+    format!("{}/home/{}/{}", INSTALL_MOUNT_POINT, username, NIXOS_CONFIG_HOME_DIR)
 }
 
 /// Get the symlink target (path on the installed system, not /mnt)
-fn get_symlink_target() -> String {
-    format!("/home/{}/{}", PRIMARY_USER, NIXOS_CONFIG_HOME_DIR)
+fn get_symlink_target(username: &str) -> String {
+    format!("/home/{}/{}", username, NIXOS_CONFIG_HOME_DIR)
 }
 
 /// Start the installation process
@@ -38,12 +38,16 @@ pub async fn start_install(
     tx: mpsc::Sender<CommandMessage>,
     hostname: &str,
     disk: &str,
+    username: &str,
+    password: &str,
 ) -> Result<()> {
     let hostname = hostname.to_string();
     let disk = disk.to_string();
+    let username = username.to_string();
+    let password = password.to_string();
 
     tokio::spawn(async move {
-        if let Err(e) = run_install(&tx, &hostname, &disk).await {
+        if let Err(e) = run_install(&tx, &hostname, &disk, &username, &password).await {
             tracing::error!("Installation failed: {}", e);
             let _ = tx
                 .send(CommandMessage::StepFailed {
@@ -61,6 +65,8 @@ async fn run_install(
     tx: &mpsc::Sender<CommandMessage>,
     hostname: &str,
     disk: &str,
+    username: &str,
+    password: &str,
 ) -> Result<()> {
     // Step 1: Check network connectivity
     tx.send(CommandMessage::Stdout("Checking network connectivity...".to_string()))
@@ -193,6 +199,22 @@ async fn run_install(
     std::fs::write(&disko_file, &updated_content)
         .with_context(|| format!("Failed to write disko config: {}", disko_file))?;
 
+    // Update flake.nix with username if it differs from default
+    if username != DEFAULT_USERNAME {
+        tx.send(CommandMessage::Stdout(format!(
+            "Configuring username '{}'...",
+            username
+        )))
+        .await?;
+
+        let flake_file = format!("{}/flake.nix", temp_config_str);
+        let flake_content = std::fs::read_to_string(&flake_file)
+            .with_context(|| format!("Failed to read flake.nix: {}", flake_file))?;
+        let updated_flake = update_flake_username(&flake_content, hostname, username);
+        std::fs::write(&flake_file, &updated_flake)
+            .with_context(|| format!("Failed to write flake.nix: {}", flake_file))?;
+    }
+
     tx.send(CommandMessage::StepComplete {
         step: "disk".to_string(),
     })
@@ -202,7 +224,7 @@ async fn run_install(
     tx.send(CommandMessage::Stdout("Running disko to partition and format...".to_string()))
         .await?;
     tx.send(CommandMessage::Stdout(
-        "You will be prompted to enter the LUKS encryption passphrase.".to_string(),
+        "Using provided passphrase for LUKS encryption...".to_string(),
     ))
     .await?;
 
@@ -213,21 +235,15 @@ async fn run_install(
         Err(e) => tracing::warn!("Disko pre-fetch error: {} - continuing anyway", e),
     }
 
-    // Run disko
-    let success = run_command(
-        tx,
-        "nix",
-        &[
-            "run",
-            &format!("{}#disko", temp_config_str),
-            "--",
-            "--mode",
-            "destroy,format,mount",
-            "--flake",
-            &format!("{}#{}", temp_config_str, hostname),
-        ],
-    )
-    .await?;
+    // Run disko with password piped via stdin
+    // Escape single quotes in password for shell
+    // Use run_command_sensitive to avoid logging the password
+    let escaped_password = password.replace('\'', "'\"'\"'");
+    let disko_script = format!(
+        "echo -n '{}' | nix run {}#disko -- --mode destroy,format,mount --flake {}#{}",
+        escaped_password, temp_config_str, temp_config_str, hostname
+    );
+    let success = run_command_sensitive(tx, "sh", &["-c", &disko_script]).await?;
 
     if !success {
         tx.send(CommandMessage::StepFailed {
@@ -248,8 +264,8 @@ async fn run_install(
     tx.send(CommandMessage::Stdout("Installing NixOS...".to_string()))
         .await?;
 
-    let config_dir = get_config_dir();
-    let symlink_target = get_symlink_target();
+    let config_dir = get_config_dir(username);
+    let symlink_target = get_symlink_target(username);
 
     // Copy configuration to user home directory
     let config_parent = std::path::Path::new(&config_dir)
@@ -345,6 +361,31 @@ async fn run_install(
     })
     .await?;
 
+    // Step 7: Set user password
+    tx.send(CommandMessage::Stdout("Setting up user account...".to_string()))
+        .await?;
+
+    // Use chpasswd to set the user password
+    // Use run_command_sensitive to avoid logging the password
+    let escaped_password = password.replace('\'', "'\"'\"'");
+    let chpasswd_script = format!(
+        "echo '{}:{}' | nixos-enter --root /mnt -c 'chpasswd'",
+        username, escaped_password
+    );
+    let success = run_command_sensitive(tx, "sh", &["-c", &chpasswd_script]).await?;
+
+    if !success {
+        tx.send(CommandMessage::Stdout(
+            "Warning: Failed to set user password. You can set it after first boot with 'passwd'.".to_string(),
+        ))
+        .await?;
+    }
+
+    tx.send(CommandMessage::StepComplete {
+        step: "user".to_string(),
+    })
+    .await?;
+
     tx.send(CommandMessage::Stdout("\n".to_string())).await?;
     tx.send(CommandMessage::Stdout("Installation complete!".to_string()))
         .await?;
@@ -357,7 +398,7 @@ async fn run_install(
         .await?;
     tx.send(CommandMessage::Stdout("  3. Select a shell from the boot menu".to_string()))
         .await?;
-    tx.send(CommandMessage::Stdout("  4. Set your user password: passwd".to_string()))
+    tx.send(CommandMessage::Stdout(format!("  4. Login as '{}' with your chosen password", username)))
         .await?;
 
     tx.send(CommandMessage::Done { success: true }).await?;
@@ -401,4 +442,59 @@ fn copy_dir_recursive(src: &str, dst: &str) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Update flake.nix to set username for a specific host configuration
+/// Only modifies the file if username differs from the default
+fn update_flake_username(content: &str, hostname: &str, username: &str) -> String {
+    if username == DEFAULT_USERNAME {
+        // No modification needed for default username
+        return content.to_string();
+    }
+
+    // Check if this host entry already has a username line
+    // Pattern: hostname = mkNixosSystem { ... username = "..."; ... }
+    let username_check_pattern = format!(
+        r#"(?s){} = mkNixosSystem \{{[^}}]*username\s*="#,
+        regex::escape(hostname)
+    );
+    if let Ok(re) = regex::Regex::new(&username_check_pattern) {
+        if re.is_match(content) {
+            // Username already exists, replace it instead of adding
+            let replace_pattern = format!(
+                r#"({}\s*=\s*mkNixosSystem\s*\{{[^}}]*username\s*=\s*")[^"]*"#,
+                regex::escape(hostname)
+            );
+            if let Ok(re_replace) = regex::Regex::new(&replace_pattern) {
+                let replacement = format!("${{1}}{}", username);
+                return re_replace.replace(content, replacement.as_str()).to_string();
+            }
+        }
+    }
+
+    // Look for the host entry pattern: hostname = mkNixosSystem {
+    // and add username parameter after hostname line
+    let host_pattern = format!(
+        r#"(?m)^(\s*){} = mkNixosSystem \{{\s*\n(\s*)hostname = "{}";"#,
+        regex::escape(hostname),
+        regex::escape(hostname)
+    );
+
+    if let Ok(re) = regex::Regex::new(&host_pattern) {
+        if re.is_match(content) {
+            // Add username after hostname line
+            let replacement = format!(
+                "${{1}}{} = mkNixosSystem {{\n${{2}}hostname = \"{}\";\n${{2}}username = \"{}\";",
+                hostname, hostname, username
+            );
+            return re.replace(content, replacement.as_str()).to_string();
+        }
+    }
+
+    // If pattern not found, log warning and return unchanged
+    tracing::warn!(
+        "Could not update flake.nix with username for host '{}' - pattern not found",
+        hostname
+    );
+    content.to_string()
 }

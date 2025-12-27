@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, StepStatus};
+use crate::app::{App, CredentialField, InstallCredentials, StepStatus};
 use crate::system::config::HostConfig;
 use crate::system::disk::DiskInfo;
 use crate::ui::layout::{centered_rect, host_selection_layout, progress_layout};
@@ -235,6 +235,144 @@ pub fn draw_disk_selection(
 
     // Footer
     draw_footer(frame, chunks[2], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+}
+
+/// Draw credentials entry screen
+pub fn draw_enter_credentials(
+    frame: &mut Frame,
+    host: &str,
+    disk: &DiskInfo,
+    credentials: &InstallCredentials,
+    active_field: &CredentialField,
+    error: Option<&str>,
+    _app: &App,
+) {
+    let area = frame.area();
+    let center = centered_rect(65, 70, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(4),
+            Constraint::Length(12),
+            Constraint::Length(3),
+            Constraint::Min(3),
+        ])
+        .split(center);
+
+    // Header
+    draw_header(frame, chunks[0], "Enter User Credentials");
+
+    // Host/Disk info
+    let info = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("  Host: ", theme::dim()),
+            Span::styled(host, theme::text()),
+            Span::styled("  |  Disk: ", theme::dim()),
+            Span::styled(&disk.path, theme::text()),
+            Span::styled(format!(" ({})", disk.size), theme::dim()),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border()),
+    );
+    frame.render_widget(info, chunks[1]);
+
+    // Credential fields
+    let username_style = if *active_field == CredentialField::Username {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+    let password_style = if *active_field == CredentialField::Password {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+    let confirm_style = if *active_field == CredentialField::ConfirmPassword {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+
+    // Mask passwords with asterisks
+    let password_masked = "*".repeat(credentials.password.len());
+    let confirm_masked = "*".repeat(credentials.confirm_password.len());
+
+    // Show cursor on active field
+    let username_display = if *active_field == CredentialField::Username {
+        format!("{}_", credentials.username)
+    } else {
+        credentials.username.clone()
+    };
+    let password_display = if *active_field == CredentialField::Password {
+        format!("{}_", password_masked)
+    } else {
+        password_masked
+    };
+    let confirm_display = if *active_field == CredentialField::ConfirmPassword {
+        format!("{}_", confirm_masked)
+    } else {
+        confirm_masked
+    };
+
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Username:         ", theme::dim()),
+            Span::styled(username_display, username_style),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Password:         ", theme::dim()),
+            Span::styled(password_display, password_style),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Confirm Password: ", theme::dim()),
+            Span::styled(confirm_display, confirm_style),
+        ]),
+        Line::from(""),
+    ];
+
+    // Show error if present
+    if let Some(err) = error {
+        lines.push(Line::from(Span::styled(format!("  ⚠ {}", err), theme::error())));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  Password will be used for login and LUKS encryption",
+            theme::dim(),
+        )));
+    }
+
+    let fields = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(Span::styled(" Credentials ", theme::title())),
+    );
+    frame.render_widget(fields, chunks[2]);
+
+    // Requirements hint
+    let hints = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "  Username: lowercase letters, numbers, underscore, hyphen",
+            theme::dim(),
+        )),
+        Line::from(Span::styled("  Password: minimum 8 characters", theme::dim())),
+    ])
+    .block(Block::default().borders(Borders::ALL).border_style(theme::border()));
+    frame.render_widget(hints, chunks[3]);
+
+    // Footer
+    draw_footer(
+        frame,
+        chunks[4],
+        &["Tab/↑↓ Switch field", "Enter Continue", "Esc Back"],
+    );
 }
 
 /// Draw confirmation screen

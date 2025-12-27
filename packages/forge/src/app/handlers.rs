@@ -129,6 +129,9 @@ impl App {
                 Some(host.clone()),
                 Some(disks.clone()),
             )),
+            AppMode::Install(InstallState::EnterCredentials { host, .. }) => {
+                Some(("install_credentials", 0, Some(host.clone()), None))
+            }
             AppMode::Install(InstallState::Confirm { host, disk: _, .. }) => {
                 Some(("install_confirm", 0, Some(host.clone()), None))
             }
@@ -164,6 +167,9 @@ impl App {
             Some(("install_disk", selected, Some(host), Some(disks))) => {
                 self.handle_install_disk_key(key, &host, &disks, selected)
                     .await?;
+            }
+            Some(("install_credentials", _, Some(host), _)) => {
+                self.handle_credentials_key(key, &host).await?;
             }
             Some(("install_confirm", _, Some(host), _)) => {
                 self.handle_confirm_key_action(key, &host).await?;
@@ -431,10 +437,12 @@ impl App {
             }
             KeyCode::Enter => {
                 if !disks.is_empty() {
-                    self.mode = AppMode::Install(InstallState::Confirm {
+                    self.mode = AppMode::Install(InstallState::EnterCredentials {
                         host: host.to_string(),
                         disk: disks[selected].clone(),
-                        input: String::new(),
+                        credentials: InstallCredentials::default(),
+                        active_field: CredentialField::Username,
+                        error: None,
                     });
                 }
             }
@@ -443,9 +451,80 @@ impl App {
         Ok(())
     }
 
-    async fn handle_confirm_key_action(&mut self, key: KeyCode, host: &str) -> Result<()> {
-        let (disk, should_start) = if let AppMode::Install(InstallState::Confirm {
+    async fn handle_credentials_key(&mut self, key: KeyCode, _host: &str) -> Result<()> {
+        if let AppMode::Install(InstallState::EnterCredentials {
+            host,
             disk,
+            credentials,
+            active_field,
+            error,
+        }) = &mut self.mode
+        {
+            match key {
+                KeyCode::Tab | KeyCode::Down => {
+                    // Move to next field
+                    *active_field = match active_field {
+                        CredentialField::Username => CredentialField::Password,
+                        CredentialField::Password => CredentialField::ConfirmPassword,
+                        CredentialField::ConfirmPassword => CredentialField::Username,
+                    };
+                    *error = None;
+                }
+                KeyCode::BackTab | KeyCode::Up => {
+                    // Move to previous field
+                    *active_field = match active_field {
+                        CredentialField::Username => CredentialField::ConfirmPassword,
+                        CredentialField::Password => CredentialField::Username,
+                        CredentialField::ConfirmPassword => CredentialField::Password,
+                    };
+                    *error = None;
+                }
+                KeyCode::Char(c) => {
+                    let field = match active_field {
+                        CredentialField::Username => &mut credentials.username,
+                        CredentialField::Password => &mut credentials.password,
+                        CredentialField::ConfirmPassword => &mut credentials.confirm_password,
+                    };
+                    if field.len() < MAX_INPUT_LENGTH {
+                        field.push(c);
+                    }
+                    *error = None;
+                }
+                KeyCode::Backspace => {
+                    let field = match active_field {
+                        CredentialField::Username => &mut credentials.username,
+                        CredentialField::Password => &mut credentials.password,
+                        CredentialField::ConfirmPassword => &mut credentials.confirm_password,
+                    };
+                    field.pop();
+                    *error = None;
+                }
+                KeyCode::Enter => {
+                    // Validate and proceed to confirmation
+                    if let Some(err) = validate_username(&credentials.username) {
+                        *error = Some(err);
+                    } else if let Some(err) = validate_password(&credentials.password, &credentials.confirm_password) {
+                        *error = Some(err);
+                    } else {
+                        // All valid, proceed to confirmation
+                        self.mode = AppMode::Install(InstallState::Confirm {
+                            host: host.clone(),
+                            disk: disk.clone(),
+                            credentials: credentials.clone(),
+                            input: String::new(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_confirm_key_action(&mut self, key: KeyCode, host: &str) -> Result<()> {
+        let (disk, credentials, should_start) = if let AppMode::Install(InstallState::Confirm {
+            disk,
+            credentials,
             input,
             ..
         }) = &mut self.mode
@@ -455,27 +534,27 @@ impl App {
                     if input.len() < MAX_INPUT_LENGTH {
                         input.push(c);
                     }
-                    (None, false)
+                    (None, None, false)
                 }
                 KeyCode::Backspace => {
                     input.pop();
-                    (None, false)
+                    (None, None, false)
                 }
                 KeyCode::Enter => {
                     if input.trim().eq_ignore_ascii_case("yes") {
-                        (Some(disk.clone()), true)
+                        (Some(disk.clone()), Some(credentials.clone()), true)
                     } else {
-                        (None, false)
+                        (None, None, false)
                     }
                 }
-                _ => (None, false),
+                _ => (None, None, false),
             }
         } else {
-            (None, false)
+            (None, None, false)
         };
 
         if should_start {
-            if let Some(disk) = disk {
+            if let (Some(disk), Some(creds)) = (disk, credentials) {
                 let mut steps = vec![
                     StepStatus::new("Checking network connectivity"),
                     StepStatus::new("Enabling Nix flakes"),
@@ -483,18 +562,26 @@ impl App {
                     StepStatus::new("Configuring disk device"),
                     StepStatus::new("Running disko (partitioning)"),
                     StepStatus::new("Installing NixOS"),
+                    StepStatus::new("Setting up user account"),
                 ];
                 steps[0].status = StepState::Running;
 
                 self.mode = AppMode::Install(InstallState::Running {
                     host: host.to_string(),
                     disk: disk.clone(),
+                    credentials: creds.clone(),
                     step: 0,
                     steps,
                     output: std::collections::VecDeque::new(),
                 });
                 if let Some(tx) = &self.cmd_tx {
-                    commands::install::start_install(tx.clone(), host, &disk.path).await?;
+                    commands::install::start_install(
+                        tx.clone(),
+                        host,
+                        &disk.path,
+                        &creds.username,
+                        &creds.password,
+                    ).await?;
                 }
             }
         }
@@ -837,10 +924,12 @@ impl App {
                 if success {
                     match key {
                         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                            AppMode::Install(InstallState::Confirm {
+                            AppMode::Install(InstallState::EnterCredentials {
                                 host: hostname,
                                 disk,
-                                input: String::new(),
+                                credentials: InstallCredentials::default(),
+                                active_field: CredentialField::Username,
+                                error: None,
                             })
                         }
                         _ => AppMode::Install(InstallState::SelectHost { selected: 0 }),
@@ -865,7 +954,8 @@ impl App {
 
         let needs_disk_refresh = matches!(
             old_mode,
-            AppMode::Install(InstallState::Confirm { .. })
+            AppMode::Install(InstallState::EnterCredentials { .. })
+                | AppMode::Install(InstallState::Confirm { .. })
                 | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
         );
 
@@ -882,12 +972,22 @@ impl App {
             AppMode::Install(InstallState::SelectDisk { .. }) => {
                 AppMode::Install(InstallState::SelectHost { selected: 0 })
             }
-            AppMode::Install(InstallState::Confirm { host, .. }) => {
-                // Take ownership of host instead of cloning
+            AppMode::Install(InstallState::EnterCredentials { host, disk, .. }) => {
+                // Go back to disk selection
                 AppMode::Install(InstallState::SelectDisk {
                     host,
-                    disks: Vec::new(),
+                    disks: vec![disk], // Keep the selected disk
                     selected: 0,
+                })
+            }
+            AppMode::Install(InstallState::Confirm { host, disk, credentials, .. }) => {
+                // Go back to credentials entry, keeping the entered credentials
+                AppMode::Install(InstallState::EnterCredentials {
+                    host,
+                    disk,
+                    credentials,
+                    active_field: CredentialField::Username,
+                    error: None,
                 })
             }
             AppMode::Install(InstallState::Complete { .. }) => AppMode::MainMenu { selected: 0 },

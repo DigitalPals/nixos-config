@@ -1,5 +1,5 @@
 # Desktop environment configuration shared across machines
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, username, ... }:
 
 let
   # Get shell from config option (set by specialisations)
@@ -26,7 +26,7 @@ in
     settings = {
       default_session = {
         command = sessionScript;
-        user = "john";
+        user = username;
       };
     };
   };

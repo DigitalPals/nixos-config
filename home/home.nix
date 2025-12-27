@@ -1,5 +1,5 @@
-# Home Manager configuration for john
-{ config, pkgs, inputs, lib, osConfig, ... }:
+# Home Manager configuration
+{ config, pkgs, inputs, lib, osConfig, username, ... }:
 
 let
   # Get shell from NixOS config (set by specialisations)
@@ -23,8 +23,8 @@ in
     ./shells/noctalia
   ]);
 
-  home.username = "john";
-  home.homeDirectory = "/home/john";
+  home.username = username;
+  home.homeDirectory = "/home/${username}";
 
   # Let Home Manager manage itself
   programs.home-manager.enable = true;

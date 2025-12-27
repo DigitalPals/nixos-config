@@ -36,6 +36,23 @@ pub enum AppMode {
     Quit,
 }
 
+/// Which credential field is currently active
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum CredentialField {
+    #[default]
+    Username,
+    Password,
+    ConfirmPassword,
+}
+
+/// User credentials collected during installation
+#[derive(Debug, Clone, Default)]
+pub struct InstallCredentials {
+    pub username: String,
+    pub password: String,
+    pub confirm_password: String,
+}
+
 /// Installation state machine
 #[derive(Debug, Clone)]
 pub enum InstallState {
@@ -47,14 +64,23 @@ pub enum InstallState {
         disks: Vec<DiskInfo>,
         selected: usize,
     },
+    EnterCredentials {
+        host: String,
+        disk: DiskInfo,
+        credentials: InstallCredentials,
+        active_field: CredentialField,
+        error: Option<String>,
+    },
     Confirm {
         host: String,
         disk: DiskInfo,
+        credentials: InstallCredentials,
         input: String,
     },
     Running {
         host: String,
         disk: DiskInfo,
+        credentials: InstallCredentials,
         step: usize,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
@@ -70,7 +96,7 @@ impl InstallState {
     pub fn new(hostname: Option<String>, disk: Option<String>) -> Self {
         match (hostname, disk) {
             (Some(host), Some(disk_path)) => {
-                // Direct install with provided args
+                // Direct install with provided args - go to credentials
                 let disk = DiskInfo {
                     path: disk_path,
                     size: "Unknown".to_string(),
@@ -78,10 +104,12 @@ impl InstallState {
                     model: None,
                     partitions: vec![],
                 };
-                InstallState::Confirm {
+                InstallState::EnterCredentials {
                     host,
                     disk,
-                    input: String::new(),
+                    credentials: InstallCredentials::default(),
+                    active_field: CredentialField::Username,
+                    error: None,
                 }
             }
             (Some(host), None) => {
@@ -95,6 +123,42 @@ impl InstallState {
             _ => InstallState::SelectHost { selected: 0 },
         }
     }
+}
+
+/// Validate a username for NixOS user creation
+pub fn validate_username(username: &str) -> Option<String> {
+    if username.is_empty() {
+        return Some("Username cannot be empty".to_string());
+    }
+    if username.len() > 32 {
+        return Some("Username too long (max 32 characters)".to_string());
+    }
+    if !username.chars().next().unwrap().is_ascii_lowercase() {
+        return Some("Username must start with a lowercase letter".to_string());
+    }
+    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
+        return Some("Username can only contain lowercase letters, numbers, underscore, and hyphen".to_string());
+    }
+    // Reserved usernames
+    let reserved = ["root", "nobody", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats", "systemd-network", "systemd-resolve"];
+    if reserved.contains(&username) {
+        return Some(format!("'{}' is a reserved username", username));
+    }
+    None
+}
+
+/// Validate password requirements
+pub fn validate_password(password: &str, confirm: &str) -> Option<String> {
+    if password.is_empty() {
+        return Some("Password cannot be empty".to_string());
+    }
+    if password.len() < 8 {
+        return Some("Password must be at least 8 characters".to_string());
+    }
+    if password != confirm {
+        return Some("Passwords do not match".to_string());
+    }
+    None
 }
 
 /// Configuration being built during host creation wizard

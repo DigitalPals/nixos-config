@@ -1,5 +1,5 @@
 # Common NixOS configuration shared across all machines
-{ config, pkgs, lib, forge, ... }:
+{ config, pkgs, lib, forge, username, ... }:
 
 {
   imports = [
@@ -129,12 +129,12 @@
   # User configuration
   # mutableUsers allows setting password with passwd after installation
   users.mutableUsers = true;
-  users.users.john = {
+  users.users.${username} = {
     isNormalUser = true;
-    description = "John";
+    description = username;
     extraGroups = [ "networkmanager" "wheel" "video" "input" "docker" ];
     shell = pkgs.fish;
-    # No initialPassword - password set manually with passwd after first boot
+    # No initialPassword - password set via Forge installer
   };
 
   # Enable Fish system-wide (required for login shell)
@@ -160,7 +160,7 @@
   programs._1password.enable = true;
   programs._1password-gui = {
     enable = true;
-    polkitPolicyOwners = [ "john" ];
+    polkitPolicyOwners = [ username ];
   };
 
   # Google Chrome extension policies (force-install 1Password)

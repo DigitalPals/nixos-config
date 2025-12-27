@@ -31,7 +31,18 @@ pub fn draw(frame: &mut Frame, app: &App) {
             } => {
                 screens::install::draw_disk_selection(frame, host, disks, *selected, app);
             }
-            InstallState::Confirm { host, disk, input } => {
+            InstallState::EnterCredentials {
+                host,
+                disk,
+                credentials,
+                active_field,
+                error,
+            } => {
+                screens::install::draw_enter_credentials(
+                    frame, host, disk, credentials, active_field, error.as_deref(), app,
+                );
+            }
+            InstallState::Confirm { host, disk, input, .. } => {
                 screens::install::draw_confirm(frame, host, disk, input, app);
             }
             InstallState::Running {

@@ -23,9 +23,9 @@ use crate::system::hardware::{CpuVendor, GpuInfo, GpuVendor};
 
 // Re-export commonly used types
 pub use state::{
-    AppMode, AppOp, AppProfileState, CreateHostState, InstallState, KeysOp, KeysState,
-    NewHostConfig, PendingUpdates, StepState, StepStatus, UpdateState, UpdateSummary,
-    APP_MENU_ITEMS, MAIN_MENU_ITEMS,
+    AppMode, AppOp, AppProfileState, CreateHostState, CredentialField, InstallCredentials,
+    InstallState, KeysOp, KeysState, NewHostConfig, PendingUpdates, StepState, StepStatus,
+    UpdateState, UpdateSummary, APP_MENU_ITEMS, MAIN_MENU_ITEMS,
 };
 
 /// Main application state
