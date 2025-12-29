@@ -5,14 +5,19 @@
 //! - App profile updates (private-settings repo)
 //! - Flake input updates (nixpkgs, home-manager, etc.)
 
+pub mod config;
+pub mod constants;
 pub mod flake;
+pub mod paths;
 pub mod state;
 
 use anyhow::Result;
 use std::path::Path;
 use std::process::Stdio;
-use std::time::Duration;
 use tokio::process::Command;
+
+use constants::git_fetch_timeout;
+use paths::{app_backup_data_dir, nixos_config_dir};
 
 /// Status of all update checks
 #[derive(Debug, Default)]
@@ -83,7 +88,7 @@ async fn check_nixos_config_updates() -> Result<Vec<(String, String)>> {
 
     // Fetch from remote with timeout
     let fetch_result = tokio::time::timeout(
-        Duration::from_secs(10),
+        git_fetch_timeout(),
         run_git_command(&config_dir, &["fetch", "origin"]),
     )
     .await;
@@ -135,7 +140,7 @@ async fn check_app_updates() -> Result<bool> {
 
     // Fetch from remote with timeout
     let fetch_result = tokio::time::timeout(
-        Duration::from_secs(10),
+        git_fetch_timeout(),
         run_git_command(&local_repo, &["fetch", "origin"]),
     )
     .await;
@@ -195,35 +200,3 @@ async fn run_git_output(dir: &Path, args: &[&str]) -> Result<(bool, String)> {
     ))
 }
 
-/// Get the NixOS config directory
-fn nixos_config_dir() -> std::path::PathBuf {
-    // Check /etc/nixos first
-    let system_path = std::path::PathBuf::from("/etc/nixos");
-    if system_path.join("flake.nix").exists() {
-        return system_path;
-    }
-
-    // Check ~/nixos-config
-    if let Some(home) = dirs::home_dir() {
-        let home_path = home.join("nixos-config");
-        if home_path.join("flake.nix").exists() {
-            return home_path;
-        }
-    }
-
-    std::path::PathBuf::new()
-}
-
-/// Get the app backup data directory
-fn app_backup_data_dir() -> std::path::PathBuf {
-    dirs::home_dir()
-        .map(|h| {
-            let new_path = h.join(".local/share/app-backup");
-            if new_path.join(".git").exists() {
-                new_path
-            } else {
-                h.join(".local/share/browser-backup")
-            }
-        })
-        .unwrap_or_default()
-}

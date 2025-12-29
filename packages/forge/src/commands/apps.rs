@@ -3,52 +3,52 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use super::errors::{ErrorContext, ParsedError};
-use super::executor::{run_capture, run_command};
+use super::executor::run_capture;
+use super::runner::{spawn_with_error_handling, CommandRunner};
 use super::CommandMessage;
 
 /// Start app backup
 pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
-    tokio::spawn(async move {
-        if let Err(e) = run_backup(&tx, force).await {
-            tracing::error!("Backup failed: {}", e);
-            let _ = tx
-                .send(CommandMessage::StepFailed {
-                    step: "Backup".to_string(),
-                    error: ParsedError::from_stderr(
-                        &e.to_string(),
-                        ErrorContext {
-                            operation: "App backup".to_string(),
-                        },
-                    ),
-                })
-                .await;
-            let _ = tx.send(CommandMessage::Done { success: false }).await;
-        }
-    });
-    Ok(())
+    spawn_with_error_handling(tx, "App backup", "Backup", move |tx| async move {
+        let runner = CommandRunner::new(&tx);
+        let args: Vec<&str> = if force {
+            vec!["--push", "--force"]
+        } else {
+            vec!["--push"]
+        };
+        runner
+            .run_simple_operation(
+                "App Profile Backup",
+                "app-backup",
+                &args,
+                "App profiles backed up successfully",
+                "Backup failed",
+            )
+            .await?;
+        Ok(())
+    })
 }
 
 /// Start app restore
 pub async fn start_restore(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
-    tokio::spawn(async move {
-        if let Err(e) = run_restore(&tx, force).await {
-            tracing::error!("Restore failed: {}", e);
-            let _ = tx
-                .send(CommandMessage::StepFailed {
-                    step: "Restore".to_string(),
-                    error: ParsedError::from_stderr(
-                        &e.to_string(),
-                        ErrorContext {
-                            operation: "App restore".to_string(),
-                        },
-                    ),
-                })
-                .await;
-            let _ = tx.send(CommandMessage::Done { success: false }).await;
-        }
-    });
-    Ok(())
+    spawn_with_error_handling(tx, "App restore", "Restore", move |tx| async move {
+        let runner = CommandRunner::new(&tx);
+        let args: Vec<&str> = if force {
+            vec!["--pull", "--force"]
+        } else {
+            vec!["--pull"]
+        };
+        runner
+            .run_simple_operation(
+                "App Profile Restore",
+                "app-restore",
+                &args,
+                "App profiles restored successfully",
+                "Restore failed",
+            )
+            .await?;
+        Ok(())
+    })
 }
 
 /// Start app status check
@@ -233,83 +233,16 @@ async fn check_app_updates_available() -> Result<bool> {
     Ok(count > 0)
 }
 
-/// Helper to send stdout message
-async fn out(tx: &mpsc::Sender<CommandMessage>, msg: &str) {
-    let _ = tx.send(CommandMessage::Stdout(msg.to_string())).await;
-}
-
-async fn run_backup(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
-    out(tx, "").await;
-    out(tx, "==============================================").await;
-    out(tx, "  App Profile Backup").await;
-    out(tx, "==============================================").await;
-    out(tx, "").await;
-
-    let mut args = vec!["--push"];
-    if force {
-        args.push("--force");
-    }
-
-    let success = run_command(tx, "app-backup", &args).await?;
-
-    if success {
-        out(tx, "").await;
-        out(tx, "  App profiles backed up successfully").await;
-    } else {
-        out(tx, "").await;
-        out(tx, "  Backup failed").await;
-    }
-
-    out(tx, "").await;
-    out(tx, "==============================================").await;
-
-    tx.send(CommandMessage::Done { success }).await?;
-    Ok(())
-}
-
-async fn run_restore(tx: &mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
-    out(tx, "").await;
-    out(tx, "==============================================").await;
-    out(tx, "  App Profile Restore").await;
-    out(tx, "==============================================").await;
-    out(tx, "").await;
-
-    let mut args = vec!["--pull"];
-    if force {
-        args.push("--force");
-    }
-
-    let success = run_command(tx, "app-restore", &args).await?;
-
-    if success {
-        out(tx, "").await;
-        out(tx, "  App profiles restored successfully").await;
-    } else {
-        out(tx, "").await;
-        out(tx, "  Restore failed").await;
-    }
-
-    out(tx, "").await;
-    out(tx, "==============================================").await;
-
-    tx.send(CommandMessage::Done { success }).await?;
-    Ok(())
-}
-
 async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
-    out(tx, "").await;
-    out(tx, "==============================================").await;
-    out(tx, "  App Profile Status").await;
-    out(tx, "==============================================").await;
-    out(tx, "").await;
+    let runner = CommandRunner::new(tx);
+    runner.header("App Profile Status").await;
 
     let local_repo = crate::constants::app_backup_data_dir();
 
     if !local_repo.join(".git").exists() {
-        out(tx, "  Local repository not found.").await;
-        out(tx, "  Run 'forge apps restore' to clone.").await;
-        out(tx, "").await;
-        out(tx, "==============================================").await;
+        runner.out("  Local repository not found.").await;
+        runner.out("  Run 'forge apps restore' to clone.").await;
+        runner.footer().await;
         return Ok(());
     }
 
@@ -327,15 +260,15 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     .await?;
 
     if !remote_ok {
-        out(tx, "  No remote 'origin' configured").await;
-        out(tx, "").await;
-        list_local_files(tx, &local_repo).await;
-        out(tx, "==============================================").await;
+        runner.out("  No remote 'origin' configured").await;
+        runner.out("").await;
+        list_local_files(&runner, &local_repo).await;
+        runner.footer().await;
         return Ok(());
     }
 
     // Fetch from remote (quietly)
-    out(tx, "  Checking for updates...").await;
+    runner.out("  Checking for updates...").await;
     let (fetch_ok, _, _) = run_capture(
         "git",
         &["-C", local_repo.to_str().unwrap_or("."), "fetch", "origin"],
@@ -343,10 +276,10 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     .await?;
 
     if !fetch_ok {
-        out(tx, "  Unable to reach remote; showing local status only").await;
-        out(tx, "").await;
-        list_local_files(tx, &local_repo).await;
-        out(tx, "==============================================").await;
+        runner.out("  Unable to reach remote; showing local status only").await;
+        runner.out("").await;
+        list_local_files(&runner, &local_repo).await;
+        runner.footer().await;
         return Ok(());
     }
 
@@ -382,40 +315,40 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         .await?;
 
         if !master_ok {
-            out(tx, "  Remote branch not found (origin/main or origin/master)").await;
-            out(tx, "").await;
-            list_local_files(tx, &local_repo).await;
-            out(tx, "==============================================").await;
+            runner.out("  Remote branch not found (origin/main or origin/master)").await;
+            runner.out("").await;
+            list_local_files(&runner, &local_repo).await;
+            runner.footer().await;
             return Ok(());
         }
 
         // Use master head
-        check_and_show_status(tx, &local_repo, &local_head, &master_head).await?;
+        check_and_show_status(&runner, &local_repo, &local_head, &master_head).await?;
     } else {
-        check_and_show_status(tx, &local_repo, &local_head, &remote_head).await?;
+        check_and_show_status(&runner, &local_repo, &local_head, &remote_head).await?;
     }
 
-    out(tx, "").await;
-    list_local_files(tx, &local_repo).await;
-    out(tx, "==============================================").await;
+    runner.out("").await;
+    list_local_files(&runner, &local_repo).await;
+    runner.footer().await;
 
     Ok(())
 }
 
 async fn check_and_show_status(
-    tx: &mpsc::Sender<CommandMessage>,
+    runner: &CommandRunner<'_>,
     local_repo: &std::path::Path,
     local_head: &str,
     remote_head: &str,
 ) -> Result<()> {
     if local_head.trim() == remote_head.trim() {
-        out(tx, "").await;
-        out(tx, "  App profiles are up to date").await;
+        runner.out("").await;
+        runner.out("  App profiles are up to date").await;
     } else {
-        out(tx, "").await;
-        out(tx, "  Remote has newer profiles").await;
-        out(tx, "").await;
-        out(tx, "  Remote commits:").await;
+        runner.out("").await;
+        runner.out("  Remote has newer profiles").await;
+        runner.out("").await;
+        runner.out("  Remote commits:").await;
 
         // Get commit log
         let (_, commits, _) = run_capture(
@@ -431,17 +364,17 @@ async fn check_and_show_status(
         .await?;
 
         for line in commits.lines() {
-            out(tx, &format!("    {}", line)).await;
+            runner.out(&format!("    {}", line)).await;
         }
 
-        out(tx, "").await;
-        out(tx, "  Run 'forge apps restore' to update").await;
+        runner.out("").await;
+        runner.out("  Run 'forge apps restore' to update").await;
     }
     Ok(())
 }
 
-async fn list_local_files(tx: &mpsc::Sender<CommandMessage>, local_repo: &std::path::Path) {
-    out(tx, "  Local files:").await;
+async fn list_local_files(runner: &CommandRunner<'_>, local_repo: &std::path::Path) {
+    runner.out("  Local files:").await;
 
     // Use find to list .age files
     let (success, file_list, _) = run_capture(
@@ -474,11 +407,11 @@ async fn list_local_files(tx: &mpsc::Sender<CommandMessage>, local_repo: &std::p
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(filename);
-                out(tx, &format!("    {} ({})", name, size)).await;
+                runner.out(&format!("    {} ({})", name, size)).await;
             }
         }
     } else {
-        out(tx, "    (no backup files)").await;
+        runner.out("    (no backup files)").await;
     }
-    out(tx, "").await;
+    runner.out("").await;
 }

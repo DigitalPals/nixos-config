@@ -135,7 +135,8 @@ pub fn validate_username(username: &str) -> Option<String> {
     if username.len() > 32 {
         return Some("Username too long (max 32 characters)".to_string());
     }
-    if !username.chars().next().unwrap().is_ascii_lowercase() {
+    // Safe: we already checked that username is not empty above
+    if !username.chars().next().expect("username is not empty").is_ascii_lowercase() {
         return Some("Username must start with a lowercase letter".to_string());
     }
     if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
@@ -491,7 +492,8 @@ pub fn validate_hostname(hostname: &str, hosts: &[HostConfig]) -> Option<String>
     if hostname.len() > 63 {
         return Some("Hostname too long (max 63 characters)".to_string());
     }
-    if !hostname.chars().next().unwrap().is_alphanumeric() {
+    // Safe: we already checked that hostname is not empty above
+    if !hostname.chars().next().expect("hostname is not empty").is_alphanumeric() {
         return Some("Hostname must start with a letter or number".to_string());
     }
     if !hostname.chars().all(|c| c.is_alphanumeric() || c == '-') {

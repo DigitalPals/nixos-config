@@ -5,7 +5,8 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+
+use super::paths::notify_state_path;
 
 /// State file for tracking notified updates
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -33,7 +34,7 @@ pub struct NotifiedState {
 impl NotifyState {
     /// Load state from disk, or return default if not found
     pub fn load() -> Result<Self> {
-        let path = state_file_path();
+        let path = notify_state_path();
 
         if !path.exists() {
             return Ok(Self::default());
@@ -46,7 +47,7 @@ impl NotifyState {
 
     /// Save state to disk
     pub fn save(&self) -> Result<()> {
-        let path = state_file_path();
+        let path = notify_state_path();
 
         // Ensure directory exists
         if let Some(parent) = path.parent() {
@@ -67,15 +68,13 @@ impl NotifyState {
             self.last_notified.config_commit = Some(hash.clone());
         }
 
-        // Update app notification state
-        if status.app_updates {
-            self.last_notified.app_updates = true;
-        }
+        // Update app notification state - track current status
+        // This allows re-notification when updates become available again after being applied
+        self.last_notified.app_updates = status.app_updates;
 
-        // Update flake inputs
-        if !status.flake_updates.is_empty() {
-            self.last_notified.flake_inputs = status.flake_updates.clone();
-        }
+        // Update flake inputs - track current set
+        // If updates are empty, clear the list to allow re-notification for new updates
+        self.last_notified.flake_inputs = status.flake_updates.clone();
     }
 
     /// Check if we should notify based on current status vs last notified
@@ -111,17 +110,11 @@ impl NotifyState {
     }
 
     /// Clear app update notification (called after user runs restore)
-    #[allow(dead_code)]
+    /// Note: With the updated logic in mark_notified, this is automatically handled
+    /// when the next check shows no app updates. This method is kept for manual clearing.
     pub fn clear_app_notification(&mut self) {
         self.last_notified.app_updates = false;
     }
-}
-
-/// Get the state file path
-fn state_file_path() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".local/share/forge/notify-state.json"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/forge-notify-state.json"))
 }
 
 #[cfg(test)]

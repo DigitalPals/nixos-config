@@ -7,7 +7,11 @@
 use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::time::Duration;
+
+use super::constants::{
+    default_branch_for_repo, flake_check_timeout, http_client_timeout, PRIORITY_INPUTS,
+};
+use super::paths::nixos_config_dir;
 
 /// Flake.lock JSON structure
 #[derive(Debug, Deserialize)]
@@ -44,21 +48,17 @@ struct InputConfig {
     current_rev: String,
 }
 
-/// Priority inputs to check (in order of importance)
-/// We only check these to minimize API calls
-const PRIORITY_INPUTS: &[&str] = &["nixpkgs"];
-
 /// Check for flake input updates (only checks priority inputs to save API calls)
 pub async fn check_flake_updates() -> Result<Vec<String>> {
-    let config_dir = super::nixos_config_dir();
+    let config_dir = nixos_config_dir();
     let lock_path = config_dir.join("flake.lock");
 
     if !lock_path.exists() {
         return Ok(vec![]);
     }
 
-    // Parse flake.lock
-    let content = tokio::fs::read_to_string(&lock_path).await?;
+    // Parse flake.lock (blocking read is fine here - it's a small file)
+    let content = std::fs::read_to_string(&lock_path)?;
     let lock: FlakeLock = serde_json::from_str(&content)?;
 
     // Find GitHub inputs to check (only priority inputs)
@@ -70,7 +70,7 @@ pub async fn check_flake_updates() -> Result<Vec<String>> {
 
     // Check inputs with timeout (typically just 1 API call for nixpkgs)
     let updates = tokio::time::timeout(
-        Duration::from_secs(15),
+        flake_check_timeout(),
         check_inputs_rest(inputs),
     )
     .await
@@ -112,7 +112,7 @@ fn extract_input_config(_name: &str, node: &FlakeNode) -> Option<InputConfig> {
         .original
         .as_ref()
         .and_then(|o| o.git_ref.clone())
-        .unwrap_or_else(|| default_branch_for_repo(owner, repo));
+        .unwrap_or_else(|| default_branch_for_repo(owner, repo).to_string());
 
     Some(InputConfig {
         owner: owner.clone(),
@@ -139,20 +139,11 @@ fn extract_all_github_inputs(lock: &FlakeLock) -> Vec<(String, InputConfig)> {
     inputs
 }
 
-/// Get default branch for well-known repos
-fn default_branch_for_repo(owner: &str, repo: &str) -> String {
-    match (owner, repo) {
-        ("NixOS", "nixpkgs") => "nixos-unstable".to_string(),
-        ("nix-community", "home-manager") => "master".to_string(),
-        _ => "main".to_string(),
-    }
-}
-
 /// Check inputs using REST API
 async fn check_inputs_rest(inputs: Vec<(String, InputConfig)>) -> Result<Vec<String>> {
     let client = reqwest::Client::builder()
         .user_agent("forge-notify")
-        .timeout(Duration::from_secs(10))
+        .timeout(http_client_timeout())
         .build()?;
 
     let mut updates = Vec::new();
@@ -210,28 +201,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_branch_nixpkgs() {
-        assert_eq!(
-            default_branch_for_repo("NixOS", "nixpkgs"),
-            "nixos-unstable"
-        );
-    }
-
-    #[test]
-    fn test_default_branch_home_manager() {
-        assert_eq!(
-            default_branch_for_repo("nix-community", "home-manager"),
-            "master"
-        );
-    }
-
-    #[test]
-    fn test_default_branch_other() {
-        assert_eq!(default_branch_for_repo("someone", "something"), "main");
-    }
-
-    #[test]
     fn test_priority_inputs_contains_nixpkgs() {
         assert!(PRIORITY_INPUTS.contains(&"nixpkgs"));
     }
+
+    // Note: default_branch_for_repo tests are now in constants.rs
 }

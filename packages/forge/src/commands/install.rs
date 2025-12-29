@@ -1,38 +1,55 @@
 //! Fresh NixOS installation command
+//!
+//! This module handles the complete NixOS installation process, broken down into steps:
+//! 1. Network check
+//! 2. Enable flakes
+//! 3. Clone/prepare configuration repository
+//! 4. Configure disk device
+//! 5. Run disko (partition and format)
+//! 6. Install NixOS
+//! 7. Set user password
 
 use anyhow::{Context, Result};
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
-use super::executor::{run_capture, run_command, run_command_sensitive};
+use super::executor::{run_capture, run_command_sensitive};
+use super::runner::CommandRunner;
 use super::CommandMessage;
 use crate::constants::{
     self, INSTALL_MOUNT_POINT, INSTALL_SYMLINK_PATH, NIXOS_CONFIG_HOME_DIR,
     PRIMARY_USER_GID, PRIMARY_USER_UID,
 };
 
+// =============================================================================
+// Install Constants
+// =============================================================================
+
 /// Path to the temporary LUKS password file (used by disko)
 const LUKS_PASSWORD_FILE: &str = "/tmp/luks-password";
 
+/// GitHub repository URL for the NixOS configuration
 const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
 
+/// Default username used in the configuration
+const DEFAULT_USERNAME: &str = "john";
+
+// =============================================================================
+// Regex Patterns
+// =============================================================================
+
 /// Regex to match disko device declarations.
-/// This pattern is a compile-time constant and cannot fail to compile.
 static DISK_DEVICE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"device = "/dev/[^"]*""#)
         .expect("Disk device regex pattern is statically validated")
 });
 
 /// Regex to match the LUKS content section where we need to inject passwordFile.
-/// Matches: type = "luks"; name = "cryptroot";
 static LUKS_NAME_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"(name = "cryptroot";)"#)
         .expect("LUKS name regex pattern is statically validated")
 });
-
-/// Default username used in the configuration
-const DEFAULT_USERNAME: &str = "john";
 
 /// Get the config directory path for the mounted system
 fn get_config_dir(username: &str) -> String {
@@ -77,52 +94,40 @@ pub async fn start_install(
     Ok(())
 }
 
-async fn run_install(
-    tx: &mpsc::Sender<CommandMessage>,
-    hostname: &str,
-    disk: &str,
-    username: &str,
-    password: &str,
-) -> Result<()> {
-    // Step 1: Check network connectivity
-    tx.send(CommandMessage::Stdout("Checking network connectivity...".to_string()))
-        .await?;
+// =============================================================================
+// Installation Steps
+// =============================================================================
+
+/// Step 1: Check network connectivity
+async fn step_check_network(runner: &CommandRunner<'_>) -> Result<bool> {
+    runner.out("Checking network connectivity...").await;
 
     let (success, _, _) = run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await?;
     if !success {
-        tx.send(CommandMessage::StepFailed {
-            step: "network".to_string(),
-            error: ParsedError::from_stderr(
-                "No network connection",
-                ErrorContext {
-                    operation: "Network check".to_string(),
-                },
-            ),
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+        runner.step_failed("network", "No network connection", "Network check").await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
-    tx.send(CommandMessage::StepComplete {
-        step: "network".to_string(),
-    })
-    .await?;
+    runner.step_complete("network").await?;
+    Ok(true)
+}
 
-    // Step 2: Enable flakes
-    tx.send(CommandMessage::Stdout("Enabling Nix flakes...".to_string()))
-        .await?;
-
+/// Step 2: Enable Nix flakes
+async fn step_enable_flakes(runner: &CommandRunner<'_>) -> Result<bool> {
+    runner.out("Enabling Nix flakes...").await;
     std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes");
+    runner.step_complete("flakes").await?;
+    Ok(true)
+}
 
-    tx.send(CommandMessage::StepComplete {
-        step: "flakes".to_string(),
-    })
-    .await?;
-
-    // Step 3: Clone configuration repository (skip if already cloned with new host)
+/// Step 3: Clone or prepare the configuration repository
+async fn step_prepare_repository(
+    runner: &CommandRunner<'_>,
+    hostname: &str,
+) -> Result<Option<std::path::PathBuf>> {
     let temp_config = constants::temp_config_dir();
-    let temp_config_str = temp_config.to_string_lossy();
+    let temp_config_str = temp_config.to_string_lossy().to_string();
     let host_exists_in_temp = temp_config
         .join(constants::HOSTS_SUBDIR)
         .join(hostname)
@@ -130,110 +135,83 @@ async fn run_install(
         .exists();
 
     if host_exists_in_temp {
-        // Host was just created by create_host flow, reuse the existing clone
-        tx.send(CommandMessage::Stdout(
-            "Using existing configuration (host already created)...".to_string(),
-        ))
-        .await?;
+        runner.out("Using existing configuration (host already created)...").await;
     } else {
-        // Fresh install of existing host, clone from GitHub
-        tx.send(CommandMessage::Stdout("Cloning configuration repository...".to_string()))
-            .await?;
-
+        runner.out("Cloning configuration repository...").await;
         let _ = std::fs::remove_dir_all(&temp_config);
 
-        let success = run_command(
-            tx,
-            "nix-shell",
-            &[
-                "-p",
-                "git",
-                "--run",
-                &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
-            ],
-        )
-        .await?;
+        let success = runner
+            .run(
+                "nix-shell",
+                &[
+                    "-p",
+                    "git",
+                    "--run",
+                    &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
+                ],
+            )
+            .await?;
 
         if !success {
-            tx.send(CommandMessage::StepFailed {
-                step: "repository".to_string(),
-                error: ParsedError::from_stderr(
-                    "Failed to clone repository",
-                    ErrorContext {
-                        operation: "Clone repository".to_string(),
-                    },
-                ),
-            })
-            .await?;
-            tx.send(CommandMessage::Done { success: false }).await?;
-            return Ok(());
+            runner.step_failed("repository", "Failed to clone repository", "Clone repository").await?;
+            runner.done(false).await?;
+            return Ok(None);
         }
     }
 
-    tx.send(CommandMessage::StepComplete {
-        step: "repository".to_string(),
-    })
-    .await?;
+    runner.step_complete("repository").await?;
+    Ok(Some(temp_config))
+}
 
-    // Step 4: Configure disk device
-    tx.send(CommandMessage::Stdout(format!(
-        "Configuring disk device {}...",
-        disk
-    )))
-    .await?;
+/// Step 4: Configure disk device and update disko configuration
+async fn step_configure_disk(
+    runner: &CommandRunner<'_>,
+    temp_config: &std::path::Path,
+    hostname: &str,
+    disk: &str,
+    username: &str,
+) -> Result<bool> {
+    let temp_config_str = temp_config.to_string_lossy();
+    runner.out(&format!("Configuring disk device {}...", disk)).await;
 
     // Validate disk path format
     if !disk.starts_with("/dev/") {
-        tx.send(CommandMessage::StepFailed {
-            step: "disk".to_string(),
-            error: ParsedError::from_stderr(
-                &format!("Invalid disk path: {}. Must start with /dev/", disk),
-                ErrorContext {
-                    operation: "Disk validation".to_string(),
-                },
-            ),
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+        runner.step_failed(
+            "disk",
+            &format!("Invalid disk path: {}. Must start with /dev/", disk),
+            "Disk validation",
+        ).await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
     // Check that disk device actually exists
     if !std::path::Path::new(disk).exists() {
-        tx.send(CommandMessage::StepFailed {
-            step: "disk".to_string(),
-            error: ParsedError::from_stderr(
-                &format!("Disk device does not exist: {}", disk),
-                ErrorContext {
-                    operation: "Disk validation".to_string(),
-                },
-            ),
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+        runner.step_failed(
+            "disk",
+            &format!("Disk device does not exist: {}", disk),
+            "Disk validation",
+        ).await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
     // Check disko config file exists
     let disko_file = format!("{}/modules/disko/{}.nix", temp_config_str, hostname);
     if !std::path::Path::new(&disko_file).exists() {
-        tx.send(CommandMessage::StepFailed {
-            step: "disk".to_string(),
-            error: ParsedError::from_stderr(
-                &format!(
-                    "No disko configuration found for host '{}'. Expected: modules/disko/{}.nix",
-                    hostname, hostname
-                ),
-                ErrorContext {
-                    operation: "Disk configuration".to_string(),
-                },
+        runner.step_failed(
+            "disk",
+            &format!(
+                "No disko configuration found for host '{}'. Expected: modules/disko/{}.nix",
+                hostname, hostname
             ),
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+            "Disk configuration",
+        ).await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
+    // Update disko config with disk device
     let disko_content = std::fs::read_to_string(&disko_file)
         .with_context(|| format!("Failed to read disko config: {}", disko_file))?;
     let updated_content = update_disk_device(&disko_content, disk);
@@ -242,11 +220,7 @@ async fn run_install(
 
     // Update flake.nix with username if it differs from default
     if username != DEFAULT_USERNAME {
-        tx.send(CommandMessage::Stdout(format!(
-            "Configuring username '{}'...",
-            username
-        )))
-        .await?;
+        runner.out(&format!("Configuring username '{}'...", username)).await;
 
         let flake_file = format!("{}/flake.nix", temp_config_str);
         let flake_content = std::fs::read_to_string(&flake_file)
@@ -256,23 +230,26 @@ async fn run_install(
             .with_context(|| format!("Failed to write flake.nix: {}", flake_file))?;
     }
 
-    tx.send(CommandMessage::StepComplete {
-        step: "disk".to_string(),
-    })
-    .await?;
+    runner.step_complete("disk").await?;
+    Ok(true)
+}
 
-    // Step 5: Run disko
-    tx.send(CommandMessage::Stdout("Running disko to partition and format...".to_string()))
-        .await?;
-    tx.send(CommandMessage::Stdout(
-        "Using provided passphrase for LUKS encryption...".to_string(),
-    ))
-    .await?;
+/// Step 5: Run disko to partition and format disks
+async fn step_run_disko(
+    runner: &CommandRunner<'_>,
+    temp_config: &std::path::Path,
+    hostname: &str,
+    password: &str,
+) -> Result<bool> {
+    let temp_config_str = temp_config.to_string_lossy();
 
-    // Write password to temp file for disko (disko reads from passwordFile, not stdin)
+    runner.out("Running disko to partition and format...").await;
+    runner.out("Using provided passphrase for LUKS encryption...").await;
+
+    // Write password to temp file for disko
     std::fs::write(LUKS_PASSWORD_FILE, password.as_bytes())
         .with_context(|| format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE))?;
-    // Restrict permissions to root only
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -288,74 +265,64 @@ async fn run_install(
     std::fs::write(&disko_default_file, &updated_disko)
         .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
 
-    // Verify passwordFile injection succeeded
+    // Verify passwordFile injection
     if updated_disko.contains("passwordFile") {
-        tx.send(CommandMessage::Stdout(
-            "LUKS passwordFile configured successfully".to_string(),
-        ))
-        .await?;
+        runner.out("LUKS passwordFile configured successfully").await;
         tracing::info!("passwordFile injection confirmed in disko config");
     } else {
-        tx.send(CommandMessage::Stderr(
-            "WARNING: passwordFile injection may have failed!".to_string(),
-        ))
-        .await?;
+        runner.err("WARNING: passwordFile injection may have failed!").await;
         tracing::error!("passwordFile NOT found in modified disko config");
     }
 
-    // Pre-fetch disko (optional optimization, log if it fails)
-    match run_command(tx, "nix", &["build", &format!("{}#disko", temp_config_str), "--no-link"]).await {
+    // Pre-fetch disko (optional optimization)
+    match runner.run("nix", &["build", &format!("{}#disko", temp_config_str), "--no-link"]).await {
         Ok(true) => tracing::info!("Disko pre-fetch succeeded"),
         Ok(false) => tracing::warn!("Disko pre-fetch failed - continuing anyway"),
         Err(e) => tracing::warn!("Disko pre-fetch error: {} - continuing anyway", e),
     }
 
-    // Run disko with passwordFile (reads password from file, no stdin needed)
-    // --yes-wipe-all-disks skips the "are you sure?" confirmation (already confirmed in wizard)
-    let success = run_command(
-        tx,
-        "nix",
-        &[
-            "run",
-            &format!("{}#disko", temp_config_str),
-            "--",
-            "--yes-wipe-all-disks",
-            "--mode",
-            "destroy,format,mount",
-            "--flake",
-            &format!("{}#{}", temp_config_str, hostname),
-        ],
-    )
-    .await?;
+    // Run disko
+    let success = runner
+        .run(
+            "nix",
+            &[
+                "run",
+                &format!("{}#disko", temp_config_str),
+                "--",
+                "--yes-wipe-all-disks",
+                "--mode",
+                "destroy,format,mount",
+                "--flake",
+                &format!("{}#{}", temp_config_str, hostname),
+            ],
+        )
+        .await?;
 
-    // Clean up password file immediately after disko (security)
+    // Clean up password file immediately (security)
     if let Err(e) = std::fs::remove_file(LUKS_PASSWORD_FILE) {
         tracing::warn!("Failed to remove LUKS password file: {}", e);
     }
 
     if !success {
-        tx.send(CommandMessage::StepFailed {
-            step: "disko".to_string(),
-            error: ParsedError::from_stderr(
-                "Disk partitioning failed",
-                ErrorContext {
-                    operation: "Disko partitioning".to_string(),
-                },
-            ),
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+        runner.step_failed("disko", "Disk partitioning failed", "Disko partitioning").await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
-    tx.send(CommandMessage::StepComplete {
-        step: "disko".to_string(),
-    })
-    .await?;
+    runner.step_complete("disko").await?;
+    Ok(true)
+}
 
-    // Step 6: Install NixOS
-    tx.send(CommandMessage::Stdout("Installing NixOS...".to_string()))
-        .await?;
+/// Step 6: Install NixOS
+async fn step_install_nixos(
+    runner: &CommandRunner<'_>,
+    temp_config: &std::path::Path,
+    hostname: &str,
+    username: &str,
+) -> Result<bool> {
+    let temp_config_str = temp_config.to_string_lossy();
+
+    runner.out("Installing NixOS...").await;
 
     let config_dir = get_config_dir(username);
     let symlink_target = get_symlink_target(username);
@@ -371,13 +338,84 @@ async fn run_install(
     let _ = std::fs::remove_dir_all(format!("{}/.git", config_dir));
 
     // Create symlink
+    setup_config_symlink(&symlink_target)?;
+
+    // Initialize git repo (optional, log failures)
+    init_git_repo(runner, &config_dir).await;
+
+    // Set ownership
+    set_config_ownership(runner, config_parent, &config_dir).await;
+
+    // Run nixos-install
+    let success = runner
+        .run(
+            "nixos-install",
+            &[
+                "--flake",
+                &format!("{}#{}", config_dir, hostname),
+                "--no-root-passwd",
+            ],
+        )
+        .await?;
+
+    if !success {
+        runner.step_failed("NixOS", "nixos-install failed", "NixOS installation").await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    runner.step_complete("NixOS").await?;
+    Ok(true)
+}
+
+/// Step 7: Set user password
+async fn step_set_user_password(
+    runner: &CommandRunner<'_>,
+    username: &str,
+    password: &str,
+) -> Result<bool> {
+    runner.out("Setting up user account...").await;
+
+    let escaped_password = password.replace('\'', "'\"'\"'");
+    let chpasswd_script = format!(
+        "echo '{}:{}' | nixos-enter --root /mnt -c 'chpasswd'",
+        username, escaped_password
+    );
+    let success = run_command_sensitive(runner.tx(), "sh", &["-c", &chpasswd_script]).await?;
+
+    if !success {
+        runner.out("Warning: Failed to set user password. You can set it after first boot with 'passwd'.").await;
+    }
+
+    runner.step_complete("user").await?;
+    Ok(true)
+}
+
+/// Show installation completion message
+async fn show_completion_message(runner: &CommandRunner<'_>, username: &str) -> Result<()> {
+    runner.out("\n").await;
+    runner.out("Installation complete!").await;
+    runner.out("").await;
+    runner.out("Next steps:").await;
+    runner.out("  1. Reboot: reboot").await;
+    runner.out("  2. Enter your LUKS passphrase at boot").await;
+    runner.out("  3. Select a shell from the boot menu").await;
+    runner.out(&format!("  4. Login as '{}' with your chosen password", username)).await;
+    Ok(())
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Set up the /mnt/etc/nixos symlink
+fn setup_config_symlink(symlink_target: &str) -> Result<()> {
     let symlink_parent = std::path::Path::new(INSTALL_SYMLINK_PATH)
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid symlink path: cannot determine parent of {}", INSTALL_SYMLINK_PATH))?;
     std::fs::create_dir_all(symlink_parent)
         .with_context(|| format!("Failed to create directory: {}", symlink_parent.display()))?;
-    // Remove existing path (could be file, symlink, or directory)
-    // Check is_symlink() FIRST since symlinks to dirs return true for is_dir()
+
     let symlink_path = std::path::Path::new(INSTALL_SYMLINK_PATH);
     if symlink_path.is_symlink() || symlink_path.is_file() {
         std::fs::remove_file(INSTALL_SYMLINK_PATH)
@@ -386,120 +424,109 @@ async fn run_install(
         std::fs::remove_dir_all(INSTALL_SYMLINK_PATH)
             .with_context(|| format!("Failed to remove existing directory at {}", INSTALL_SYMLINK_PATH))?;
     }
-    std::os::unix::fs::symlink(&symlink_target, INSTALL_SYMLINK_PATH)
+    std::os::unix::fs::symlink(symlink_target, INSTALL_SYMLINK_PATH)
         .with_context(|| format!("Failed to create symlink {} -> {}", INSTALL_SYMLINK_PATH, symlink_target))?;
 
-    // Initialize git repo (optional, log failures)
-    match run_command(
-        tx,
-        "nix-shell",
-        &[
-            "-p",
-            "git",
-            "--run",
-            &format!(
-                "cd {} && git init -b main && git remote add origin {} && git add -A && \
-                git -c user.name='NixOS Install' -c user.email='install@localhost' \
-                commit -m 'Initial configuration' && git fetch origin && \
-                git branch --set-upstream-to=origin/main main",
-                config_dir, REPO_URL
-            ),
-        ],
-    )
-    .await
+    Ok(())
+}
+
+/// Initialize git repository in the config directory
+async fn init_git_repo(runner: &CommandRunner<'_>, config_dir: &str) {
+    match runner
+        .run(
+            "nix-shell",
+            &[
+                "-p",
+                "git",
+                "--run",
+                &format!(
+                    "cd {} && git init -b main && git remote add origin {} && git add -A && \
+                    git -c user.name='NixOS Install' -c user.email='install@localhost' \
+                    commit -m 'Initial configuration' && git fetch origin && \
+                    git branch --set-upstream-to=origin/main main",
+                    config_dir, REPO_URL
+                ),
+            ],
+        )
+        .await
     {
         Ok(true) => tracing::info!("Git repository initialized successfully"),
         Ok(false) => tracing::warn!("Git repository initialization returned non-zero exit - continuing"),
         Err(e) => tracing::warn!("Git repository initialization error: {} - continuing", e),
     }
+}
 
-    // Set ownership using UID:GID since user doesn't exist yet on live ISO
+/// Set ownership of config directory
+async fn set_config_ownership(
+    runner: &CommandRunner<'_>,
+    config_parent: &std::path::Path,
+    config_dir: &str,
+) {
     let uid_gid = format!("{}:{}", PRIMARY_USER_UID, PRIMARY_USER_GID);
     let config_parent_str = config_parent.to_str().unwrap_or(".");
 
-    match run_command(tx, "chown", &[&uid_gid, config_parent_str]).await {
+    match runner.run("chown", &[&uid_gid, config_parent_str]).await {
         Ok(true) => tracing::info!("Set ownership on config parent directory"),
         Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config parent directory"),
     }
 
-    match run_command(tx, "chown", &["-R", &uid_gid, &config_dir]).await {
+    match runner.run("chown", &["-R", &uid_gid, config_dir]).await {
         Ok(true) => tracing::info!("Set ownership on config directory"),
         Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config directory"),
     }
+}
 
-    // Run nixos-install
-    let success = run_command(
-        tx,
-        "nixos-install",
-        &[
-            "--flake",
-            &format!("{}#{}", config_dir, hostname),
-            "--no-root-passwd",
-        ],
-    )
-    .await?;
+// =============================================================================
+// Main Installation Function
+// =============================================================================
 
-    if !success {
-        tx.send(CommandMessage::StepFailed {
-            step: "NixOS".to_string(),
-            error: ParsedError::from_stderr(
-                "nixos-install failed",
-                ErrorContext {
-                    operation: "NixOS installation".to_string(),
-                },
-            ),
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
+async fn run_install(
+    tx: &mpsc::Sender<CommandMessage>,
+    hostname: &str,
+    disk: &str,
+    username: &str,
+    password: &str,
+) -> Result<()> {
+    let runner = CommandRunner::new(tx);
+
+    // Step 1: Check network
+    if !step_check_network(&runner).await? {
         return Ok(());
     }
 
-    tx.send(CommandMessage::StepComplete {
-        step: "NixOS".to_string(),
-    })
-    .await?;
-
-    // Step 7: Set user password
-    tx.send(CommandMessage::Stdout("Setting up user account...".to_string()))
-        .await?;
-
-    // Use chpasswd to set the user password
-    // Use run_command_sensitive to avoid logging the password
-    let escaped_password = password.replace('\'', "'\"'\"'");
-    let chpasswd_script = format!(
-        "echo '{}:{}' | nixos-enter --root /mnt -c 'chpasswd'",
-        username, escaped_password
-    );
-    let success = run_command_sensitive(tx, "sh", &["-c", &chpasswd_script]).await?;
-
-    if !success {
-        tx.send(CommandMessage::Stdout(
-            "Warning: Failed to set user password. You can set it after first boot with 'passwd'.".to_string(),
-        ))
-        .await?;
+    // Step 2: Enable flakes
+    if !step_enable_flakes(&runner).await? {
+        return Ok(());
     }
 
-    tx.send(CommandMessage::StepComplete {
-        step: "user".to_string(),
-    })
-    .await?;
+    // Step 3: Prepare repository
+    let temp_config = match step_prepare_repository(&runner, hostname).await? {
+        Some(path) => path,
+        None => return Ok(()),
+    };
 
-    tx.send(CommandMessage::Stdout("\n".to_string())).await?;
-    tx.send(CommandMessage::Stdout("Installation complete!".to_string()))
-        .await?;
-    tx.send(CommandMessage::Stdout("".to_string())).await?;
-    tx.send(CommandMessage::Stdout("Next steps:".to_string()))
-        .await?;
-    tx.send(CommandMessage::Stdout("  1. Reboot: reboot".to_string()))
-        .await?;
-    tx.send(CommandMessage::Stdout("  2. Enter your LUKS passphrase at boot".to_string()))
-        .await?;
-    tx.send(CommandMessage::Stdout("  3. Select a shell from the boot menu".to_string()))
-        .await?;
-    tx.send(CommandMessage::Stdout(format!("  4. Login as '{}' with your chosen password", username)))
-        .await?;
+    // Step 4: Configure disk
+    if !step_configure_disk(&runner, &temp_config, hostname, disk, username).await? {
+        return Ok(());
+    }
 
-    tx.send(CommandMessage::Done { success: true }).await?;
+    // Step 5: Run disko
+    if !step_run_disko(&runner, &temp_config, hostname, password).await? {
+        return Ok(());
+    }
+
+    // Step 6: Install NixOS
+    if !step_install_nixos(&runner, &temp_config, hostname, username).await? {
+        return Ok(());
+    }
+
+    // Step 7: Set user password
+    step_set_user_password(&runner, username, password).await?;
+
+    // Show completion message
+    show_completion_message(&runner, username).await?;
+
+    runner.done(true).await?;
     Ok(())
 }
 

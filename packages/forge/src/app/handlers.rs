@@ -856,7 +856,10 @@ impl App {
                 disks,
                 selected,
             }) => {
-                let disk = disks.into_iter().nth(selected).unwrap();
+                // Validate bounds before accessing - return to disk selection if invalid
+                let Some(disk) = disks.into_iter().nth(selected) else {
+                    return Ok(());
+                };
                 AppMode::CreateHost(CreateHostState::EnterHostname {
                     cpu,
                     gpu,

@@ -6,6 +6,7 @@ pub mod errors;
 pub mod executor;
 pub mod install;
 pub mod keys;
+pub mod runner;
 pub mod update;
 
 pub use errors::ParsedError;

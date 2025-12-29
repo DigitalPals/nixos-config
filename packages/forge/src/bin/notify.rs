@@ -8,10 +8,11 @@
 //!   forge-notify --help       Show help
 
 use anyhow::Result;
-use forge::notify;
 use clap::Parser;
+use forge::notify;
+use forge::notify::constants::NOTIFICATION_TIMEOUT_MS;
+use forge::notify::paths::forge_data_dir;
 use notify_rust::{Notification, Urgency};
-use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Forge Background Update Checker
@@ -98,7 +99,7 @@ fn send_notification(status: &notify::UpdateStatus) -> Result<()> {
         .body(&format!("{}\n\nRun 'forge update' to apply.", summary))
         .icon("software-update-available")
         .urgency(Urgency::Normal)
-        .timeout(10000) // 10 seconds
+        .timeout(NOTIFICATION_TIMEOUT_MS)
         .show()?;
 
     Ok(())
@@ -124,16 +125,9 @@ fn setup_logging(verbose: bool) -> Result<()> {
         .init();
 
     // Keep the guard alive for the duration of the program
-    // Note: This is a bit of a hack, but the guard is automatically
-    // kept alive by being moved into a static location
+    // Note: The guard is leaked to prevent the logger from being dropped
+    // when the function returns. This is intentional for a long-running daemon.
     std::mem::forget(_guard);
 
     Ok(())
-}
-
-/// Get the forge data directory path
-fn forge_data_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".local/share/forge"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/forge"))
 }
