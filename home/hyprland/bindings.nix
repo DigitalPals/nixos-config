@@ -23,6 +23,12 @@ let
   standardLauncherBind = ''
     bind = $mainMod, SPACE, exec, ${launcherCmd}
   '';
+
+  # Illogical Impulse wallpaper selector (Quickshell global shortcut)
+  illogicalWallpaperBind = ''
+    # Wallpaper selector - Super + Ctrl + T
+    bindd = Ctrl+Super, T, Toggle wallpaper selector, global, quickshell:wallpaperSelectorToggle
+  '';
 in
 ''
   # Variables
@@ -33,6 +39,7 @@ in
   # Application launchers
   bind = $mainMod, Return, exec, $terminal
   ${if shell == "caelestia" then caelestiaLauncherBinds else standardLauncherBind}
+  ${if shell == "illogical" then illogicalWallpaperBind else ""}
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
