@@ -12,7 +12,7 @@ use std::path::PathBuf;
 const FORGE_DATA_SUBDIR: &str = ".local/share/forge";
 
 /// Forge log filename
-const FORGE_LOG_FILE: &str = "forge.log";
+pub const FORGE_LOG_FILE: &str = "forge.log";
 
 /// Notification state filename
 const NOTIFY_STATE_FILE: &str = "notify-state.json";

@@ -163,9 +163,11 @@ async fn parse_nvd_output(
                     }
                     let pkg_name = parts[0];
 
-                    // Old version is the last token before arrow (may have comma)
+                    // Old version is the first token after package name (may have comma)
+                    // nvd lists multiple outputs comma-separated: "1.0, 1.0-fish-completions"
+                    // We want just the first (main) version
                     let old_ver = if parts.len() > 1 {
-                        parts.last().unwrap_or(&"").trim_end_matches(',')
+                        parts[1].trim_end_matches(',')
                     } else {
                         continue; // No version info
                     };

@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::Parser;
 use forge::notify;
 use forge::notify::constants::NOTIFICATION_TIMEOUT_MS;
-use forge::notify::paths::forge_data_dir;
+use forge::notify::paths::{forge_data_dir, FORGE_LOG_FILE};
 use notify_rust::{Notification, Urgency};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -22,10 +22,6 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 #[command(version = "1.0.0")]
 #[command(about = "Background update checker for Forge")]
 struct Cli {
-    /// Run check once and exit (default behavior for systemd timer)
-    #[arg(long, default_value_t = true)]
-    once: bool,
-
     /// Show verbose output
     #[arg(short, long)]
     verbose: bool,
@@ -110,7 +106,7 @@ fn setup_logging(verbose: bool) -> Result<()> {
     let log_dir = forge_data_dir();
     std::fs::create_dir_all(&log_dir)?;
 
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "forge.log");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, FORGE_LOG_FILE);
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let level = if verbose {

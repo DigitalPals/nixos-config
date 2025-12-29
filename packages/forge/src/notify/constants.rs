@@ -52,9 +52,6 @@ pub const PRIORITY_INPUTS: &[&str] = &["nixpkgs"];
 // Default Branch Names
 // =============================================================================
 
-/// Default branch names to try when checking for updates
-pub const DEFAULT_BRANCHES: &[&str] = &["main", "master"];
-
 /// Get the default branch for well-known repositories
 pub fn default_branch_for_repo(owner: &str, repo: &str) -> &'static str {
     match (owner, repo) {

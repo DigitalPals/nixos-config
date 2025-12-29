@@ -1,11 +1,13 @@
 //! App profile management commands (browsers, Termius, etc.)
 
 use anyhow::Result;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::executor::run_capture;
 use super::runner::{spawn_with_error_handling, CommandRunner};
 use super::CommandMessage;
+use forge::notify::checks;
 
 /// Start app backup
 pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
@@ -63,13 +65,16 @@ pub async fn start_status(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     Ok(())
 }
 
+/// Timeout for startup update checks (shorter than background checks)
+const STARTUP_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Start parallel background checks for all update types (non-blocking, silent on failure)
 pub async fn start_quick_update_check(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     tokio::spawn(async move {
-        // Run both checks in parallel
+        // Run both checks in parallel with a short timeout for startup
         let (nixos_result, apps_result) = tokio::join!(
-            check_nixos_config_updates(),
-            check_app_updates_available(),
+            checks::check_nixos_config_updates(Some(STARTUP_CHECK_TIMEOUT)),
+            checks::check_app_updates(Some(STARTUP_CHECK_TIMEOUT)),
         );
 
         let commits = nixos_result.unwrap_or_default();
@@ -86,151 +91,6 @@ pub async fn start_quick_update_check(tx: mpsc::Sender<CommandMessage>) -> Resul
             .await;
     });
     Ok(())
-}
-
-/// Check for nixos-config updates and return pending commits (hash, message)
-async fn check_nixos_config_updates() -> Result<Vec<(String, String)>> {
-    let config_dir = crate::constants::nixos_config_dir();
-
-    // If no git repo, no updates to check
-    if !config_dir.join(".git").exists() {
-        return Ok(vec![]);
-    }
-
-    // Fetch from remote (with timeout for startup check)
-    let fetch_result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        run_capture(
-            "git",
-            &["-C", config_dir.to_str().unwrap_or("."), "fetch", "origin"],
-        ),
-    )
-    .await;
-
-    match fetch_result {
-        Ok(Ok((true, _, _))) => {}
-        _ => return Ok(vec![]), // Timeout or fetch failed - fail silently
-    }
-
-    // Get list of commits on origin/main not in HEAD
-    let (ok, log_output, _) = run_capture(
-        "git",
-        &[
-            "-C",
-            config_dir.to_str().unwrap_or("."),
-            "log",
-            "HEAD..origin/main",
-            "--pretty=format:%h|%s",
-        ],
-    )
-    .await?;
-
-    if !ok || log_output.trim().is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Parse output into (hash, message) pairs
-    let commits: Vec<(String, String)> = log_output
-        .lines()
-        .map(|line| {
-            let parts: Vec<&str> = line.splitn(2, '|').collect();
-            (
-                parts.first().unwrap_or(&"").to_string(),
-                parts.get(1).unwrap_or(&"").to_string(),
-            )
-        })
-        .collect();
-
-    Ok(commits)
-}
-
-/// Check if remote has newer app profiles (quick, non-blocking)
-async fn check_app_updates_available() -> Result<bool> {
-    let local_repo = crate::constants::app_backup_data_dir();
-
-    if local_repo.as_os_str().is_empty() {
-        return Ok(false);
-    }
-
-    // If no local repo, no updates available (user needs to run restore first)
-    if !local_repo.join(".git").exists() {
-        return Ok(false);
-    }
-
-    // Check if remote is configured
-    let (remote_ok, _, _) = run_capture(
-        "git",
-        &[
-            "-C",
-            local_repo.to_str().unwrap_or("."),
-            "remote",
-            "get-url",
-            "origin",
-        ],
-    )
-    .await?;
-
-    if !remote_ok {
-        return Ok(false);
-    }
-
-    // Fetch from remote (with short timeout for startup check)
-    let fetch_result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        run_capture(
-            "git",
-            &["-C", local_repo.to_str().unwrap_or("."), "fetch", "origin"],
-        ),
-    )
-    .await;
-
-    let (fetch_ok, _, _) = match fetch_result {
-        Ok(Ok(result)) => result,
-        _ => return Ok(false), // Timeout or error - fail silently
-    };
-
-    if !fetch_ok {
-        return Ok(false);
-    }
-
-    // Count commits on origin that aren't in local HEAD
-    // Try origin/main first, then origin/master
-    let (ok, count_str, _) = run_capture(
-        "git",
-        &[
-            "-C",
-            local_repo.to_str().unwrap_or("."),
-            "rev-list",
-            "HEAD..origin/main",
-            "--count",
-        ],
-    )
-    .await?;
-
-    let count: usize = if ok {
-        count_str.trim().parse().unwrap_or(0)
-    } else {
-        // Try origin/master as fallback
-        let (master_ok, master_count, _) = run_capture(
-            "git",
-            &[
-                "-C",
-                local_repo.to_str().unwrap_or("."),
-                "rev-list",
-                "HEAD..origin/master",
-                "--count",
-            ],
-        )
-        .await?;
-
-        if !master_ok {
-            return Ok(false);
-        }
-        master_count.trim().parse().unwrap_or(0)
-    };
-
-    // Updates available if there are commits on origin we don't have
-    Ok(count > 0)
 }
 
 async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
