@@ -9,20 +9,26 @@ let
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
-  bindingsConfig = import ./bindings.nix { inherit shell; };
-  autostartConfig = import ./autostart.nix { inherit shell; };
+  # Generate bindings for all shells (each specialisation sources its own)
+  bindingsNoctalia = import ./bindings.nix { shell = "noctalia"; };
+  bindingsIllogical = import ./bindings.nix { shell = "illogical"; };
+  bindingsCaelestia = import ./bindings.nix { shell = "caelestia"; };
+  # Generate autostart for all shells (each specialisation sources its own)
+  autostartNoctalia = import ./autostart.nix { shell = "noctalia"; };
+  autostartIllogical = import ./autostart.nix { shell = "illogical"; };
+  autostartCaelestia = import ./autostart.nix { shell = "caelestia"; };
 
   # Shell-specific Hyprland configuration
   # CLEAN APPROACH: Use our ENTIRE Hyprland config for both shells
-  # Only difference is autostart (which shell to launch)
+  # Only difference is autostart (which shell to launch) and bindings (shell-specific launchers)
   # Illogical's Hyprland configs are incompatible with Hyprland 0.52+
   hyprlandExtraConfig = ''
     # Modular Hyprland configuration
     source = ~/.config/hypr/monitors.conf
     source = ~/.config/hypr/input.conf
-    source = ~/.config/hypr/bindings.conf
+    source = ~/.config/hypr/bindings-${shell}.conf
     source = ~/.config/hypr/looknfeel.conf
-    source = ~/.config/hypr/autostart.conf
+    source = ~/.config/hypr/autostart-${shell}.conf
   '' + lib.optionalString (shell == "noctalia") ''
     source = ~/.config/hypr/noctalia/noctalia-colors.conf
   '';
@@ -39,10 +45,14 @@ in {
   };
 
   # Modular config files in ~/.config/hypr/
-  # Same configs for both shells - only autostart differs
+  # Generate all shell-specific configs (each specialisation sources its own)
   xdg.configFile."hypr/monitors.conf".text = monitorsConfig;
   xdg.configFile."hypr/input.conf".text = inputConfig;
-  xdg.configFile."hypr/bindings.conf".text = bindingsConfig;
+  xdg.configFile."hypr/bindings-noctalia.conf".text = bindingsNoctalia;
+  xdg.configFile."hypr/bindings-illogical.conf".text = bindingsIllogical;
+  xdg.configFile."hypr/bindings-caelestia.conf".text = bindingsCaelestia;
   xdg.configFile."hypr/looknfeel.conf".text = looknfeelConfig;
-  xdg.configFile."hypr/autostart.conf".text = autostartConfig;
+  xdg.configFile."hypr/autostart-noctalia.conf".text = autostartNoctalia;
+  xdg.configFile."hypr/autostart-illogical.conf".text = autostartIllogical;
+  xdg.configFile."hypr/autostart-caelestia.conf".text = autostartCaelestia;
 }
