@@ -278,7 +278,7 @@ impl App {
                     self.mode = AppMode::Install(InstallState::Complete {
                         success: false,
                         output,
-                        scroll_offset: 0,
+                        scroll_offset: None,
                     });
                 } else {
                     self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
@@ -304,6 +304,13 @@ impl App {
 
     /// Handle scroll keys for complete screens
     fn handle_scroll(&mut self, key: KeyCode) {
+        // Calculate visible height from terminal size
+        // Layout: header(3) + steps(10) + output(rest) + footer(2), output has borders(2)
+        let visible_height = crossterm::terminal::size()
+            .map(|(_, h)| (h as usize).saturating_sub(17)) // 3+10+2+2 = 17 lines of chrome
+            .unwrap_or(20)
+            .max(5); // Minimum 5 lines visible
+
         match &mut self.mode {
             AppMode::Install(InstallState::Complete {
                 output,
@@ -324,16 +331,28 @@ impl App {
                 output,
                 scroll_offset,
                 ..
-            }) => match key {
-                KeyCode::Up => {
-                    *scroll_offset = scroll_offset.saturating_sub(1);
-                }
-                KeyCode::Down => {
-                    if *scroll_offset < output.len().saturating_sub(1) {
-                        *scroll_offset += 1;
+            }) => {
+                // Calculate max scroll position (can't scroll past where last line is visible)
+                let max_scroll = output.len().saturating_sub(visible_height);
+
+                // If in auto-scroll mode (None), calculate what the start position would be
+                let current = scroll_offset.unwrap_or(max_scroll);
+
+                match key {
+                    KeyCode::Up => {
+                        *scroll_offset = Some(current.saturating_sub(1));
                     }
+                    KeyCode::Down => {
+                        // Don't scroll past the point where last line is at bottom
+                        if current < max_scroll {
+                            *scroll_offset = Some(current + 1);
+                        } else {
+                            // Already at bottom, stay in auto-scroll or at max
+                            *scroll_offset = Some(max_scroll);
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             },
             _ => {}
         }

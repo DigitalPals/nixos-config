@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use tokio::sync::mpsc;
 
+use super::errors::{ErrorContext, ParsedError};
 use super::executor::run_command;
 use super::CommandMessage;
 use crate::app::{AppMode, CreateHostState, NewHostConfig};
@@ -22,7 +23,12 @@ pub async fn start_create_host(tx: mpsc::Sender<CommandMessage>, mode: AppMode) 
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "host".to_string(),
-                    error: "Invalid state for create_host".to_string(),
+                    error: ParsedError::from_stderr(
+                        "Invalid state for create_host",
+                        ErrorContext {
+                            operation: "Create host".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;
@@ -36,7 +42,12 @@ pub async fn start_create_host(tx: mpsc::Sender<CommandMessage>, mode: AppMode) 
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "configuration".to_string(),
-                    error: e.to_string(),
+                    error: ParsedError::from_stderr(
+                        &e.to_string(),
+                        ErrorContext {
+                            operation: "Create host".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;

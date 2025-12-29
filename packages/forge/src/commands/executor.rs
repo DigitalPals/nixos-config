@@ -16,7 +16,21 @@ pub async fn run_command(
     cmd: &str,
     args: &[&str],
 ) -> Result<bool> {
-    run_command_with_timeout(tx, cmd, args, None).await
+    run_command_filtered(tx, cmd, args, |_| true).await
+}
+
+/// Execute a command and stream output, filtering lines with a predicate
+/// Lines where the filter returns false will be skipped
+pub async fn run_command_filtered<F>(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+    filter: F,
+) -> Result<bool>
+where
+    F: Fn(&str) -> bool + Send + Sync + 'static,
+{
+    run_command_filtered_with_timeout(tx, cmd, args, None, filter).await
 }
 
 /// Execute a command with explicit timeout
@@ -26,6 +40,123 @@ pub async fn run_command_with_timeout(
     args: &[&str],
     timeout_secs: Option<u64>,
 ) -> Result<bool> {
+    run_command_filtered_with_timeout(tx, cmd, args, timeout_secs, |_| true).await
+}
+
+/// Execute a command and transform/filter output lines
+/// The transform function returns Option<String>:
+/// - None: skip the line
+/// - Some(line): output the (possibly modified) line
+pub async fn run_command_transformed<F>(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+    transform: F,
+) -> Result<bool>
+where
+    F: Fn(&str) -> Option<String> + Send + Sync + 'static,
+{
+    run_command_transformed_with_timeout(tx, cmd, args, None, transform).await
+}
+
+/// Execute a command with transform and timeout
+pub async fn run_command_transformed_with_timeout<F>(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+    timeout_secs: Option<u64>,
+    transform: F,
+) -> Result<bool>
+where
+    F: Fn(&str) -> Option<String> + Send + Sync + 'static,
+{
+    use std::sync::Arc;
+    let transform = Arc::new(transform);
+
+    tracing::info!("Running command: {} {:?}", cmd, args);
+
+    let mut child = Command::new(cmd)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("Failed to spawn command: {}", cmd))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout for command: {}", cmd))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture stderr for command: {}", cmd))?;
+
+    let tx_out = tx.clone();
+    let transform_out = Arc::clone(&transform);
+    let stdout_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            // Apply transform - skip if None, output transformed line if Some
+            if let Some(transformed) = transform_out(&line) {
+                if let Err(e) = tx_out.send(CommandMessage::Stdout(transformed)).await {
+                    tracing::warn!("Failed to send stdout to channel: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    let tx_err = tx.clone();
+    let transform_err = Arc::clone(&transform);
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            // Apply transform - skip if None, output transformed line if Some
+            if let Some(transformed) = transform_err(&line) {
+                if let Err(e) = tx_err.send(CommandMessage::Stderr(transformed)).await {
+                    tracing::warn!("Failed to send stderr to channel: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS));
+    let status = tokio::time::timeout(timeout, child.wait())
+        .await
+        .with_context(|| format!("Command timed out after {}s: {}", timeout.as_secs(), cmd))?
+        .with_context(|| format!("Failed to wait for command: {}", cmd))?;
+
+    match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("stdout reader task panicked: {}", e),
+        Err(_) => tracing::warn!("stdout reader task timed out for command: {}", cmd),
+    }
+    match tokio::time::timeout(Duration::from_secs(5), stderr_task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("stderr reader task panicked: {}", e),
+        Err(_) => tracing::warn!("stderr reader task timed out for command: {}", cmd),
+    }
+
+    let success = status.success();
+    tracing::info!("Command completed with success={}", success);
+    Ok(success)
+}
+
+/// Execute a command with explicit timeout and output filtering
+pub async fn run_command_filtered_with_timeout<F>(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+    timeout_secs: Option<u64>,
+    filter: F,
+) -> Result<bool>
+where
+    F: Fn(&str) -> bool + Send + Sync + 'static,
+{
+    use std::sync::Arc;
+    let filter = Arc::new(filter);
+
     tracing::info!("Running command: {} {:?}", cmd, args);
 
     let mut child = Command::new(cmd)
@@ -46,9 +177,14 @@ pub async fn run_command_with_timeout(
         .ok_or_else(|| anyhow::anyhow!("Failed to capture stderr for command: {}", cmd))?;
 
     let tx_out = tx.clone();
+    let filter_out = Arc::clone(&filter);
     let stdout_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            // Apply filter - skip lines that don't pass
+            if !filter_out(&line) {
+                continue;
+            }
             // Log channel send failures but don't propagate - channel may be closed
             if let Err(e) = tx_out.send(CommandMessage::Stdout(line)).await {
                 tracing::warn!("Failed to send stdout to channel: {}", e);
@@ -58,9 +194,14 @@ pub async fn run_command_with_timeout(
     });
 
     let tx_err = tx.clone();
+    let filter_err = Arc::clone(&filter);
     let stderr_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            // Apply filter - skip lines that don't pass
+            if !filter_err(&line) {
+                continue;
+            }
             if let Err(e) = tx_err.send(CommandMessage::Stderr(line)).await {
                 tracing::warn!("Failed to send stderr to channel: {}", e);
                 break;

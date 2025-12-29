@@ -3,6 +3,7 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
+use super::errors::{ErrorContext, ParsedError};
 use super::executor::run_command;
 use super::CommandMessage;
 
@@ -14,7 +15,12 @@ pub async fn start_setup(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "Setup".to_string(),
-                    error: e.to_string(),
+                    error: ParsedError::from_stderr(
+                        &e.to_string(),
+                        ErrorContext {
+                            operation: "Key setup".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;
@@ -31,7 +37,12 @@ pub async fn start_backup(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "Backup".to_string(),
-                    error: e.to_string(),
+                    error: ParsedError::from_stderr(
+                        &e.to_string(),
+                        ErrorContext {
+                            operation: "Key backup".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;
@@ -48,7 +59,12 @@ pub async fn start_restore(tx: mpsc::Sender<CommandMessage>, force: bool) -> Res
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "Restore".to_string(),
-                    error: e.to_string(),
+                    error: ParsedError::from_stderr(
+                        &e.to_string(),
+                        ErrorContext {
+                            operation: "Key restore".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;

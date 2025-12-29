@@ -89,7 +89,8 @@ pub enum InstallState {
     Complete {
         success: bool,
         output: VecDeque<String>,
-        scroll_offset: usize,
+        /// None = auto-scroll, Some(n) = manual scroll at position n
+        scroll_offset: Option<usize>,
     },
 }
 
@@ -247,7 +248,8 @@ pub enum UpdateState {
         success: bool,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
-        scroll_offset: usize,
+        /// None = auto-scroll, Some(n) = manual scroll at position n
+        scroll_offset: Option<usize>,
     },
 }
 
@@ -284,7 +286,8 @@ pub enum AppProfileState {
     Complete {
         success: bool,
         output: VecDeque<String>,
-        scroll_offset: usize,
+        /// None = auto-scroll, Some(n) = manual scroll at position n
+        scroll_offset: Option<usize>,
     },
 }
 
@@ -333,7 +336,8 @@ pub enum KeysState {
     Complete {
         success: bool,
         output: VecDeque<String>,
-        scroll_offset: usize,
+        /// None = auto-scroll, Some(n) = manual scroll at position n
+        scroll_offset: Option<usize>,
     },
 }
 

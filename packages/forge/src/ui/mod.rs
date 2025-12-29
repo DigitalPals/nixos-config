@@ -79,7 +79,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 success: _,
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_running(frame, steps, &output_vec, true, Some(*scroll_offset), app);
+                screens::update::draw_running(frame, steps, &output_vec, true, *scroll_offset, app);
             }
         },
         AppMode::Apps(state) => match state {

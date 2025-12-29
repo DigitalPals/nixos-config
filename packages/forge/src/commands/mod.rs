@@ -2,10 +2,13 @@
 
 pub mod apps;
 pub mod create_host;
+pub mod errors;
 pub mod executor;
 pub mod install;
 pub mod keys;
 pub mod update;
+
+pub use errors::ParsedError;
 
 /// Standard step names for consistent messaging
 #[allow(dead_code)]
@@ -48,8 +51,8 @@ pub enum CommandMessage {
     Stderr(String),
     /// Step completed successfully
     StepComplete { step: String },
-    /// Step failed with error
-    StepFailed { step: String, error: String },
+    /// Step failed with rich error information
+    StepFailed { step: String, error: ParsedError },
     /// Step was skipped
     StepSkipped { step: String },
     /// Command fully completed

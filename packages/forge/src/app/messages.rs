@@ -9,6 +9,7 @@ use super::state::{
     StepStatus, UpdateState,
 };
 use super::App;
+use crate::commands::errors::ParsedError;
 use crate::commands::CommandMessage;
 use crate::constants::OUTPUT_BUFFER_SIZE;
 
@@ -32,7 +33,7 @@ impl App {
                 self.mark_step_complete(&step);
             }
             CommandMessage::StepFailed { step, error } => {
-                self.mark_step_failed(&step, &error);
+                self.mark_step_failed(&step, error);
             }
             CommandMessage::StepSkipped { step } => {
                 self.mark_step_skipped(&step);
@@ -158,27 +159,37 @@ impl App {
         }
     }
 
-    fn mark_step_failed(&mut self, step_name: &str, error: &str) {
-        self.log_to_screen(&format!("[✗] Step failed: {} - {}", step_name, error));
+    fn mark_step_failed(&mut self, step_name: &str, error: ParsedError) {
+        // Log formatted error to screen
+        self.log_to_screen(&format!("[✗] Step failed: {}", step_name));
+        self.log_to_screen("");
+        self.log_to_screen(&format!("  Error: {}", error.summary));
+        if let Some(ref detail) = error.detail {
+            for line in detail.lines() {
+                self.log_to_screen(&format!("  {}", line));
+            }
+        }
+        self.log_to_screen("");
+        self.log_to_screen(&format!("  Suggestion: {}", error.suggestion));
 
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { steps, .. }) => {
                 if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
                     s.status = StepState::Failed;
                 }
-                self.error = Some(error.to_string());
+                self.error = Some(error.summary);
             }
             AppMode::Install(InstallState::Running { steps, .. }) => {
                 if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
                     s.status = StepState::Failed;
                 }
-                self.error = Some(error.to_string());
+                self.error = Some(error.summary);
             }
             AppMode::CreateHost(CreateHostState::Generating { steps, .. }) => {
                 if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
                     s.status = StepState::Failed;
                 }
-                self.error = Some(error.to_string());
+                self.error = Some(error.summary);
             }
             _ => {}
         }
@@ -212,21 +223,21 @@ impl App {
                 self.mode = AppMode::Apps(AppProfileState::Complete {
                     success,
                     output: output.clone(),
-                    scroll_offset: 0,
+                    scroll_offset: None, // None = auto-scroll continues
                 });
             }
             AppMode::Keys(KeysState::Running { output, .. }) => {
                 self.mode = AppMode::Keys(KeysState::Complete {
                     success,
                     output: output.clone(),
-                    scroll_offset: 0,
+                    scroll_offset: None, // None = auto-scroll continues
                 });
             }
             AppMode::Install(InstallState::Running { output, .. }) => {
                 self.mode = AppMode::Install(InstallState::Complete {
                     success,
                     output: output.clone(),
-                    scroll_offset: 0,
+                    scroll_offset: None, // None = auto-scroll continues
                 });
             }
             AppMode::Update(UpdateState::Running { steps, output, .. }) => {
@@ -234,7 +245,7 @@ impl App {
                     success,
                     steps: steps.clone(),
                     output: output.clone(),
-                    scroll_offset: 0,
+                    scroll_offset: None, // None = auto-scroll continues
                 });
             }
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {

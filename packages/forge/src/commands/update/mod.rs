@@ -12,15 +12,108 @@ mod packages;
 mod tools;
 
 use anyhow::Result;
+use regex::Regex;
+use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
 use crate::app::UpdateSummary;
-use crate::commands::executor::{command_exists, get_output, run_capture};
+use crate::commands::errors::{ErrorContext, ParsedError};
+use crate::commands::executor::{command_exists, get_output, run_capture, run_command, run_command_transformed};
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
 use packages::{parse_package_changes_from_history, PackageCompareResult};
 use tools::{check_browser_status, clean_version, get_npm_package_version};
+
+/// Regex to extract "message" from JSON error responses
+static JSON_MESSAGE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""message"\s*:\s*"([^"]+)""#).unwrap());
+
+/// Transform nix command output to remove noise and extract useful info from errors
+/// Returns None to skip the line, Some(line) to include it (possibly transformed)
+fn transform_nix_output(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+
+    // Keep intentional empty lines
+    if trimmed.is_empty() {
+        return Some(line.to_string());
+    }
+
+    // Skip "is dirty" warnings
+    if line.contains("is dirty") {
+        return None;
+    }
+
+    // Skip HTML content (error pages from GitHub)
+    if trimmed.starts_with("<!DOCTYPE")
+        || trimmed.starts_with("<html")
+        || trimmed.starts_with("<head")
+        || trimmed.starts_with("<body")
+        || trimmed.starts_with("<style")
+        || trimmed.starts_with("<div")
+        || trimmed.starts_with("<title")
+        || trimmed.starts_with("<meta")
+        || trimmed.starts_with("<link")
+        || trimmed.starts_with("<p>")
+        || trimmed.starts_with("<ul")
+        || trimmed.starts_with("<li")
+        || trimmed.starts_with("<a ")
+        || trimmed.starts_with("<img")
+        || trimmed.starts_with("</")
+        || trimmed.starts_with("<!--")
+        || trimmed.starts_with("-->")
+        || trimmed == "{"
+        || trimmed == "}"
+        || trimmed == "("
+        || trimmed == ")"
+    {
+        return None;
+    }
+
+    // Skip CSS content
+    if trimmed.contains("background-color:")
+        || trimmed.contains("font-family:")
+        || trimmed.contains("text-align:")
+        || trimmed.contains("margin:")
+        || trimmed.contains("padding:")
+        || (trimmed.starts_with(".") && trimmed.contains("{"))
+        || (trimmed.starts_with("@media") && trimmed.contains("{"))
+    {
+        return None;
+    }
+
+    // Skip base64 data (long strings without spaces, typically image data)
+    if trimmed.len() > 100 && !trimmed.contains(' ') && !trimmed.contains(':') {
+        return None;
+    }
+
+    // Skip lines that are just closing HTML tags or whitespace with special chars
+    if trimmed.starts_with("*/") || trimmed.ends_with("*/") {
+        return None;
+    }
+
+    // Extract message from JSON error responses
+    // e.g., {"message":"API rate limit exceeded..."} -> "  API: API rate limit exceeded..."
+    if trimmed.starts_with("{\"") && trimmed.contains("\"message\"") {
+        if let Some(caps) = JSON_MESSAGE_RE.captures(trimmed) {
+            if let Some(msg) = caps.get(1) {
+                // Truncate long messages and clean them up
+                let message = msg.as_str();
+                let clean_msg = if message.len() > 80 {
+                    format!("{}...", &message[..77])
+                } else {
+                    message.to_string()
+                };
+                return Some(format!("       → {}", clean_msg));
+            }
+        }
+        // Skip JSON lines we can't parse nicely
+        return None;
+    }
+
+    // Keep the line as-is
+    Some(line.to_string())
+}
 
 /// Start the update process
 pub async fn start_update(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
@@ -30,7 +123,12 @@ pub async fn start_update(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "Update".to_string(),
-                    error: e.to_string(),
+                    error: ParsedError::from_stderr(
+                        &e.to_string(),
+                        ErrorContext {
+                            operation: "Update".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;
@@ -74,21 +172,34 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     let lock_before = get_flake_lock_hash(&flake_dir).await;
     save_flake_lock_backup(&flake_dir).await;
 
-    // Step 2: Flake update
-    let (success, _stdout, _stderr) =
-        run_capture("nix", &["flake", "update", "--flake", flake_path]).await?;
+    // Step 2: Flake update (with streaming output)
+    out(tx, "").await;
+    out(tx, "══════════════════════════════════════════════").await;
+    out(tx, "  Updating Flake Inputs").await;
+    out(tx, "══════════════════════════════════════════════").await;
+    out(tx, "").await;
 
+    // Transform output: filter noise and extract useful info from errors
+    let success = run_command_transformed(tx, "nix", &["flake", "update", "--flake", flake_path], transform_nix_output).await?;
+
+    out(tx, "").await;
     if !success {
-        out(tx, "  ✗ Updating flake inputs").await;
+        out(tx, "  ✗ Flake update failed").await;
+        let error = ParsedError::from_stderr(
+            "Flake update failed - see output above for details",
+            ErrorContext {
+                operation: "Flake update".to_string(),
+            },
+        );
         tx.send(CommandMessage::StepFailed {
             step: "flake".to_string(),
-            error: "Flake update failed".to_string(),
+            error,
         })
         .await?;
         tx.send(CommandMessage::Done { success: false }).await?;
         return Ok(());
     }
-    out(tx, "  ✓ Updating flake inputs").await;
+    out(tx, "  ✓ Flake inputs updated").await;
     tx.send(CommandMessage::StepComplete {
         step: "flake".to_string(),
     })
@@ -102,29 +213,43 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         summary.flake_changes = parse_flake_changes(&flake_dir).await.unwrap_or_default();
     }
 
-    // Step 2: Rebuild (only if needed)
+    // Step 3: Rebuild (only if needed)
     if needs_rebuild {
+        out(tx, "").await;
+        out(tx, "══════════════════════════════════════════════").await;
+        out(tx, "  Rebuilding System").await;
+        out(tx, "══════════════════════════════════════════════").await;
+        out(tx, "").await;
+
         let config_name = hostname.clone();
         let flake_ref = format!("{}#{}", flake_path, config_name);
-        let (success, _stdout, _stderr) =
-            run_capture("sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref]).await?;
+        let success =
+            run_command(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref]).await?;
 
+        out(tx, "").await;
         if success {
-            out(tx, "  ✓ Rebuilding system").await;
+            out(tx, "  ✓ System rebuilt successfully").await;
             tx.send(CommandMessage::StepComplete {
                 step: "Rebuild".to_string(),
             })
             .await?;
         } else {
-            out(tx, "  ✗ Rebuilding system").await;
+            out(tx, "  ✗ System rebuild failed").await;
             summary.rebuild_failed = true;
+            let error = ParsedError::from_stderr(
+                "System rebuild failed - see output above for details",
+                ErrorContext {
+                    operation: "System rebuild".to_string(),
+                },
+            );
             tx.send(CommandMessage::StepFailed {
                 step: "Rebuild".to_string(),
-                error: "Rebuild failed".to_string(),
+                error,
             })
             .await?;
         }
     } else {
+        out(tx, "").await;
         out(tx, "  - Skipping rebuild (no changes)").await;
         summary.rebuild_skipped = true;
         tx.send(CommandMessage::StepSkipped {
@@ -286,9 +411,9 @@ async fn check_app_profiles(
 
 async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSummary) -> Result<()> {
     out(tx, "").await;
-    out(tx, "==============================================").await;
-    out(tx, "  Update Summary").await;
-    out(tx, "==============================================").await;
+    out(tx, "╔══════════════════════════════════════════════╗").await;
+    out(tx, "║            Update Summary                    ║").await;
+    out(tx, "╚══════════════════════════════════════════════╝").await;
 
     // Flake changes with commit messages
     if !summary.flake_changes.is_empty() {
@@ -436,7 +561,7 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     }
 
     out(tx, "").await;
-    out(tx, "==============================================").await;
+    out(tx, "══════════════════════════════════════════════").await;
 
     Ok(())
 }
@@ -517,12 +642,15 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
         .await?;
     } else {
         out(tx, "  ✗ Failed to pull configuration updates").await;
-        if !stderr.is_empty() {
-            out(tx, &format!("    {}", stderr.trim())).await;
-        }
+        let error = ParsedError::from_stderr(
+            &stderr,
+            ErrorContext {
+                operation: "Git pull".to_string(),
+            },
+        );
         tx.send(CommandMessage::StepFailed {
             step: "pull".to_string(),
-            error: "Git pull failed".to_string(),
+            error,
         })
         .await?;
     }

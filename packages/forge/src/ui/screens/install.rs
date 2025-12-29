@@ -533,7 +533,7 @@ pub fn draw_complete(
     frame: &mut Frame,
     success: bool,
     output: &[String],
-    scroll_offset: usize,
+    scroll_offset: Option<usize>,
     _app: &App,
 ) {
     let area = frame.area();
@@ -562,9 +562,10 @@ pub fn draw_complete(
     frame.render_widget(header, chunks[0]);
 
     // Output log
-    let log = LogView::new(output)
-        .title(" Output ")
-        .scroll_offset(scroll_offset);
+    let mut log = LogView::new(output).title(" Output ");
+    if let Some(offset) = scroll_offset {
+        log = log.scroll_offset(offset);
+    }
     frame.render_widget(log, chunks[1]);
 
     // Footer

@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
+use super::errors::{ErrorContext, ParsedError};
 use super::executor::{run_capture, run_command, run_command_sensitive};
 use super::CommandMessage;
 use crate::constants::{
@@ -62,7 +63,12 @@ pub async fn start_install(
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "Install".to_string(),
-                    error: e.to_string(),
+                    error: ParsedError::from_stderr(
+                        &e.to_string(),
+                        ErrorContext {
+                            operation: "Installation".to_string(),
+                        },
+                    ),
                 })
                 .await;
             let _ = tx.send(CommandMessage::Done { success: false }).await;
@@ -86,7 +92,12 @@ async fn run_install(
     if !success {
         tx.send(CommandMessage::StepFailed {
             step: "network".to_string(),
-            error: "No network connection. Please connect to WiFi using nmtui.".to_string(),
+            error: ParsedError::from_stderr(
+                "No network connection",
+                ErrorContext {
+                    operation: "Network check".to_string(),
+                },
+            ),
         })
         .await?;
         tx.send(CommandMessage::Done { success: false }).await?;
@@ -146,7 +157,12 @@ async fn run_install(
         if !success {
             tx.send(CommandMessage::StepFailed {
                 step: "repository".to_string(),
-                error: "Failed to clone repository".to_string(),
+                error: ParsedError::from_stderr(
+                    "Failed to clone repository",
+                    ErrorContext {
+                        operation: "Clone repository".to_string(),
+                    },
+                ),
             })
             .await?;
             tx.send(CommandMessage::Done { success: false }).await?;
@@ -170,7 +186,12 @@ async fn run_install(
     if !disk.starts_with("/dev/") {
         tx.send(CommandMessage::StepFailed {
             step: "disk".to_string(),
-            error: format!("Invalid disk path: {}. Must start with /dev/", disk),
+            error: ParsedError::from_stderr(
+                &format!("Invalid disk path: {}. Must start with /dev/", disk),
+                ErrorContext {
+                    operation: "Disk validation".to_string(),
+                },
+            ),
         })
         .await?;
         tx.send(CommandMessage::Done { success: false }).await?;
@@ -181,7 +202,12 @@ async fn run_install(
     if !std::path::Path::new(disk).exists() {
         tx.send(CommandMessage::StepFailed {
             step: "disk".to_string(),
-            error: format!("Disk device does not exist: {}", disk),
+            error: ParsedError::from_stderr(
+                &format!("Disk device does not exist: {}", disk),
+                ErrorContext {
+                    operation: "Disk validation".to_string(),
+                },
+            ),
         })
         .await?;
         tx.send(CommandMessage::Done { success: false }).await?;
@@ -193,9 +219,14 @@ async fn run_install(
     if !std::path::Path::new(&disko_file).exists() {
         tx.send(CommandMessage::StepFailed {
             step: "disk".to_string(),
-            error: format!(
-                "No disko configuration found for host '{}'. Expected: modules/disko/{}.nix",
-                hostname, hostname
+            error: ParsedError::from_stderr(
+                &format!(
+                    "No disko configuration found for host '{}'. Expected: modules/disko/{}.nix",
+                    hostname, hostname
+                ),
+                ErrorContext {
+                    operation: "Disk configuration".to_string(),
+                },
             ),
         })
         .await?;
@@ -305,7 +336,12 @@ async fn run_install(
     if !success {
         tx.send(CommandMessage::StepFailed {
             step: "disko".to_string(),
-            error: "Disk partitioning failed".to_string(),
+            error: ParsedError::from_stderr(
+                "Disk partitioning failed",
+                ErrorContext {
+                    operation: "Disko partitioning".to_string(),
+                },
+            ),
         })
         .await?;
         tx.send(CommandMessage::Done { success: false }).await?;
@@ -406,7 +442,12 @@ async fn run_install(
     if !success {
         tx.send(CommandMessage::StepFailed {
             step: "NixOS".to_string(),
-            error: "nixos-install failed".to_string(),
+            error: ParsedError::from_stderr(
+                "nixos-install failed",
+                ErrorContext {
+                    operation: "NixOS installation".to_string(),
+                },
+            ),
         })
         .await?;
         tx.send(CommandMessage::Done { success: false }).await?;
