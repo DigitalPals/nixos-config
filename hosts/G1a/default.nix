@@ -18,34 +18,44 @@
   services.tlp = {
     enable = true;
     settings = {
-      # CPU scaling
-      CPU_SCALING_GOVERNOR_ON_AC = "performance";
-      CPU_SCALING_GOVERNOR_ON_BAT = "powersave";
+      # CPU behavior
+      CPU_SCALING_GOVERNOR_ON_AC = "schedutil";
+      CPU_SCALING_GOVERNOR_ON_BAT = "schedutil";
       CPU_ENERGY_PERF_POLICY_ON_AC = "performance";
-      CPU_ENERGY_PERF_POLICY_ON_BAT = "power";
-
-      # Turbo boost
+      CPU_ENERGY_PERF_POLICY_ON_BAT = "balance_power";
       CPU_BOOST_ON_AC = 1;
       CPU_BOOST_ON_BAT = 0;
 
-      # Platform profile (balanced on battery for smoother UI, low-power throttles GPU too much)
+      # Platform profiles
       PLATFORM_PROFILE_ON_AC = "performance";
       PLATFORM_PROFILE_ON_BAT = "balanced";
 
-      # Battery charge thresholds (if supported by hardware)
-      START_CHARGE_THRESH_BAT0 = 20;
-      STOP_CHARGE_THRESH_BAT0 = 80;
-
-      # WiFi power saving
-      WIFI_PWR_ON_AC = "off";
-      WIFI_PWR_ON_BAT = "on";
-
-      # Runtime PM for PCIe devices
+      # Runtime power management
       RUNTIME_PM_ON_AC = "auto";
       RUNTIME_PM_ON_BAT = "auto";
 
-      # USB autosuspend
+      # PCIe power saving
+      PCIE_ASPM_ON_AC = "default";
+      PCIE_ASPM_ON_BAT = "powersupersave";
+
+      # Battery care
+      START_CHARGE_THRESH_BAT0 = 20;
+      STOP_CHARGE_THRESH_BAT0 = 80;
+
+      # USB
       USB_AUTOSUSPEND = 1;
+      USB_EXCLUDE_AUDIO = 1;
+      USB_EXCLUDE_BTUSB = 1;
+      USB_EXCLUDE_PHONE = 1;
+
+      # Wi-Fi
+      WIFI_PWR_ON_AC = "off";
+      WIFI_PWR_ON_BAT = "on";
+
+      # Audio (s2idle-friendly)
+      SOUND_POWER_SAVE_ON_AC = 0;
+      SOUND_POWER_SAVE_ON_BAT = 1;
+      SOUND_POWER_SAVE_CONTROLLER = "Y";
     };
   };
 
