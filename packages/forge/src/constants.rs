@@ -7,7 +7,7 @@ use std::path::PathBuf;
 // =============================================================================
 
 /// Maximum lines to retain in output buffer
-pub const OUTPUT_BUFFER_SIZE: usize = 100;
+pub const OUTPUT_BUFFER_SIZE: usize = 1000;
 
 /// Default command timeout in seconds (5 minutes)
 pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 300;
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_buffer_constants_reasonable() {
         assert!(OUTPUT_BUFFER_SIZE > 0);
-        assert!(OUTPUT_BUFFER_SIZE <= 1000); // Reasonable upper bound
+        assert!(OUTPUT_BUFFER_SIZE <= 10000); // Reasonable upper bound
         assert!(DEFAULT_COMMAND_TIMEOUT_SECS > 0);
         assert!(EVENT_POLL_TIMEOUT_MS > 0);
         assert!(SPINNER_TICK_MS > 0);
