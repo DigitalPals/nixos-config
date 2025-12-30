@@ -4,6 +4,14 @@
 let
   # Get shell from NixOS config (set by specialisations)
   shell = osConfig.desktop.shell;
+
+  # Dynamically load all wallpapers from ../wallpapers directory
+  wallpapersDir = ../wallpapers;
+  wallpaperFiles = builtins.readDir wallpapersDir;
+  wallpaperEntries = lib.mapAttrs' (name: _: {
+    name = "Pictures/Wallpapers/${name}";
+    value = { source = wallpapersDir + "/${name}"; };
+  }) (lib.filterAttrs (name: type: type == "regular") wallpaperFiles);
 in
 {
   imports = [
@@ -55,16 +63,19 @@ in
     };
   };
 
-  # Ensure custom directories exist
-  home.file."Code/.keep".text = "";
+  # Home file entries (merged with wallpapers)
+  home.file = wallpaperEntries // {
+    # Ensure custom directories exist
+    "Code/.keep".text = "";
 
-  # User profile picture (used by GDM, SDDM, etc.)
-  home.file.".face".source = ../face;
+    # User profile picture (used by GDM, SDDM, etc.)
+    ".face".source = ../face;
 
-  # npm config for global packages (avoids permission issues)
-  home.file.".npmrc".text = ''
-    prefix=''${HOME}/.npm-global
-  '';
+    # npm config for global packages (avoids permission issues)
+    ".npmrc".text = ''
+      prefix=''${HOME}/.npm-global
+    '';
+  };
 
   # Desktop entry overrides for Wayland
   xdg.desktopEntries.termius-app = {
@@ -102,10 +113,6 @@ in
       "application/vnd.ms-powerpoint"
     ];
   };
-
-  # Wallpapers
-  home.file."Pictures/Wallpapers/01-black-widow-warrior-with-katana-ks.jpg".source = ../wallpapers/01-black-widow-warrior-with-katana-ks.jpg;
-  home.file."Pictures/Wallpapers/05-joker-chaos-in-a-purple-suit-nq.jpg".source = ../wallpapers/05-joker-chaos-in-a-purple-suit-nq.jpg;
 
   # User packages
   home.packages = with pkgs; [
