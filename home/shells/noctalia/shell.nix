@@ -73,4 +73,13 @@ in
   home.packages = with pkgs; [
     quickshell  # For Noctalia IPC commands
   ];
+
+  # Create symlink for Quickshell IPC config lookup
+  # This allows "qs -c noctalia-shell ipc ..." commands to find the running instance
+  home.activation.noctaliaQuickshellSymlink = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    QS_CONFIG_DIR="$HOME/.config/quickshell"
+    mkdir -p "$QS_CONFIG_DIR"
+    rm -f "$QS_CONFIG_DIR/noctalia-shell"
+    ln -s "${config.programs.noctalia-shell.package}/share/noctalia-shell" "$QS_CONFIG_DIR/noctalia-shell"
+  '';
 }
