@@ -9,6 +9,7 @@
 
 pub mod flake;
 mod packages;
+mod shell;
 mod tools;
 
 use anyhow::Result;
@@ -233,6 +234,11 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
                 step: "Rebuild".to_string(),
             })
             .await?;
+
+            // Check if shell needs restart due to store path change
+            if let Ok(Some(shell_name)) = shell::restart_shell_if_needed(tx).await {
+                out(tx, &format!("  ✓ Restarted {} shell", shell_name)).await;
+            }
         } else {
             out(tx, "  ✗ System rebuild failed").await;
             summary.rebuild_failed = true;
