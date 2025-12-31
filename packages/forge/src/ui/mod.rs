@@ -394,7 +394,7 @@ fn draw_commit_list(frame: &mut Frame, updates: &PendingUpdates) {
     let end = (start + visible_commits).min(updates.commits.len());
 
     for (i, commit) in updates.commits.iter().enumerate().skip(start).take(visible_commits) {
-        let is_current = i == updates.commit_scroll;
+        let is_current = i == updates.selected_commit;
         let style = if is_current {
             theme::selected()
         } else {

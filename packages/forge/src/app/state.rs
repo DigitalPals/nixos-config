@@ -444,6 +444,8 @@ pub struct PendingUpdates {
     pub viewing_commits: bool,
     /// Scroll position in commit list
     pub commit_scroll: usize,
+    /// Selected commit index
+    pub selected_commit: usize,
 }
 
 impl PendingUpdates {
@@ -458,6 +460,7 @@ impl PendingUpdates {
         self.selected = 0;
         self.viewing_commits = false;
         self.commit_scroll = 0;
+        self.selected_commit = 0;
     }
 }
 

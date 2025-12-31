@@ -31,14 +31,23 @@ impl App {
         if self.pending_updates.viewing_commits {
             match key {
                 KeyCode::Up | KeyCode::Char('k') => {
-                    if self.pending_updates.commit_scroll > 0 {
-                        self.pending_updates.commit_scroll -= 1;
+                    if self.pending_updates.selected_commit > 0 {
+                        self.pending_updates.selected_commit -= 1;
+                        // Scroll up if selection above visible area
+                        if self.pending_updates.selected_commit < self.pending_updates.commit_scroll {
+                            self.pending_updates.commit_scroll = self.pending_updates.selected_commit;
+                        }
                     }
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     let max = self.pending_updates.commits.len().saturating_sub(1);
-                    if self.pending_updates.commit_scroll < max {
-                        self.pending_updates.commit_scroll += 1;
+                    if self.pending_updates.selected_commit < max {
+                        self.pending_updates.selected_commit += 1;
+                        // Scroll down if selection below visible area (assume ~8 visible)
+                        let visible = 8;
+                        if self.pending_updates.selected_commit >= self.pending_updates.commit_scroll + visible {
+                            self.pending_updates.commit_scroll = self.pending_updates.selected_commit - visible + 1;
+                        }
                     }
                 }
                 KeyCode::Enter => {
@@ -51,6 +60,7 @@ impl App {
                     // Go back to main dialog
                     self.pending_updates.viewing_commits = false;
                     self.pending_updates.commit_scroll = 0;
+                    self.pending_updates.selected_commit = 0;
                 }
                 _ => {}
             }
