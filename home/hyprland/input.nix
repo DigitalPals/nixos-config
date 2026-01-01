@@ -38,5 +38,5 @@
   }
 
   # Scroll nicely in the terminal
-  windowrule = scrolltouchpad 0.2, class:com.mitchellh.ghostty
+  windowrulev2 = scrollInput 0.2, class:^(com\.mitchellh\.ghostty)$
 ''

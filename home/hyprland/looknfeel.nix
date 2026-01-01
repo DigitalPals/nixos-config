@@ -91,29 +91,29 @@ ${masterConfig}
   windowrulev2 = float, class:^(org.gnome.Nautilus)$, title:^(Save.*)$
 
   # Suppress maximize for all windows
-  windowrule = suppressevent maximize, class:.*
+  windowrulev2 = suppressevent maximize, class:.*
 
   # Opaque by default (use SUPER+BACKSPACE to toggle transparency)
-  windowrule = opacity 1.0 1.0, class:.*
+  windowrulev2 = opacity 1.0 1.0, class:.*
 
   # Floating windows - 1Password
-  windowrule = float, class:^(1[pP]assword)$
-  windowrule = center, class:^(1[pP]assword)$
-  windowrule = size 875 600, class:^(1[pP]assword)$
-  windowrule = noscreenshare, class:^(1[pP]assword)$
+  windowrulev2 = float, class:^(1[pP]assword)$
+  windowrulev2 = center, class:^(1[pP]assword)$
+  windowrulev2 = size 875 600, class:^(1[pP]assword)$
+  windowrulev2 = noscreenshare, class:^(1[pP]assword)$
 
   # Floating windows - Sushi (Nautilus quick preview)
-  windowrule = float, class:^(org.gnome.NautilusPreviewer)$
-  windowrule = center, class:^(org.gnome.NautilusPreviewer)$
-  windowrule = size 60% 70%, class:^(org.gnome.NautilusPreviewer)$
+  windowrulev2 = float, class:^(org\.gnome\.NautilusPreviewer)$
+  windowrulev2 = center, class:^(org\.gnome\.NautilusPreviewer)$
+  windowrulev2 = size 60% 70%, class:^(org\.gnome\.NautilusPreviewer)$
 
   # Floating windows - LocalSend
-  windowrule = float, class:^(localsend_app)$
-  windowrule = center, class:^(localsend_app)$
-  windowrule = size 875 600, class:^(localsend_app)$
+  windowrulev2 = float, class:^(localsend_app)$
+  windowrulev2 = center, class:^(localsend_app)$
+  windowrulev2 = size 875 600, class:^(localsend_app)$
 
   # Floating windows - Calculator
-  windowrule = float, class:org.gnome.Calculator
+  windowrulev2 = float, class:^(org\.gnome\.Calculator)$
 
   # Floating windows - Illogical Impulse settings (Quickshell)
   windowrulev2 = float, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
@@ -121,9 +121,9 @@ ${masterConfig}
   windowrulev2 = size 1100 750, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
 
   # Floating windows - Media viewers
-  windowrule = float, class:^(imv|mpv)$
-  windowrule = center, class:^(imv|mpv)$
+  windowrulev2 = float, class:^(imv|mpv)$
+  windowrulev2 = center, class:^(imv|mpv)$
 
   # No transparency on media windows
-  windowrule = opacity 1 1, class:^(vlc|mpv|imv|zoom)$
+  windowrulev2 = opacity 1 1, class:^(vlc|mpv|imv|zoom)$
 ''
