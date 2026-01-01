@@ -4,7 +4,7 @@
 
 {
   options.desktop.shell = lib.mkOption {
-    type = lib.types.enum [ "noctalia" "illogical" "caelestia" ];
+    type = lib.types.enum [ "noctalia" "illogical" ];
     default = "noctalia";
     description = "Active desktop shell environment";
   };

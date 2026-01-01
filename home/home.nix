@@ -23,9 +23,6 @@ in
     ./forge-notify.nix  # Background update checker
   ] ++ (if shell == "illogical" then [
     ./shells/illogical
-  ] else if shell == "caelestia" then [
-    inputs.caelestia.homeManagerModules.default
-    ./shells/caelestia
   ] else [
     inputs.noctalia.homeModules.default
     ./shells/noctalia

@@ -12,11 +12,9 @@ let
   # Generate bindings for all shells (each specialisation sources its own)
   bindingsNoctalia = import ./bindings.nix { shell = "noctalia"; };
   bindingsIllogical = import ./bindings.nix { shell = "illogical"; };
-  bindingsCaelestia = import ./bindings.nix { shell = "caelestia"; };
   # Generate autostart for all shells (each specialisation sources its own)
   autostartNoctalia = import ./autostart.nix { shell = "noctalia"; };
   autostartIllogical = import ./autostart.nix { shell = "illogical"; };
-  autostartCaelestia = import ./autostart.nix { shell = "caelestia"; };
 
   # Shell-specific Hyprland configuration
   # CLEAN APPROACH: Use our ENTIRE Hyprland config for both shells
@@ -50,9 +48,7 @@ in {
   xdg.configFile."hypr/input.conf".text = inputConfig;
   xdg.configFile."hypr/bindings-noctalia.conf".text = bindingsNoctalia;
   xdg.configFile."hypr/bindings-illogical.conf".text = bindingsIllogical;
-  xdg.configFile."hypr/bindings-caelestia.conf".text = bindingsCaelestia;
   xdg.configFile."hypr/looknfeel.conf".text = looknfeelConfig;
   xdg.configFile."hypr/autostart-noctalia.conf".text = autostartNoctalia;
   xdg.configFile."hypr/autostart-illogical.conf".text = autostartIllogical;
-  xdg.configFile."hypr/autostart-caelestia.conf".text = autostartCaelestia;
 }

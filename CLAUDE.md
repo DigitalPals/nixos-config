@@ -35,8 +35,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   │   └── ...
 │   └── shells/                     # Desktop shell options
 │       ├── noctalia/               # AGS-based shell
-│       ├── illogical/              # Illogical Impulse shell
-│       └── caelestia/              # Caelestia shell
+│       └── illogical/              # Illogical Impulse shell
 └── packages/
     ├── forge/                      # Rust TUI configuration tool
     ├── plymouth-cybex/             # Custom Plymouth theme
@@ -109,8 +108,8 @@ Each host has one configuration with shell variants as specialisations:
 
 | Config | Host | Specialisations |
 |--------|------|-----------------|
-| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical, caelestia |
-| `G1a` | G1a (AMD) | Default (Noctalia), illogical, caelestia |
+| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical |
+| `G1a` | G1a (AMD) | Default (Noctalia), illogical |
 
 ```bash
 # Rebuild (includes all shell specialisations)
@@ -129,11 +128,10 @@ Desktop shells are switched via the **boot menu** (Limine):
 3. Choose from the sub-menu:
    - **Default** - Noctalia (AGS-based shell)
    - **illogical** - Illogical Impulse (Material Design 3)
-   - **caelestia** - Caelestia desktop shell
 
 The selected shell persists for that boot session. To change shells, reboot and select a different specialisation.
 
-**Note:** Each rebuild builds all three shell variants. The boot menu shows all options for each generation.
+**Note:** Each rebuild builds both shell variants. The boot menu shows all options for each generation.
 
 ## Plymouth + NVIDIA Issue
 

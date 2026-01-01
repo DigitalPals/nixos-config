@@ -9,7 +9,7 @@ let
   shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname;
 
   # Shell-specific lock command
-  lockCmd = if shell == "illogical" || shell == "caelestia"
+  lockCmd = if shell == "illogical"
     then "hyprlock"
     else "pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock";
 

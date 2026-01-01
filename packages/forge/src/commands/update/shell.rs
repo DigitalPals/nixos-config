@@ -18,7 +18,6 @@ use super::out;
 pub enum ShellType {
     Noctalia,
     Illogical,
-    Caelestia,
 }
 
 impl ShellType {
@@ -27,7 +26,6 @@ impl ShellType {
         match self {
             ShellType::Noctalia => "Noctalia",
             ShellType::Illogical => "Illogical Impulse",
-            ShellType::Caelestia => "Caelestia",
         }
     }
 
@@ -36,7 +34,6 @@ impl ShellType {
         match self {
             ShellType::Noctalia => ("noctalia-shell", vec![]),
             ShellType::Illogical => ("quickshell", vec!["-c", "~/.config/quickshell/ii"]),
-            ShellType::Caelestia => ("caelestia-shell", vec![]),
         }
     }
 
@@ -50,10 +47,6 @@ impl ShellType {
             ))),
             ShellType::Illogical => Some(PathBuf::from(format!(
                 "{}/.config/quickshell/ii",
-                home
-            ))),
-            ShellType::Caelestia => Some(PathBuf::from(format!(
-                "{}/.config/quickshell/caelestia-shell",
                 home
             ))),
         }
@@ -116,17 +109,6 @@ fn parse_quickshell_command(pid: u32, cmd: &str) -> Option<RunningShellInfo> {
         if let Some(path) = extract_quickshell_binary_path(cmd) {
             return Some(RunningShellInfo {
                 shell_type: ShellType::Illogical,
-                running_path: path,
-                pid,
-            });
-        }
-    }
-
-    // Caelestia: quickshell -p /nix/store/.../caelestia-shell/share/caelestia-shell
-    if cmd.contains("/caelestia-shell") {
-        if let Some(path) = extract_path_arg(cmd, "-p") {
-            return Some(RunningShellInfo {
-                shell_type: ShellType::Caelestia,
                 running_path: path,
                 pid,
             });
@@ -213,10 +195,10 @@ pub async fn restart_shell_if_needed(
 
     tracing::info!("Expected shell path: {}", expected_path);
 
-    // Compare paths - for Noctalia/Caelestia, compare the full -p path
+    // Compare paths - for Noctalia, compare the full -p path
     // For Illogical, compare the quickshell binary path
     let needs_restart = match running_info.shell_type {
-        ShellType::Noctalia | ShellType::Caelestia => {
+        ShellType::Noctalia => {
             // The running path should match the symlink target
             running_info.running_path != expected_path
         }

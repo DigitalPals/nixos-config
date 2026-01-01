@@ -29,12 +29,6 @@
       flake = false;
     };
 
-    # Caelestia Desktop Shell
-    caelestia = {
-      url = "github:caelestia-dots/shell";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # Quickshell (latest git for IdleInhibitor support)
     quickshell = {
       url = "github:quickshell-mirror/quickshell";
@@ -54,7 +48,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, home-manager, noctalia, caelestia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, noctalia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, ... }@inputs:
   let
     system = "x86_64-linux";
 
@@ -112,7 +106,6 @@
           {
             specialisation = {
               illogical.configuration.desktop.shell = "illogical";
-              caelestia.configuration.desktop.shell = "caelestia";
             };
           }
         ] ++ extraModules;
@@ -136,14 +129,14 @@
 
     nixosConfigurations = {
       # Desktop with NVIDIA RTX 5090
-      # Default: Noctalia | Specialisations: illogical, caelestia
+      # Default: Noctalia | Specialisations: illogical
       kraken = mkNixosSystem {
         hostname = "kraken";
         extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
       # HP ZBook Ultra G1a (AMD Strix Halo)
-      # Default: Noctalia | Specialisations: illogical, caelestia
+      # Default: Noctalia | Specialisations: illogical
       G1a = mkNixosSystem {
         hostname = "G1a";
       };

@@ -42,19 +42,6 @@ let
     exec-once = noctalia-shell
   '';
 
-  caelestiaAutostart = ''
-    # Systemd integration - export environment for user services
-    # Include HYPRLAND_INSTANCE_SIGNATURE so portal services can connect
-    exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE
-    exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE
-
-    # Restart portal services to pick up new environment (fixes restart via greetd)
-    exec-once = sleep 1 && systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
-
-    # Start Caelestia shell (uses its own quickshell config)
-    exec-once = caelestia-shell
-  '';
 in
   if shell == "illogical" then illogicalAutostart
-  else if shell == "caelestia" then caelestiaAutostart
   else noctaliaAutostart

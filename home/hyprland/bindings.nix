@@ -3,23 +3,17 @@
 { shell ? "noctalia" }:
 
 let
-  # Shell-specific launcher command (not used for caelestia - uses global shortcuts)
+  # Shell-specific launcher command
   launcherCmd = if shell == "illogical"
     then "fuzzel"
     else "noctalia-shell ipc call launcher toggle";
 
   # Shell-specific lock command
-  lockCmd = if shell == "illogical" || shell == "caelestia"
+  lockCmd = if shell == "illogical"
     then "hyprlock"
     else "noctalia-shell ipc call lockScreen lock";
 
-  # Caelestia uses Hyprland global shortcuts instead of exec commands
-  caelestiaLauncherBinds = ''
-    # Caelestia launcher - Super + Space to open
-    bind = SUPER, SPACE, global, caelestia:launcher
-  '';
-
-  # Standard launcher bind for other shells
+  # Standard launcher bind for shells
   standardLauncherBind = ''
     bind = $mainMod, SPACE, exec, ${launcherCmd}
   '';
@@ -38,7 +32,7 @@ in
 
   # Application launchers
   bind = $mainMod, Return, exec, $terminal
-  ${if shell == "caelestia" then caelestiaLauncherBinds else standardLauncherBind}
+  ${standardLauncherBind}
   ${if shell == "illogical" then illogicalWallpaperBind else ""}
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser

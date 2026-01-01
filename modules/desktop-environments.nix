@@ -10,13 +10,11 @@ let
   # Select session script based on shell
   sessionScript =
     if shell == "illogical" then "${hyprlandSessions.illogicalScript}/bin/hyprland-illogical"
-    else if shell == "caelestia" then "${hyprlandSessions.caelestiaScript}/bin/hyprland-caelestia"
     else "${hyprlandSessions.noctaliaScript}/bin/hyprland-noctalia";
 
   # Select wrapper script for PATH based on shell
   wrapperScript =
     if shell == "illogical" then hyprlandSessions.illogicalScript
-    else if shell == "caelestia" then hyprlandSessions.caelestiaScript
     else hyprlandSessions.noctaliaScript;
 in
 {
