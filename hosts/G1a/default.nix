@@ -81,6 +81,11 @@
     "amdgpu.dcdebugmask=0x10"  # Helps with display init on new AMD APUs
   ];
 
+  # MediaTek WiFi fix for suspend/resume
+  boot.extraModprobeConfig = ''
+    options mt7925e disable_aspm=1
+  '';
+
   # AMD Wayland environment variables (equivalent to NVIDIA config)
   environment.sessionVariables = {
     # Force Qt to use native Wayland (improves Quickshell/QML performance)

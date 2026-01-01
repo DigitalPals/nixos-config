@@ -179,21 +179,18 @@ amdgpu: amdgpu_device_ip_resume failed (-110)
 
 **Root cause:** The VPE (Video Processing Engine) block times out during resume (~8% of cycles). The VPE_IDLE_TIMEOUT is 1 second but Strix Halo needs ~2 seconds.
 
-**Solution:** Add `amd_iommu=off` kernel parameter (`hosts/G1a/default.nix:82`) **and use kernel 6.16.x or earlier**. This combination is confirmed working by HP Support Community and Level1Techs users.
+**Current status:** Using latest kernel (6.18) and accepting ~8% suspend failure rate. Kernels 6.14-6.17 have reached EOL in nixpkgs. The VPE fix is expected in kernel 6.19+.
+
+**Kernel config:** Kernel is set centrally in `modules/boot/limine-plymouth.nix` to `linuxPackages_latest`. No per-host override needed.
 
 **Kernel 6.18 regression:** Kernel 6.18.x has a VPE regression that breaks suspend even with `amd_iommu=off`. A problematic VPE patch was merged; the revert targets kernel 6.19, not 6.18. Framework 13/AMD and other Strix Halo users confirm this regression.
 
-**Working kernel versions:**
-- **6.16.x**: Confirmed working with `amd_iommu=off` (HP Community, smallest downgrade)
-- **6.14.x**: Reported most stable for Strix Halo (Level1Techs)
-- **6.12 LTS**: Safe fallback
-
-**To pin kernel in NixOS** (add to `hosts/G1a/default.nix`):
+**Fallback option:** If suspend failures are unacceptable, override with 6.12 LTS in `hosts/G1a/default.nix`:
 ```nix
-boot.kernelPackages = pkgs.linuxPackages_6_16;  # or _6_14, _6_12
+boot.kernelPackages = lib.mkForce pkgs.linuxPackages_6_12;
 ```
 
-**When to upgrade:** Wait for kernel 6.19+ (includes VPE revert) or HP BIOS update.
+**When fixed:** Kernel 6.19+ should include the VPE revert. Once `linuxPackages_latest` points to 6.19+, suspend should work reliably.
 
 **Additional fix:** MediaTek WiFi module needs ASPM disabled for reliable resume:
 ```nix
