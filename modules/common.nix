@@ -113,7 +113,7 @@
   # Docker
   virtualisation.docker = {
     enable = true;
-    enableOnBoot = false;
+    enableOnBoot = true;
   };
 
   # Audio (PipeWire)
