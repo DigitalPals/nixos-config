@@ -167,7 +167,7 @@ The selected shell persists for that boot session. To change shells, reboot and 
 
 **Solution:** Added resume hook to call `nvidia-sleep.sh resume` and extended `nvidia-resume` service for suspend-then-hibernate (`modules/hardware/nvidia.nix:44-53`).
 
-## Strix Halo (G1a) Suspend/Resume Issue
+## Strix Halo (G1a) Suspend/Resume Fix
 
 **Problem:** Intermittent suspend/resume failure on HP ZBook Ultra G1a (AMD Strix Halo). The display doesn't wake up, showing errors:
 
@@ -177,20 +177,44 @@ amdgpu: resume of IP block <vpe_v6_1> failed -110
 amdgpu: amdgpu_device_ip_resume failed (-110)
 ```
 
-**Root cause:** The VPE (Video Processing Engine) block times out during resume. The VPE_IDLE_TIMEOUT is set to 1 second, but Strix Halo needs ~2 seconds after resume before VPE can be safely power-gated. This affects ~8% of suspend/resume cycles.
+**Root cause:** The VPE (Video Processing Engine) block times out during resume (~8% of cycles). The VPE_IDLE_TIMEOUT is 1 second but Strix Halo needs ~2 seconds.
 
-**Upstream fix:** A kernel patch increasing VPE_IDLE_TIMEOUT from 1s to 2s has been [submitted](https://www.mail-archive.com/amd-gfx@lists.freedesktop.org/msg127724.html) but not yet merged as of kernel 6.18.
+**Solution:** Add `amd_iommu=off` kernel parameter (`hosts/G1a/default.nix:82`) **and use kernel 6.16.x or earlier**. This combination is confirmed working by HP Support Community and Level1Techs users.
+
+**Kernel 6.18 regression:** Kernel 6.18.x has a VPE regression that breaks suspend even with `amd_iommu=off`. A problematic VPE patch was merged; the revert targets kernel 6.19, not 6.18. Framework 13/AMD and other Strix Halo users confirm this regression.
+
+**Working kernel versions:**
+- **6.16.x**: Confirmed working with `amd_iommu=off` (HP Community, smallest downgrade)
+- **6.14.x**: Reported most stable for Strix Halo (Level1Techs)
+- **6.12 LTS**: Safe fallback
+
+**To pin kernel in NixOS** (add to `hosts/G1a/default.nix`):
+```nix
+boot.kernelPackages = pkgs.linuxPackages_6_16;  # or _6_14, _6_12
+```
+
+**When to upgrade:** Wait for kernel 6.19+ (includes VPE revert) or HP BIOS update.
+
+**Additional fix:** MediaTek WiFi module needs ASPM disabled for reliable resume:
+```nix
+boot.extraModprobeConfig = ''
+  options mt7925e disable_aspm=1
+'';
+```
+
+**BIOS settings (important):**
+- **Disable**: "Motion sensing cooling mode" (causes suspend issues)
+- **Keep enabled**: Secure Boot, RAM encryption, Pluton (disabling these can break suspend)
+
+**Security note:** `amd_iommu=off` disables DMA attack protection. LUKS encryption still protects data. This is the same configuration used by Arch/Fedora users.
 
 **What doesn't work:**
-- `amd_iommu=off` - Wrong issue; error is timeout (-110), not IOMMU (-6)
 - `mem_sleep_default=deep` - S3 not supported; only s2idle available (ACPI: S0 S4 S5)
 - Hibernate - Requires disk-based swap ≥ RAM size; system uses zram only
+- `amdgpu.ip_block_mask=0xfffff7ff` - Disables VPE; breaks hardware video processing
+- `amdgpu.pg_mask=0` - Disables all power gating; high power consumption
 
-**Potential workarounds (not yet tested):**
-- `amdgpu.ip_block_mask=0xfffff7ff` - Disables VPE (block 11); may break hardware video processing
-- `amdgpu.pg_mask=0` - Disables all power gating; increases power consumption
-
-**Current status:** Living with intermittent failures. Most suspend/resume cycles work. Monitor upstream for VPE_IDLE_TIMEOUT patch merge.
+**Upstream status:** A kernel patch for VPE_IDLE_TIMEOUT (1s→2s) was [submitted](https://www.mail-archive.com/amd-gfx@lists.freedesktop.org/msg127724.html) but not merged. AMD indicated the fix should come via BIOS updates.
 
 **Debugging commands:**
 ```bash
