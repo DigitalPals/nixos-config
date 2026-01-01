@@ -91,9 +91,9 @@ in
   bind = $mainMod, mouse_up, workspace, e-1
 
   # Screenshot bindings (wayfreeze + satty with auto-close)
-  bind = $mainMod, grave, exec, screenshot region
-  bind = , Print, exec, screenshot region
-  bind = SHIFT, Print, exec, screenshot fullscreen
+  bind = $mainMod, grave, exec, ~/.local/bin/screenshot region
+  bind = , Print, exec, ~/.local/bin/screenshot region
+  bind = SHIFT, Print, exec, ~/.local/bin/screenshot fullscreen
 
   # App launchers
   bind = $mainMod, M, exec, spotify
