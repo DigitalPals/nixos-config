@@ -63,6 +63,10 @@ in
     };
   };
 
+  # D-Bus service for Nautilus quick preview (sushi)
+  xdg.dataFile."dbus-1/services/org.gnome.NautilusPreviewer.service".source =
+    "${pkgs.sushi}/share/dbus-1/services/org.gnome.NautilusPreviewer.service";
+
   # Home file entries (merged with wallpapers)
   home.file = wallpaperEntries // {
     # Ensure custom directories exist
@@ -126,6 +130,7 @@ in
 
     # File management
     nautilus
+    sushi # Quick preview for Nautilus (press SPACE)
 
     # Theming
     nwg-look

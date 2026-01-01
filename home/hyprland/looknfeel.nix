@@ -102,6 +102,11 @@ ${masterConfig}
   windowrule = size 875 600, class:^(1[pP]assword)$
   windowrule = noscreenshare, class:^(1[pP]assword)$
 
+  # Floating windows - Sushi (Nautilus quick preview)
+  windowrule = float, class:^(org.gnome.NautilusPreviewer)$
+  windowrule = center, class:^(org.gnome.NautilusPreviewer)$
+  windowrule = size 60% 70%, class:^(org.gnome.NautilusPreviewer)$
+
   # Floating windows - LocalSend
   windowrule = float, class:^(localsend_app)$
   windowrule = center, class:^(localsend_app)$
