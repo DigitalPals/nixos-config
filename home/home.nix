@@ -71,6 +71,13 @@ in
   home.file = wallpaperEntries // {
     # Ensure custom directories exist
     "Code/.keep".text = "";
+    "Pictures/Screenshots/.keep".text = "";
+
+    # Screenshot script
+    ".local/bin/screenshot" = {
+      source = ./scripts/screenshot;
+      executable = true;
+    };
 
     # User profile picture (used by GDM, SDDM, etc.)
     ".face".source = ../face;
@@ -126,7 +133,9 @@ in
     # Screenshot tools
     grim
     slurp
-    swappy
+    satty
+    wayfreeze
+    wl-clipboard
 
     # File management
     nautilus
@@ -192,15 +201,34 @@ in
     sshKeyPath = "~/.ssh/id_ed25519";
   };
 
-  # Set Google Chrome as default browser
+  # Default applications
   xdg.mimeApps = {
     enable = true;
     defaultApplications = {
+      # Browser
       "text/html" = "google-chrome.desktop";
       "x-scheme-handler/http" = "google-chrome.desktop";
       "x-scheme-handler/https" = "google-chrome.desktop";
       "x-scheme-handler/about" = "google-chrome.desktop";
       "x-scheme-handler/unknown" = "google-chrome.desktop";
+
+      # Images (imv)
+      "image/png" = "imv.desktop";
+      "image/jpeg" = "imv.desktop";
+      "image/gif" = "imv.desktop";
+      "image/webp" = "imv.desktop";
+      "image/bmp" = "imv.desktop";
+      "image/tiff" = "imv.desktop";
+
+      # PDF (Evince)
+      "application/pdf" = "org.gnome.Evince.desktop";
+
+      # Videos (mpv)
+      "video/mp4" = "mpv.desktop";
+      "video/x-matroska" = "mpv.desktop";
+      "video/webm" = "mpv.desktop";
+      "video/x-msvideo" = "mpv.desktop";
+      "video/quicktime" = "mpv.desktop";
     };
   };
 

@@ -96,10 +96,10 @@ in
   bind = $mainMod, mouse_down, workspace, e+1
   bind = $mainMod, mouse_up, workspace, e-1
 
-  # Screenshot bindings
-  bind = $mainMod, grave, exec, grim -g "$(slurp)" - | swappy -f -
-  bind = , Print, exec, grim -g "$(slurp)" - | swappy -f -
-  bind = SHIFT, Print, exec, grim - | swappy -f -
+  # Screenshot bindings (wayfreeze + satty with auto-close)
+  bind = $mainMod, grave, exec, screenshot region
+  bind = , Print, exec, screenshot region
+  bind = SHIFT, Print, exec, screenshot fullscreen
 
   # App launchers
   bind = $mainMod, M, exec, spotify
