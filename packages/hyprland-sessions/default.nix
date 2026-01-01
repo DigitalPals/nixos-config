@@ -13,9 +13,9 @@ let
     mkdir -p "$XDG_RUNTIME_DIR"
     echo "noctalia" > "$XDG_RUNTIME_DIR/desktop-shell"
 
-    # Launch Hyprland (uses default ~/.config/hypr/hyprland.conf)
-    # Redirect output to log file for quiet startup
-    exec Hyprland "$@" &> "$HOME/.hyprland.log"
+    # Launch Hyprland via start-hyprland (required since Hyprland 0.53)
+    # start-hyprland provides crash recovery and safe mode
+    exec start-hyprland -- "$@"
   '';
 
   # Wrapper script for Hyprland with Illogical Impulse Desktop Shell
@@ -29,9 +29,9 @@ let
     mkdir -p "$XDG_RUNTIME_DIR"
     echo "illogical" > "$XDG_RUNTIME_DIR/desktop-shell"
 
-    # Launch Hyprland (uses default ~/.config/hypr/hyprland.conf)
-    # Redirect output to log file for quiet startup
-    exec Hyprland "$@" &> "$HOME/.hyprland.log"
+    # Launch Hyprland via start-hyprland (required since Hyprland 0.53)
+    # start-hyprland provides crash recovery and safe mode
+    exec start-hyprland -- "$@"
   '';
 
   # Session package with .desktop file for Noctalia

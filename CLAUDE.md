@@ -133,6 +133,18 @@ The selected shell persists for that boot session. To change shells, reboot and 
 
 **Note:** Each rebuild builds both shell variants. The boot menu shows all options for each generation.
 
+## Hyprland 0.53+ Startup
+
+**Change:** Hyprland 0.53 introduced `start-hyprland` as the required launcher, replacing direct `Hyprland` invocation.
+
+**Implementation:** The session wrapper scripts in `packages/hyprland-sessions/default.nix` use `exec start-hyprland -- "$@"` to launch Hyprland properly.
+
+**Benefits:**
+- Crash recovery - Hyprland can recover from crashes without losing your session
+- Safe mode - Allows booting into a minimal config if the main config is broken
+
+**Optional dependency:** `hyprland-guiutils` enhances safe mode and provides a welcome app for new users. Not yet available in nixpkgs as of December 2025.
+
 ## Plymouth + NVIDIA Issue
 
 **Problem:** Plymouth doesn't display on NVIDIA systems due to framebuffer timing race - `simpledrm` initializes first, Plymouth attaches, then NVIDIA takes over fb0.
