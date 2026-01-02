@@ -21,6 +21,10 @@ in
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers, Termius, etc.)
     ./forge-notify.nix  # Background update checker
+    # Always deploy Illogical Impulse dotfiles (Quickshell config)
+    # Required because Home Manager evaluates with default shell at build time,
+    # but specialisations need these files at boot time. See CLAUDE.md.
+    ./shells/illogical/dotfiles-only.nix
   ] ++ (if shell == "illogical" then [
     ./shells/illogical
   ] else [

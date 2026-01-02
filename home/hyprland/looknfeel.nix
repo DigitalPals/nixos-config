@@ -81,49 +81,39 @@ ${masterConfig}
     disable_hyprland_logo = true
   }
 
-  # Window rules
+  # Window rules - Hyprland 0.53+ syntax
   # https://wiki.hyprland.org/Configuring/Window-Rules/
 
   # File dialogs
-  windowrulev2 = float, class:^(xdg-desktop-portal-gtk)$
-  windowrulev2 = float, class:^(org.gnome.Nautilus)$, title:^(Properties)$
-  windowrulev2 = float, class:^(org.gnome.Nautilus)$, title:^(Open.*)$
-  windowrulev2 = float, class:^(org.gnome.Nautilus)$, title:^(Save.*)$
+  windowrule = match:class xdg-desktop-portal-gtk, float on
+  windowrule = match:class org\.gnome\.Nautilus, match:title Properties, float on
+  windowrule = match:class org\.gnome\.Nautilus, match:title Open.*, float on
+  windowrule = match:class org\.gnome\.Nautilus, match:title Save.*, float on
 
   # Suppress maximize for all windows
-  windowrulev2 = suppressevent maximize, class:.*
+  windowrule = match:class .*, suppress_event maximize
 
   # Opaque by default (use SUPER+BACKSPACE to toggle transparency)
-  windowrulev2 = opacity 1.0 1.0, class:.*
+  windowrule = match:class .*, opacity 1.0 1.0
 
   # Floating windows - 1Password
-  windowrulev2 = float, class:^(1[pP]assword)$
-  windowrulev2 = center, class:^(1[pP]assword)$
-  windowrulev2 = size 875 600, class:^(1[pP]assword)$
-  windowrulev2 = noscreenshare, class:^(1[pP]assword)$
+  windowrule = match:class 1[pP]assword, float on, center on, size 875 600, no_screen_share on
 
   # Floating windows - Sushi (Nautilus quick preview)
-  windowrulev2 = float, class:^(org\.gnome\.NautilusPreviewer)$
-  windowrulev2 = center, class:^(org\.gnome\.NautilusPreviewer)$
-  windowrulev2 = size 60% 70%, class:^(org\.gnome\.NautilusPreviewer)$
+  windowrule = match:class org\.gnome\.NautilusPreviewer, float on, center on, size 60% 70%
 
   # Floating windows - LocalSend
-  windowrulev2 = float, class:^(localsend_app)$
-  windowrulev2 = center, class:^(localsend_app)$
-  windowrulev2 = size 875 600, class:^(localsend_app)$
+  windowrule = match:class localsend_app, float on, center on, size 875 600
 
   # Floating windows - Calculator
-  windowrulev2 = float, class:^(org\.gnome\.Calculator)$
+  windowrule = match:class org\.gnome\.Calculator, float on
 
   # Floating windows - Illogical Impulse settings (Quickshell)
-  windowrulev2 = float, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
-  windowrulev2 = center, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
-  windowrulev2 = size 1100 750, class:^(org\.quickshell)$, title:^(illogical-impulse Settings)$
+  windowrule = match:class org\.quickshell, match:title illogical-impulse Settings, float on, center on, size 1100 750
 
   # Floating windows - Media viewers
-  windowrulev2 = float, class:^(imv|mpv)$
-  windowrulev2 = center, class:^(imv|mpv)$
+  windowrule = match:class (imv|mpv), float on, center on
 
   # No transparency on media windows
-  windowrulev2 = opacity 1 1, class:^(vlc|mpv|imv|zoom)$
+  windowrule = match:class (vlc|mpv|imv|zoom), opacity 1 1
 ''

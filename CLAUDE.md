@@ -119,6 +119,30 @@ sudo nixos-rebuild switch --flake .#kraken
 sudo nixos-rebuild switch --flake .
 ```
 
+### Rebuilding with Active Specialisation
+
+**IMPORTANT:** When rebuilding, always check which specialisation is currently active and re-activate it after the rebuild. A plain `nixos-rebuild switch` activates the **default** configuration, which will switch you out of any active specialisation.
+
+```bash
+# Check which specialisation is active (if any)
+# Look at DESKTOP_SHELL environment variable or check the runtime file
+cat /run/user/$(id -u)/desktop-shell 2>/dev/null || echo "default"
+
+# Standard rebuild (activates default configuration)
+sudo nixos-rebuild switch --flake .
+
+# If you were in a specialisation, re-activate it:
+sudo /run/current-system/specialisation/illogical/bin/switch-to-configuration switch
+```
+
+**For Claude:** Before running `nixos-rebuild switch`, always:
+1. Check the active shell: `cat /run/user/$(id -u)/desktop-shell 2>/dev/null`
+2. If it returns "illogical" (or another specialisation name), re-activate after rebuild:
+   ```bash
+   sudo nixos-rebuild switch --flake . && \
+   sudo /run/current-system/specialisation/illogical/bin/switch-to-configuration switch
+   ```
+
 ## Switching Desktop Shells
 
 Desktop shells are switched via the **boot menu** (Limine):
@@ -133,7 +157,9 @@ The selected shell persists for that boot session. To change shells, reboot and 
 
 **Note:** Each rebuild builds both shell variants. The boot menu shows all options for each generation.
 
-## Hyprland 0.53+ Startup
+## Hyprland 0.53+ Changes
+
+### Startup
 
 **Change:** Hyprland 0.53 introduced `start-hyprland` as the required launcher, replacing direct `Hyprland` invocation.
 
@@ -144,6 +170,48 @@ The selected shell persists for that boot session. To change shells, reboot and 
 - Safe mode - Allows booting into a minimal config if the main config is broken
 
 **Optional dependency:** `hyprland-guiutils` enhances safe mode and provides a welcome app for new users. Not yet available in nixpkgs as of December 2025.
+
+### Window Rules Syntax
+
+**Change:** Hyprland 0.53 completely overhauled window rules syntax. The old `windowrulev2` format is deprecated.
+
+**Old syntax (deprecated):**
+```
+windowrulev2 = float, class:^(firefox)$
+windowrulev2 = center, class:^(firefox)$
+windowrulev2 = size 800 600, class:^(firefox)$
+windowrulev2 = suppressevent maximize, class:.*
+windowrulev2 = noscreenshare, class:^(1password)$
+```
+
+**New syntax (0.53+):**
+```
+# IMPORTANT: match clauses MUST come first, then effects
+windowrule = match:class firefox, float on, center on, size 800 600
+windowrule = match:class .*, suppress_event maximize
+windowrule = match:class 1[pP]assword, no_screen_share on
+```
+
+**Key differences:**
+- `windowrulev2` → `windowrule`
+- `class:^(pattern)$` → `match:class pattern` (regex simplified, no anchors needed)
+- `title:^(pattern)$` → `match:title pattern`
+- **Match clauses must come FIRST**, before any effects
+- Actions use `on/off` suffix: `float` → `float on`, `center` → `center on`
+- Property names use underscores: `suppressevent` → `suppress_event`, `noscreenshare` → `no_screen_share`
+- Multiple actions can be combined in one rule
+
+**Common properties:**
+- `float on/off` - Float the window
+- `center on` - Center the window
+- `size W H` or `size W% H%` - Set window size
+- `opacity X Y` - Set active/inactive opacity (0.0-1.0)
+- `suppress_event maximize/fullscreen/activate` - Ignore window events
+- `no_screen_share on` - Hide window from screen sharing
+
+**Implementation:** All window rules are in `home/hyprland/looknfeel.nix`.
+
+**Documentation:** https://wiki.hypr.land/Configuring/Window-Rules/
 
 ## Plymouth + NVIDIA Issue
 
@@ -247,6 +315,28 @@ All NVIDIA config is in `modules/hardware/nvidia.nix`:
 - Wayland env vars: `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`, `NIXOS_OZONE_WL`
 
 Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
+
+## Shell Module Import Architecture
+
+**Problem:** Conditional Home Manager imports (`if shell == "illogical" then ...`) don't work correctly with NixOS specialisations. Home Manager is evaluated at build time with the default configuration, so the non-default shell's dotfiles are never deployed.
+
+**Symptom:** Settings menu (and other UI elements) don't work in the non-default shell because critical files like `settings.qml` are missing from `~/.config/quickshell/ii/`.
+
+**Solution:** Separate shell modules into two parts:
+1. **Dotfiles module** (`dotfiles-only.nix`) - Always imported, deploys config files
+2. **Programs module** (main shell module) - Conditionally imported, sets fish/starship/theming
+
+**Files:**
+- `home/shells/illogical/dotfiles-only.nix` - Always imported (xdg.configFile, activation script)
+- `home/shells/illogical/` - Conditionally imported (packages, fish, theming)
+- `home/shells/noctalia/` - Conditionally imported (works with Noctalia Home Manager module)
+
+**Implementation:** `home/home.nix` imports `./shells/illogical/dotfiles-only.nix` unconditionally, ensuring Quickshell files exist regardless of which shell is selected at boot.
+
+**Important:** When adding new shell configurations:
+1. Create a `dotfiles-only.nix` that only handles file deployment (xdg.configFile, activation)
+2. Import it unconditionally in `home/home.nix`
+3. Keep program configs (fish, starship, theming) in the conditionally-imported module to avoid conflicts
 
 ## Noctalia Settings (Hybrid Management)
 
