@@ -13,6 +13,22 @@ use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor
 impl App {
     /// Handle keyboard input
     pub async fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+        // Handle reboot confirmation dialog
+        if self.show_reboot_confirm {
+            match key {
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    let _ = crate::commands::executor::run_capture("sudo", &["reboot"]).await;
+                    self.should_quit = true;
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    self.show_reboot_confirm = false;
+                    self.reboot_reasons.clear();
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         // Handle exit confirmation dialog
         if self.show_exit_confirm {
             match key {

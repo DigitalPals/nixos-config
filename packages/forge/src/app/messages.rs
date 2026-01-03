@@ -59,6 +59,10 @@ impl App {
                     self.pending_updates.commit_scroll = 0;
                 }
             }
+            CommandMessage::RebootRecommended { reasons } => {
+                self.show_reboot_confirm = true;
+                self.reboot_reasons = reasons;
+            }
         }
         Ok(())
     }

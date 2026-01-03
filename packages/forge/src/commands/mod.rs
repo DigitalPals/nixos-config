@@ -65,4 +65,6 @@ pub enum CommandMessage {
         /// Pending commits for nixos-config (hash, message)
         commits: Vec<(String, String)>,
     },
+    /// Reboot recommended after update (kernel/bootloader/firmware changes)
+    RebootRecommended { reasons: Vec<String> },
 }

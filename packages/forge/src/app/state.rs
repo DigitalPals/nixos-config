@@ -422,6 +422,7 @@ pub struct UpdateSummary {
     pub browser_status: String,
     pub rebuild_skipped: bool,
     pub rebuild_failed: bool,
+    pub reboot_reasons: Vec<String>,
 }
 
 /// Information about a pending commit

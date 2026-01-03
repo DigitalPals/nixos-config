@@ -287,6 +287,10 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     })
     .await?;
 
+    if !summary.rebuild_failed && !summary.rebuild_skipped {
+        summary.reboot_reasons = detect_reboot_reasons(&summary.package_changes).await;
+    }
+
     // Step 4: Update Claude Code
     update_claude_code(tx, &mut summary).await?;
 
@@ -298,6 +302,13 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
 
     // Output summary
     output_summary(tx, &summary).await?;
+
+    if !summary.reboot_reasons.is_empty() {
+        tx.send(CommandMessage::RebootRecommended {
+            reasons: summary.reboot_reasons.clone(),
+        })
+        .await?;
+    }
 
     tx.send(CommandMessage::Done {
         success: !summary.rebuild_failed,
@@ -413,6 +424,43 @@ async fn check_app_profiles(
     }
 
     Ok(())
+}
+
+async fn detect_reboot_reasons(
+    package_changes: &[(String, String, String)],
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+
+    if let (Ok(booted), Ok(current)) = (
+        get_output("readlink", &["/run/booted-system/kernel"]).await,
+        get_output("readlink", &["/run/current-system/kernel"]).await,
+    ) {
+        if booted.trim() != current.trim() {
+            reasons.push("Kernel updated".to_string());
+        }
+    }
+
+    let mut bootloader_changed = false;
+    let mut firmware_changed = false;
+
+    for (pkg, _, _) in package_changes {
+        let name = pkg.to_lowercase();
+        if name.contains("limine") || name.contains("grub") || name.contains("refind") {
+            bootloader_changed = true;
+        }
+        if name.contains("linux-firmware") || name.contains("firmware") || name == "fwupd" {
+            firmware_changed = true;
+        }
+    }
+
+    if bootloader_changed {
+        reasons.push("Bootloader updated".to_string());
+    }
+    if firmware_changed {
+        reasons.push("Firmware updated".to_string());
+    }
+
+    reasons
 }
 
 async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSummary) -> Result<()> {

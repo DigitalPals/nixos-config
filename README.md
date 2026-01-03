@@ -14,13 +14,12 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 
 ## Desktop Shells
 
-This configuration supports three different Hyprland desktop shells. Each provides a complete desktop experience with its own theming, panels, and widgets.
+This configuration supports two different Hyprland desktop shells. Each provides a complete desktop experience with its own theming, panels, and widgets.
 
 | Shell | Description | Source |
 |-------|-------------|--------|
 | **Noctalia** (default) | Modern Qt6/QML desktop shell | [noctalia-dev/noctalia-shell](https://github.com/noctalia-dev/noctalia-shell) |
 | **Illogical Impulse** | Material Design 3 Quickshell-based shell | [end-4/dots-hyprland](https://github.com/end-4/dots-hyprland) |
-| **Caelestia** | Feature-rich Quickshell desktop environment | [caelestia-dots/shell](https://github.com/caelestia-dots/shell) |
 
 ### Switching Shells
 
@@ -31,7 +30,6 @@ Desktop shells are switched via the **boot menu** (NixOS specialisations):
 3. Choose from the sub-menu:
    - **Default** - Noctalia
    - **illogical** - Illogical Impulse
-   - **caelestia** - Caelestia
 
 The selected shell persists for that boot session. To switch shells, reboot and select a different option.
 
@@ -48,8 +46,8 @@ Each host has one configuration with shell variants as specialisations:
 
 | Configuration | Host | Specialisations |
 |---------------|------|-----------------|
-| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical, caelestia |
-| `G1a` | G1a (AMD) | Default (Noctalia), illogical, caelestia |
+| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical |
+| `G1a` | G1a (AMD) | Default (Noctalia), illogical |
 
 Rebuilding includes all shell specialisations:
 ```bash
@@ -230,11 +228,6 @@ nixos-config/
 │       │   ├── packages.nix  # Qt, Quickshell, tools
 │       │   ├── fish.nix      # Fish shell config
 │       │   └── theming.nix   # Cursor, GTK, icons
-│       └── caelestia/        # Caelestia Desktop Shell
-│           ├── default.nix
-│           ├── shell.nix     # Caelestia config
-│           ├── fish.nix      # Fish shell config
-│           └── theming.nix   # Theme configuration
 └── packages/
     ├── forge/                # TUI installer and system management tool
     ├── plymouth-cybex/       # Custom Plymouth theme

@@ -204,6 +204,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
     }
 
+    if app.show_reboot_confirm {
+        draw_reboot_confirm(frame, &app.reboot_reasons);
+    }
+
     // Render exit confirmation popup on top of any screen
     if app.show_exit_confirm {
         draw_exit_confirm(frame);
@@ -242,6 +246,61 @@ fn draw_exit_confirm(frame: &mut Frame) {
             .border_style(theme::border_active())
             .title(Span::styled(" Exit ", theme::title())),
     );
+    frame.render_widget(content, popup_area);
+}
+
+/// Draw the reboot confirmation popup centered on screen
+fn draw_reboot_confirm(frame: &mut Frame, reasons: &[String]) {
+    let area = frame.area();
+    let popup_width = 60.min(area.width.saturating_sub(4));
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Reboot recommended to apply updates:",
+        theme::text(),
+    )));
+    lines.push(Line::from(""));
+
+    if reasons.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "- System update requires a reboot",
+            theme::text(),
+        )));
+    } else {
+        for reason in reasons {
+            lines.push(Line::from(Span::styled(format!("- {}", reason), theme::text())));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("[", theme::dim()),
+        Span::styled("Enter/Y", theme::key_hint()),
+        Span::styled("] Reboot  [", theme::dim()),
+        Span::styled("Esc/N", theme::key_hint()),
+        Span::styled("] Later", theme::dim()),
+    ]));
+
+    let popup_height = (lines.len() as u16 + 2)
+        .min(area.height.saturating_sub(4))
+        .max(7);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Draw popup content
+    let content = Paragraph::new(lines)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::warning())
+                .title(Span::styled(" Reboot ", theme::warning())),
+        );
     frame.render_widget(content, popup_area);
 }
 
