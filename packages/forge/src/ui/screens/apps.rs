@@ -1,4 +1,4 @@
-//! App profile management screens (browsers, Termius, etc.)
+//! App profile management screens (browsers, Portal, etc.)
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},

@@ -26,7 +26,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   ├── ghostty.nix                 # Terminal config
 │   ├── neovim.nix
 │   ├── 1password-secrets.nix       # 1Password SSH agent integration
-│   ├── app-backup/                 # App profile backup/restore (browsers, Termius)
+│   ├── app-backup/                 # App profile backup/restore (browsers, Portal)
 │   │   └── default.nix
 │   ├── hyprland/                   # Hyprland WM config (modular)
 │   │   ├── default.nix
@@ -52,7 +52,7 @@ Forge is a Rust TUI application for managing NixOS installations and updates. Co
 # From installed system
 forge                    # Interactive TUI menu
 forge update            # Update flake + rebuild + CLI tools
-forge apps backup       # Backup app profiles (browsers, Termius)
+forge apps backup       # Backup app profiles (browsers, Portal)
 forge apps restore      # Restore app profiles
 
 # From NixOS ISO (fresh install)
@@ -398,7 +398,7 @@ Encrypted app profile backup system using Age encryption and a private GitHub re
 
 - **Chrome**: Cookies, login data, sessions, preferences
 - **Firefox**: Cookies, logins, sessions, sync data
-- **Termius**: Session tokens, saved hosts, SSH keys, settings
+- **Portal**: App configuration
 
 ### Setup with 1Password (Recommended)
 
@@ -466,13 +466,13 @@ browser-restore --pull     # Same as app-restore
 1. Install NixOS with Forge: `nix run github:DigitalPals/nixos-config`
 2. Sign in to 1Password desktop app (unlocks the CLI)
 3. Run `forge apps restore`
-4. Open apps - sessions restored (Chrome, Firefox, Termius)
+4. Open apps - sessions restored (Chrome, Firefox, Portal)
 
 The age key is retrieved from 1Password on-the-fly - no manual key management needed!
 
 ### Troubleshooting
 
-- **"Apps are running"**: Close Chrome/Firefox/Termius or use `--force`
+- **"Apps are running"**: Close Chrome/Firefox/Portal or use `--force`
 - **"1Password not unlocked"**: Open 1Password app and sign in
 - **"op: command not found"**: Rebuild to install 1Password CLI
 - **"Git push failed"**: Check SSH key is in 1Password agent

@@ -52,7 +52,7 @@ enum Commands {
     },
     /// Update flake inputs, rebuild system, and update CLI tools
     Update,
-    /// App profile management (browsers, Termius, etc.)
+    /// App profile management (browsers, Portal, etc.)
     #[command(alias = "browser")]
     Apps {
         #[command(subcommand)]

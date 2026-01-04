@@ -8,7 +8,7 @@
 # - Saved passwords (encrypted by browser/app)
 # - Firefox Sync / Chrome sync data
 # - Current session tabs
-# - Termius SSH connections and settings
+# - Portal app configuration
 #
 # Does NOT backup: cache, history, extensions, themes, or other data.
 # Typical backup size: <15MB (vs 3GB+ for full profiles)
@@ -68,22 +68,9 @@ let
     "installs.ini"
   ];
 
-  # Essential Termius files for login/session restoration
-  # Termius is an Electron app, stores data like Chrome
-  # - Cookies: session cookies for Termius cloud login
-  # - Local Storage: auth tokens, saved hosts, SSH keys, settings
-  # - IndexedDB: structured data for connections
-  termiusEssentialFiles = [
-    "Cookies"
-    "Cookies-journal"
-    "Preferences"
-    "Network Persistent State"
-  ];
-
-  termiusEssentialDirs = [
-    "Local Storage/leveldb"
-    "IndexedDB/file__0.indexeddb.leveldb"
-  ];
+  # Portal app config directory
+  # We back up the entire ~/.config/portal directory
+  portalConfigDir = ".config/portal";
 
   # The app-backup script
   app-backup = pkgs.writeShellApplication {
@@ -139,7 +126,7 @@ let
             echo "This backs up ONLY essential files for login restoration:"
             echo "  Chrome: cookies, login data, sessions, preferences"
             echo "  Firefox: cookies, logins, sessions, sync data"
-            echo "  Termius: session tokens, saved hosts, SSH keys"
+            echo "  Portal: app configuration"
             exit 0
             ;;
           *) log_error "Unknown option: $1" ;;
@@ -153,7 +140,7 @@ let
         pgrep -x "firefox" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x "firefox-bin" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x ".firefox-wrapped" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
-        pgrep -f "[T]ermius" >/dev/null 2>&1 && running="''${running:+$running, }Termius"
+        pgrep -f "[P]ortal" >/dev/null 2>&1 && running="''${running:+$running, }Portal"
         if [[ -n "$running" ]]; then
           if [[ "$FORCE" == "true" ]]; then
             log_warn "Apps running ($running) - continuing with --force"
@@ -283,63 +270,38 @@ let
         return 0
       }
 
-      # Create Termius archive with only essential files
-      backup_termius() {
-        local termius_dir="$HOME/.config/Termius"
-        local archive="$TEMP_DIR/termius-profile.tar.gz"
-        local staging_dir="$TEMP_DIR/termius-staging"
+      # Create Portal archive (entire config directory)
+      backup_portal() {
+        local portal_dir="$HOME/${portalConfigDir}"
+        local archive="$TEMP_DIR/portal-profile.tar.gz"
 
-        if [[ ! -d "$termius_dir" ]]; then
-          log_warn "Termius directory not found: $termius_dir"
+        if [[ ! -d "$portal_dir" ]]; then
+          log_warn "Portal directory not found: $portal_dir"
           return 1
         fi
 
-        log_info "Backing up Termius essential files..."
+        log_info "Backing up Portal configuration..."
 
-        # Create staging directory for archive contents
-        mkdir -p "$staging_dir"
-
-        # Build list of files that exist and copy to staging
-        local count=0
-        cd "$termius_dir"
-
-        # Copy essential files
-        for f in ${lib.concatMapStringsSep " " (f: ''"${f}"'') termiusEssentialFiles}; do
-          if [[ -f "$f" ]]; then
-            cp "$f" "$staging_dir/"
-            ((count++)) || true
-          fi
-        done
-
-        # Copy essential directories (recursively)
-        for d in ${lib.concatMapStringsSep " " (d: ''"${d}"'') termiusEssentialDirs}; do
-          if [[ -d "$d" ]]; then
-            mkdir -p "$staging_dir/$d"
-            cp -r "$d"/* "$staging_dir/$d/" 2>/dev/null || true
-            ((count++)) || true
-          fi
-        done
+        local count
+        count=$(find "$portal_dir" -type f 2>/dev/null | wc -l)
 
         if [[ $count -eq 0 ]]; then
-          log_warn "No Termius files found to backup"
+          log_warn "No Portal files found to backup"
           return 1
         fi
 
-        log_info "Found $count essential Termius items"
+        log_info "Found $count Portal files"
 
-        # Create archive from staging directory
+        # Create archive of entire portal config directory
         tar --create --gzip --file="$archive" \
-          --directory="$staging_dir" \
+          --directory="$HOME/.config" \
           --sort=name \
           --mtime='2024-01-01' \
-          .
-
-        # Clean up staging
-        rm -rf "$staging_dir"
+          portal
 
         local size
         size=$(du -h "$archive" | cut -f1)
-        log_success "Termius archive: $size"
+        log_success "Portal archive: $size"
         return 0
       }
 
@@ -394,9 +356,9 @@ let
         encrypt_archive "$TEMP_DIR/firefox-profile.tar.gz" "$TEMP_DIR/firefox-profile.tar.gz.age"
       fi
 
-      # Termius backup
-      if backup_termius; then
-        encrypt_archive "$TEMP_DIR/termius-profile.tar.gz" "$TEMP_DIR/termius-profile.tar.gz.age"
+      # Portal backup
+      if backup_portal; then
+        encrypt_archive "$TEMP_DIR/portal-profile.tar.gz" "$TEMP_DIR/portal-profile.tar.gz.age"
       fi
 
       # Keys backup (encrypted with age key, same as app profiles)
@@ -562,7 +524,7 @@ let
             echo "This restores essential files for login restoration:"
             echo "  Chrome: cookies, login data, sessions, preferences"
             echo "  Firefox: cookies, logins, sessions, sync data"
-            echo "  Termius: session tokens, saved hosts, SSH keys"
+            echo "  Portal: app configuration"
             echo ""
             echo "Files are merged into existing app profiles."
             exit 0
@@ -578,7 +540,7 @@ let
         pgrep -x "firefox" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x "firefox-bin" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
         pgrep -x ".firefox-wrapped" >/dev/null 2>&1 && running="''${running:+$running, }Firefox"
-        pgrep -f "[T]ermius" >/dev/null 2>&1 && running="''${running:+$running, }Termius"
+        pgrep -f "[P]ortal" >/dev/null 2>&1 && running="''${running:+$running, }Portal"
         if [[ -n "$running" ]]; then
           if [[ "$FORCE" == "true" ]]; then
             log_warn "Apps running ($running) - continuing with --force"
@@ -838,50 +800,54 @@ let
         return 0
       }
 
-      # Restore Termius essential files (merge into existing profile)
-      restore_termius() {
+      # Restore Portal configuration
+      restore_portal() {
         local age_file="$1"
-        local termius_dir="$HOME/.config/Termius"
+        local portal_dir="$HOME/.config/portal"
 
         if [[ ! -f "$age_file" ]]; then
-          log_warn "Termius backup not found: $age_file"
+          log_warn "Portal backup not found: $age_file"
           return 1
         fi
 
-        log_info "Restoring Termius essential files..."
+        log_info "Restoring Portal configuration..."
 
         # Decrypt
-        local tar_file="$TEMP_DIR/termius-profile.tar.gz"
-        local extract_dir="$TEMP_DIR/termius-extract"
+        local tar_file="$TEMP_DIR/portal-profile.tar.gz"
+        local extract_dir="$TEMP_DIR/portal-extract"
         mkdir -p "$extract_dir"
 
         get_age_key | age --decrypt --identity - --output "$tar_file" "$age_file"
         tar --extract --gzip --file="$tar_file" --directory="$extract_dir"
 
         # Backup files that will be overwritten
-        backup_essential_files "$termius_dir" "$extract_dir"
-        prune_essential_backups "$termius_dir" "$BACKUP_RETENTION"
+        if [[ -d "$extract_dir/portal" ]]; then
+          backup_essential_files "$portal_dir" "$extract_dir/portal"
+          prune_essential_backups "$portal_dir" "$BACKUP_RETENTION"
+        fi
 
         # Ensure target directory exists
-        mkdir -p "$termius_dir"
+        mkdir -p "$portal_dir"
 
-        # Copy files from archive to termius dir (merge)
+        # Copy files from archive to portal dir (merge)
         local file_count=0
-        cd "$extract_dir"
-        find . -type f | while read -r f; do
-          local src="$extract_dir/$f"
-          local dst="$termius_dir/$f"
-          mkdir -p "$(dirname "$dst")"
-          cp "$src" "$dst"
-        done
-        file_count=$(find "$extract_dir" -type f 2>/dev/null | wc -l)
-        cd /
+        if [[ -d "$extract_dir/portal" ]]; then
+          cd "$extract_dir/portal"
+          find . -type f | while read -r f; do
+            local src="$extract_dir/portal/$f"
+            local dst="$portal_dir/$f"
+            mkdir -p "$(dirname "$dst")"
+            cp "$src" "$dst"
+          done
+          file_count=$(find "$extract_dir/portal" -type f 2>/dev/null | wc -l)
+          cd /
+        fi
 
         # Cleanup
         shred -u "$tar_file" 2>/dev/null || rm -f "$tar_file"
         rm -rf "$extract_dir"
 
-        log_success "Restored $file_count Termius essential files"
+        log_success "Restored $file_count Portal files"
         return 0
       }
 
@@ -993,8 +959,8 @@ let
       # Restore Firefox
       restore_firefox "$LOCAL_REPO_PATH/firefox-profile.tar.gz.age" || true
 
-      # Restore Termius
-      restore_termius "$LOCAL_REPO_PATH/termius-profile.tar.gz.age" || true
+      # Restore Portal
+      restore_portal "$LOCAL_REPO_PATH/portal-profile.tar.gz.age" || true
 
       echo ""
       log_success "Restore complete!"
@@ -1539,7 +1505,7 @@ let
 in
 {
   options.programs.app-backup = {
-    enable = mkEnableOption "app profile backup/restore (browsers, Termius, etc.)";
+    enable = mkEnableOption "app profile backup/restore (browsers, Portal, etc.)";
 
     repoUrl = mkOption {
       type = types.str;

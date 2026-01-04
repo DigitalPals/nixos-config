@@ -15,7 +15,7 @@ pub const MAIN_MENU_ITEMS: &[&str] = &[
     "Exit",
 ];
 
-/// App profile menu items (browsers, Termius, etc.)
+/// App profile menu items (browsers, Portal, etc.)
 pub const APP_MENU_ITEMS: &[&str] = &[
     "Backup & push to GitHub",
     "Pull & restore from GitHub",
@@ -272,7 +272,7 @@ impl UpdateState {
     }
 }
 
-/// App profile management state (browsers, Termius, etc.)
+/// App profile management state (browsers, Portal, etc.)
 #[derive(Debug, Clone)]
 pub enum AppProfileState {
     Menu { selected: usize },

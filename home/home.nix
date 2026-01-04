@@ -19,7 +19,7 @@ in
     ./ghostty.nix
     ./neovim.nix      # Neovim with LazyVim dependencies
     ./1password-secrets.nix  # 1Password SSH agent integration
-    ./app-backup  # App profile backup/restore (browsers, Termius, etc.)
+    ./app-backup  # App profile backup/restore (browsers, Portal, etc.)
     ./forge-notify.nix  # Background update checker
     # Always deploy Illogical Impulse dotfiles (Quickshell config)
     # Required because Home Manager evaluates with default shell at build time,
@@ -189,7 +189,7 @@ in
 
   programs.firefox.enable = true;
 
-  # App profile backup/restore (browsers, Termius - encrypted, synced via GitHub)
+  # App profile backup/restore (browsers, Portal - encrypted, synced via GitHub)
   # Keys are stored locally with 1Password as fallback
   programs.app-backup = {
     enable = true;

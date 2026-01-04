@@ -1,4 +1,4 @@
-//! App profile management commands (browsers, Termius, etc.)
+//! App profile management commands (browsers, Portal, etc.)
 
 use anyhow::Result;
 use std::time::Duration;
