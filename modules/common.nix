@@ -172,6 +172,7 @@
 
   environment.systemPackages = with pkgs; [
     git
+    gcc
     wl-clipboard
     xdg-utils
     efibootmgr
