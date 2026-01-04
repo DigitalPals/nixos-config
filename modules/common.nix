@@ -172,7 +172,10 @@
 
   environment.systemPackages = with pkgs; [
     git
+    gh
     gcc
+    rustup
+    bun
     wl-clipboard
     xdg-utils
     efibootmgr
