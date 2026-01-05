@@ -1,5 +1,5 @@
 # Home Manager configuration
-{ config, pkgs, inputs, lib, osConfig, username, ... }:
+{ config, pkgs, inputs, lib, osConfig, username, portal, ... }:
 
 let
   # Get shell from NixOS config (set by specialisations)
@@ -128,6 +128,9 @@ in
 
   # User packages
   home.packages = with pkgs; [
+    # Portal - SSH connection manager
+    portal.packages.${pkgs.system}.default
+
     # Portal for GTK apps (dark mode, file dialogs)
     xdg-desktop-portal-gtk
 

@@ -46,9 +46,15 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Portal - SSH connection manager
+    portal = {
+      url = "github:DigitalPals/portal";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, noctalia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, noctalia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, portal, ... }@inputs:
   let
     system = "x86_64-linux";
 
@@ -76,7 +82,7 @@
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
-      home-manager.extraSpecialArgs = { inherit inputs hostname username dots-hyprland rounded-polygon-qmljs quickshell forge; };
+      home-manager.extraSpecialArgs = { inherit inputs hostname username dots-hyprland rounded-polygon-qmljs quickshell forge portal; };
       home-manager.users.${username} = import ./home/home.nix;
       # sharedModules removed - external modules now imported conditionally in home.nix
     };
