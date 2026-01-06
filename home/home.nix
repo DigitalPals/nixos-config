@@ -1,5 +1,5 @@
 # Home Manager configuration
-{ config, pkgs, inputs, lib, osConfig, username, portal, ... }:
+{ config, pkgs, inputs, lib, osConfig, username, ... }:
 
 let
   # Get shell from NixOS config (set by specialisations)
@@ -19,7 +19,7 @@ in
     ./ghostty.nix
     ./neovim.nix      # Neovim with LazyVim dependencies
     ./1password-secrets.nix  # 1Password SSH agent integration
-    ./app-backup  # App profile backup/restore (browsers, Portal, etc.)
+    ./app-backup  # App profile backup/restore (browsers)
     ./forge-notify.nix  # Background update checker
     # Always deploy Illogical Impulse dotfiles (Quickshell config)
     # Required because Home Manager evaluates with default shell at build time,
@@ -128,10 +128,7 @@ in
 
   # User packages
   home.packages = with pkgs; [
-    # Portal - SSH connection manager
-    portal.packages.${pkgs.system}.default
-
-    # Portal for GTK apps (dark mode, file dialogs)
+    # XDG portal for GTK apps (dark mode, file dialogs)
     xdg-desktop-portal-gtk
 
     # Screenshot tools
@@ -140,6 +137,7 @@ in
     satty
     wayfreeze
     wl-clipboard
+    hyprpicker
 
     # File management
     nautilus
@@ -192,7 +190,7 @@ in
 
   programs.firefox.enable = true;
 
-  # App profile backup/restore (browsers, Portal - encrypted, synced via GitHub)
+  # App profile backup/restore (browsers - encrypted, synced via GitHub)
   # Keys are stored locally with 1Password as fallback
   programs.app-backup = {
     enable = true;
