@@ -1,5 +1,5 @@
 # Home Manager configuration
-{ config, pkgs, inputs, lib, osConfig, username, ... }:
+{ config, pkgs, inputs, lib, osConfig, username, portal, ... }:
 
 let
   # Get shell from NixOS config (set by specialisations)
@@ -160,6 +160,7 @@ in
     jq
     nodejs
     termius
+    portal.packages.${pkgs.system}.default  # SSH client
     lazygit
     ripgrep
     fd
@@ -284,6 +285,43 @@ in
     QT_QPA_PLATFORM = "wayland";
     SDL_VIDEODRIVER = "wayland";
     XDG_SESSION_TYPE = "wayland";
+  };
+
+  # === Mic mute LED sync service (G1a only) ===
+  # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
+  # This service polls the mic mute state and updates the LED accordingly.
+  systemd.user.services.mic-led-sync = lib.mkIf (osConfig.networking.hostName == "G1a") {
+    Unit = {
+      Description = "Sync mic mute LED with WirePlumber state";
+      After = [ "pipewire.service" "wireplumber.service" ];
+      PartOf = [ "graphical-session.target" ];
+    };
+    Service = {
+      Type = "simple";
+      ExecStart = pkgs.writeShellScript "mic-led-sync" ''
+        LED_PATH="/sys/class/leds/hda::micmute/brightness"
+
+        # Wait for LED interface to be available
+        while [ ! -w "$LED_PATH" ]; do
+          sleep 1
+        done
+
+        # Sync loop
+        while true; do
+          if ${pkgs.wireplumber}/bin/wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -q MUTED; then
+            echo 1 > "$LED_PATH" 2>/dev/null || true
+          else
+            echo 0 > "$LED_PATH" 2>/dev/null || true
+          fi
+          sleep 0.3
+        done
+      '';
+      Restart = "always";
+      RestartSec = 5;
+    };
+    Install = {
+      WantedBy = [ "graphical-session.target" ];
+    };
   };
 
   # State version (should match NixOS)
