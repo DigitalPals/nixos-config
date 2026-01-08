@@ -80,12 +80,6 @@ in
       executable = true;
     };
 
-    # Paste clipboard image as file path (for CLI tools)
-    ".local/bin/paste-image" = {
-      source = ./scripts/paste-image;
-      executable = true;
-    };
-
     # User profile picture (used by GDM, SDDM, etc.)
     ".face".source = ../face;
 
@@ -143,7 +137,6 @@ in
     satty
     wayfreeze
     wl-clipboard
-    wtype  # Wayland tool to simulate keyboard input
     hyprpicker
 
     # File management
