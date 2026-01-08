@@ -9,7 +9,9 @@ mkdir -p "$OUTPUT_DIR"
 pkill slurp && exit 0
 
 MODE="${1:-region}"
-OUTPUT_FILE="$OUTPUT_DIR/screenshot-$(date +'%Y-%m-%d_%H-%M-%S').png"
+TS="$(date +'%Y-%m-%d_%H-%M-%S')"
+RAW_FILE="$OUTPUT_DIR/screenshot-${TS}-raw.png"
+OUTPUT_FILE="$OUTPUT_DIR/screenshot-${TS}.png"
 
 case "$MODE" in
   fullscreen)
@@ -25,13 +27,16 @@ esac
 
 [ -z "$SELECTION" ] && exit 0
 
-grim -g "$SELECTION" - | \
-  satty --filename - \
-    --output-filename "$OUTPUT_FILE" \
-    --early-exit \
-    --save-after-copy \
-    --copy-command 'wl-copy'
+grim -g "$SELECTION" "$RAW_FILE"
+satty --filename "$RAW_FILE" \
+  --output-filename "$OUTPUT_FILE" \
+  --early-exit \
+  --save-after-copy \
+  --copy-command 'wl-copy'
 
 if [ -f "$OUTPUT_FILE" ]; then
   wl-copy --type image/png < "$OUTPUT_FILE"
+  rm -f "$RAW_FILE"
+elif [ -f "$RAW_FILE" ]; then
+  wl-copy --type image/png < "$RAW_FILE"
 fi
