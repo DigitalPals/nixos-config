@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
-# Copy image from stdin to clipboard, then convert to file path for CLI tools
+# Copy image from stdin to clipboard, then set file path for CLI tools
+# Used by Satty's copy button - uses the already-saved screenshot file
 set -euo pipefail
+
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/clipboard-images"
 
 # Copy image to clipboard (reads from stdin)
 wl-copy
 
-# Convert to file path for Claude Code / Codex CLI
-if [ -x "$HOME/.local/bin/clipboard-image-to-file" ]; then
-  "$HOME/.local/bin/clipboard-image-to-file" >/dev/null 2>&1 || true
+# Check if we have a pending path from the screenshot script
+pending_path="$cache_dir/pending-path"
+if [ -f "$pending_path" ]; then
+  output_file="$(cat "$pending_path")"
+  # Satty's --save-after-copy saves the file when copy is clicked
+  # Wait briefly for file to be written
+  sleep 0.1
+  if [ -f "$output_file" ]; then
+    # Use the existing screenshot file path
+    printf '%s' "$output_file" | wl-copy
+    echo "$output_file" > "$cache_dir/latest"
+  fi
 fi
