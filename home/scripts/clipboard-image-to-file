@@ -23,7 +23,12 @@ esac
 ts="$(date +%Y%m%d-%H%M%S)"
 outfile="${cache_dir}/clipboard-${ts}.${ext}"
 
+# Save image to file
 wl-paste --type "$mime" --no-newline > "$outfile"
 
-printf 'file://%s\n' "$outfile" | wl-copy --type text/uri-list
-echo "Copied file URL to clipboard: $outfile"
+# Write path to 'latest' file for CLI tools that need it
+echo "$outfile" > "${cache_dir}/latest"
+
+# Keep image data in clipboard (don't replace with URL)
+# CLI tools can read the path from ~/.cache/clipboard-images/latest
+echo "Saved clipboard image to: $outfile"
