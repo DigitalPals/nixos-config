@@ -40,3 +40,8 @@ if [ -f "$OUTPUT_FILE" ]; then
 elif [ -f "$RAW_FILE" ]; then
   wl-copy --type image/png < "$RAW_FILE"
 fi
+
+# Convert image clipboard to a file URL for CLI tools that only accept URIs.
+if [ -x "$HOME/.local/bin/clipboard-image-to-file" ]; then
+  "$HOME/.local/bin/clipboard-image-to-file" >/dev/null 2>&1 || true
+fi
