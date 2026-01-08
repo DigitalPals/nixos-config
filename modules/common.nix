@@ -61,7 +61,10 @@
   };
 
   # Networking
-  networking.networkmanager.enable = true;
+  networking.networkmanager = {
+    enable = true;
+    wifi.powersave = false;  # Disable WiFi power save to prevent random disconnects
+  };
 
   # Firewall
   networking.firewall = {

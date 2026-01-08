@@ -277,12 +277,7 @@ boot.kernelPackages = lib.mkForce pkgs.linuxPackages_6_12;
 
 **When fixed:** Kernel 6.19+ should include the VPE revert. Once `linuxPackages_latest` points to 6.19+, suspend should work reliably.
 
-**Additional fix:** MediaTek WiFi module needs ASPM disabled for reliable resume:
-```nix
-boot.extraModprobeConfig = ''
-  options mt7925e disable_aspm=1
-'';
-```
+**Additional fix:** MediaTek WiFi module needs ASPM disabled for reliable resume. See "MT7925 WiFi Stability (G1a)" section below for full configuration.
 
 **BIOS settings (important):**
 - **Disable**: "Motion sensing cooling mode" (causes suspend issues)
@@ -309,6 +304,42 @@ cat /sys/power/mem_sleep
 # List IP blocks and their positions
 sudo dmesg | grep "detected ip block"
 ```
+
+## MT7925 WiFi Stability (G1a)
+
+**Problem:** Random WiFi disconnects on HP ZBook Ultra G1a with MediaTek MT7925 (WiFi 7) adapter. Connection drops intermittently despite strong signal.
+
+**Root cause:** Multiple bugs in the mt7925e driver affecting kernels 6.14.3 through 6.18:
+- Commit `cb1353ef34735` ("wifi: mt76: mt7925: integrate *mlo_sta_cmd and *sta_cmd") causes speed drops on some routers
+- CLC (Country Location Code) feature causes instability
+- ASPM power management interferes with driver operation
+- WiFi power save causes disconnects
+
+**Current workarounds** (in `hosts/G1a/default.nix`):
+```nix
+# Give Linux ASPM control
+boot.kernelParams = [ "pcie_aspm=force" ];
+
+# Load driver explicitly + disable problematic features
+boot.kernelModules = [ "mt7925e" ];
+boot.extraModprobeConfig = ''
+  options mt7925e disable_aspm=1
+  options mt7925-common disable_clc=1
+'';
+```
+
+Also in `modules/common.nix`:
+```nix
+networking.networkmanager.wifi.powersave = false;
+```
+
+**When fixed:** Kernel 6.19 (expected January 2026) includes a revert that should fix MT792x WiFi issues. Once `linuxPackages_latest` points to 6.19+, the `disable_clc=1` workaround can likely be removed.
+
+**References:**
+- [Ubuntu Bug #2118937](https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2118937) - Intermittent connection loss
+- [Ubuntu Bug #2118755](https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2118755) - 6GHz instability
+- [linux-mediatek regression report](https://lists.infradead.org/pipermail/linux-mediatek/2025-August/096746.html) - Bisected to specific commit
+- [Framework Community thread](https://community.frame.work/t/issues-with-mediatek-mt7925-rz717-wi-fi-card/75815)
 
 ## Key NVIDIA Settings
 
