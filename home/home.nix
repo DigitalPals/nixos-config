@@ -79,6 +79,11 @@ in
       source = ./scripts/screenshot;
       executable = true;
     };
+    # Clipboard image -> file helper (for CLI tools expecting file URLs)
+    ".local/bin/clipboard-image-to-file" = {
+      source = ./scripts/clipboard-image-to-file;
+      executable = true;
+    };
 
     # User profile picture (used by GDM, SDDM, etc.)
     ".face".source = ../face;

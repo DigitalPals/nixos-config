@@ -42,6 +42,7 @@ in
   bind = $mainMod, C, sendshortcut, CTRL, Insert,
   bind = $mainMod, V, sendshortcut, SHIFT, Insert,
   bind = $mainMod, X, sendshortcut, CTRL, X,
+  bind = $mainMod SHIFT, V, exec, ~/.local/bin/clipboard-image-to-file
 
   # Window management
   bind = $mainMod, Q, killactive,
