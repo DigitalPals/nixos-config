@@ -32,7 +32,7 @@ satty --filename "$RAW_FILE" \
   --output-filename "$OUTPUT_FILE" \
   --early-exit \
   --save-after-copy \
-  --copy-command 'wl-copy'
+  --copy-command "$HOME/.local/bin/clipboard-copy-image"
 
 if [ -f "$OUTPUT_FILE" ]; then
   wl-copy --type image/png < "$OUTPUT_FILE"

@@ -84,6 +84,11 @@ in
       source = ./scripts/clipboard-image-to-file;
       executable = true;
     };
+    # Wrapper for Satty copy command (copies image + converts for CLI tools)
+    ".local/bin/clipboard-copy-image" = {
+      source = ./scripts/clipboard-copy-image;
+      executable = true;
+    };
 
     # User profile picture (used by GDM, SDDM, etc.)
     ".face".source = ../face;
