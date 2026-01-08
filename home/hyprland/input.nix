@@ -38,5 +38,5 @@
   }
 
   # Scroll nicely in the terminal
-  windowrule = match:class com\.mitchellh\.ghostty, scroll_input 0.2
+  windowrulev2 = scrollInput 0.2, class:^(com\.mitchellh\.ghostty)$
 ''
