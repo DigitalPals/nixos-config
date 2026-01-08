@@ -209,7 +209,12 @@ windowrule = match:class 1[pP]assword, no_screen_share on
 - `suppress_event maximize/fullscreen/activate` - Ignore window events
 - `no_screen_share on` - Hide window from screen sharing
 
-**Implementation:** All window rules are in `home/hyprland/looknfeel.nix`.
+**Properties without new syntax equivalent:**
+- `scrollInput` - No equivalent in `windowrule`; must use legacy `windowrulev2` format
+
+**Implementation:** Window rules are split across files:
+- `home/hyprland/looknfeel.nix` - Most window rules (using new syntax)
+- `home/hyprland/input.nix` - `scrollInput` rule (must use legacy `windowrulev2`)
 
 **Documentation:** https://wiki.hypr.land/Configuring/Window-Rules/
 
