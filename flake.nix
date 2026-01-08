@@ -47,11 +47,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Portal - SSH connection manager
-    portal = {
-      url = "github:DigitalPals/portal";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # Portal - SSH connection manager (uses own nixpkgs to match cachix builds)
+    portal.url = "github:DigitalPals/portal";
   };
 
   outputs = { self, nixpkgs, home-manager, noctalia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, portal, ... }@inputs:
