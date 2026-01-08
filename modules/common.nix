@@ -35,6 +35,9 @@
   # Optimize store automatically
   nix.settings.auto-optimise-store = true;
 
+  # Parallel builds for faster compilation
+  nix.settings.max-jobs = "auto";
+
   # Use bash as /bin/sh (instead of busybox ash)
   environment.binsh = "${pkgs.bash}/bin/bash";
 

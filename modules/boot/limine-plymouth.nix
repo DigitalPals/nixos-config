@@ -30,7 +30,7 @@
   };
 
   # Boot settings
-  boot.loader.timeout = 3;
+  boot.loader.timeout = 5;
   boot.initrd.systemd.enable = true;
 
   # Base HID modules for keyboard input during boot
@@ -60,6 +60,6 @@
     "rd.udev.log_level=3"
     "vt.global_cursor_default=0"
   ];
-  boot.consoleLogLevel = 0;
+  boot.consoleLogLevel = 1;  # Allow critical errors through for debugging
   boot.initrd.verbose = false;
 }

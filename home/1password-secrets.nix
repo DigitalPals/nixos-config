@@ -32,11 +32,4 @@
     };
   };
 
-  # Fish shell integration - ensure SSH_AUTH_SOCK is set in interactive shells
-  programs.fish.interactiveShellInit = lib.mkAfter ''
-    # Point SSH to 1Password agent if socket exists
-    if test -S ~/.1password/agent.sock
-      set -gx SSH_AUTH_SOCK ~/.1password/agent.sock
-    end
-  '';
 }

@@ -48,7 +48,8 @@
     };
 
     # Portal - SSH connection manager (uses own nixpkgs to match cachix builds)
-    portal.url = "github:DigitalPals/portal";
+    # Points to release branch for stable builds with cachix cache hits
+    portal.url = "github:DigitalPals/portal/release";
   };
 
   outputs = { self, nixpkgs, home-manager, noctalia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, portal, ... }@inputs:
