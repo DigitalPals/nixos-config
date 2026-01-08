@@ -29,6 +29,6 @@ wl-paste --type "$mime" --no-newline > "$outfile"
 # Write path to 'latest' file for CLI tools that need it
 echo "$outfile" > "${cache_dir}/latest"
 
-# Keep image data in clipboard (don't replace with URL)
-# CLI tools can read the path from ~/.cache/clipboard-images/latest
-echo "Saved clipboard image to: $outfile"
+# Copy plain file path to clipboard (for terminal apps like Claude Code)
+printf '%s' "$outfile" | wl-copy
+echo "Copied file path to clipboard: $outfile"
