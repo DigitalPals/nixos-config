@@ -61,32 +61,40 @@ pub struct RunningShellInfo {
     pub pid: u32,
 }
 
-/// Detect which Quickshell-based shell is running and get its store path
-pub async fn get_running_quickshell_info() -> Option<RunningShellInfo> {
+/// Detect ALL running Quickshell-based shells and get their store paths
+pub async fn get_all_running_quickshell_info() -> Vec<RunningShellInfo> {
     // Get all quickshell processes with full command line
-    let output = get_output("pgrep", &["-a", "quickshell"]).await.ok()?;
+    let output = match get_output("pgrep", &["-a", "quickshell"]).await {
+        Ok(o) => o,
+        Err(_) => return Vec::new(),
+    };
 
     if output.is_empty() {
-        return None;
+        return Vec::new();
     }
 
-    // Parse the first quickshell process (there should typically be only one)
+    let mut results = Vec::new();
+
+    // Parse ALL quickshell processes (there may be duplicates after updates)
     for line in output.lines() {
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
         if parts.len() < 2 {
             continue;
         }
 
-        let pid: u32 = parts[0].parse().ok()?;
+        let pid: u32 = match parts[0].parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         let cmd = parts[1];
 
         // Detect shell type and extract path from command line
         if let Some(info) = parse_quickshell_command(pid, cmd) {
-            return Some(info);
+            results.push(info);
         }
     }
 
-    None
+    results
 }
 
 /// Parse a quickshell command line to determine shell type and path
@@ -161,33 +169,39 @@ pub async fn get_expected_shell_path(shell: ShellType) -> Option<String> {
 }
 
 /// Check if shell needs restart and restart if necessary
-/// Returns Some(shell_name) if restarted, None if not needed
+/// Returns Some(shell_name) if restarted/cleaned up, None if not needed
 pub async fn restart_shell_if_needed(
     tx: &mpsc::Sender<CommandMessage>,
 ) -> Result<Option<String>> {
-    // Get info about running quickshell
-    let running_info = match get_running_quickshell_info().await {
-        Some(info) => info,
-        None => {
-            tracing::debug!("No Quickshell process running, skipping restart check");
-            return Ok(None);
-        }
-    };
+    // Get info about ALL running quickshell processes
+    let running_shells = get_all_running_quickshell_info().await;
 
-    tracing::info!(
-        "Found running {} shell (PID {}): {}",
-        running_info.shell_type.name(),
-        running_info.pid,
-        running_info.running_path
-    );
+    if running_shells.is_empty() {
+        tracing::debug!("No Quickshell process running, skipping restart check");
+        return Ok(None);
+    }
+
+    tracing::info!("Found {} running Quickshell process(es)", running_shells.len());
+    for info in &running_shells {
+        tracing::info!(
+            "  PID {}: {} at {}",
+            info.pid,
+            info.shell_type.name(),
+            info.running_path
+        );
+    }
+
+    // Use the first shell's type to determine expected path
+    // (all shells should be the same type in normal operation)
+    let shell_type = running_shells[0].shell_type;
 
     // Get expected path after rebuild
-    let expected_path = match get_expected_shell_path(running_info.shell_type).await {
+    let expected_path = match get_expected_shell_path(shell_type).await {
         Some(path) => path,
         None => {
             tracing::warn!(
                 "Could not determine expected path for {} shell",
-                running_info.shell_type.name()
+                shell_type.name()
             );
             return Ok(None);
         }
@@ -195,76 +209,113 @@ pub async fn restart_shell_if_needed(
 
     tracing::info!("Expected shell path: {}", expected_path);
 
-    // Compare paths - for Noctalia, compare the full -p path
-    // For Illogical, compare the quickshell binary path
-    let needs_restart = match running_info.shell_type {
-        ShellType::Noctalia => {
-            // The running path should match the symlink target
-            running_info.running_path != expected_path
-        }
-        ShellType::Illogical => {
-            // Compare quickshell binary paths
-            !running_info.running_path.contains(&expected_path)
-                && !expected_path.contains(&running_info.running_path)
-        }
-    };
+    // Categorize processes: correct path vs wrong path
+    let mut correct_pids: Vec<u32> = Vec::new();
+    let mut wrong_pids: Vec<u32> = Vec::new();
 
-    if !needs_restart {
-        tracing::info!("Shell paths match, no restart needed");
+    for info in &running_shells {
+        let is_correct = match info.shell_type {
+            ShellType::Noctalia => info.running_path == expected_path,
+            ShellType::Illogical => {
+                info.running_path.contains(&expected_path)
+                    || expected_path.contains(&info.running_path)
+            }
+        };
+
+        if is_correct {
+            correct_pids.push(info.pid);
+        } else {
+            wrong_pids.push(info.pid);
+        }
+    }
+
+    tracing::info!(
+        "Correct path: {} process(es), wrong path: {} process(es)",
+        correct_pids.len(),
+        wrong_pids.len()
+    );
+
+    // If there are no wrong processes, nothing to do
+    if wrong_pids.is_empty() {
+        tracing::info!("All shells have correct path, no cleanup needed");
         return Ok(None);
     }
 
-    // Restart the shell
+    // Kill only the processes with wrong paths
     out(tx, "").await;
-    out(
-        tx,
-        &format!(
-            "  Restarting {} shell (store path changed)...",
-            running_info.shell_type.name()
-        ),
-    )
-    .await;
-
-    // Kill existing quickshell processes
-    let _ = run_capture("pkill", &["-x", "quickshell"]).await;
-
-    // Wait a moment for the process to die
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Restart using hyprctl if available, otherwise direct launch
-    let (cmd, args) = running_info.shell_type.restart_command();
-
-    // Try hyprctl dispatch exec first (preferred for Wayland)
-    let hyprctl_available = run_capture("which", &["hyprctl"]).await.map(|(ok, _, _)| ok).unwrap_or(false);
-
-    if hyprctl_available {
-        let exec_cmd = if args.is_empty() {
-            cmd.to_string()
-        } else {
-            format!("{} {}", cmd, args.join(" "))
-        };
-
-        let _ = run_capture("hyprctl", &["dispatch", "exec", &exec_cmd]).await;
+    if correct_pids.is_empty() {
+        out(
+            tx,
+            &format!(
+                "  Restarting {} shell (store path changed)...",
+                shell_type.name()
+            ),
+        )
+        .await;
     } else {
-        // Direct launch as fallback
-        let mut launch_args: Vec<&str> = vec![cmd];
-        launch_args.extend(args.iter());
-
-        // Use nohup to detach the process
-        let _ = run_capture("nohup", &launch_args).await;
+        out(
+            tx,
+            &format!(
+                "  Cleaning up {} stale {} shell process(es)...",
+                wrong_pids.len(),
+                shell_type.name()
+            ),
+        )
+        .await;
     }
 
-    // Wait for shell to start
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    // Kill processes with wrong paths
+    for pid in &wrong_pids {
+        tracing::info!("Killing stale quickshell PID {}", pid);
+        let _ = run_capture("kill", &[&pid.to_string()]).await;
+    }
 
-    // Verify restart succeeded
-    let new_info = get_running_quickshell_info().await;
-    if new_info.is_some() {
-        tracing::info!("Shell restarted successfully");
-        Ok(Some(running_info.shell_type.name().to_string()))
+    // Wait a moment for processes to die
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Only start a new shell if there wasn't already a correct one running
+    if correct_pids.is_empty() {
+        // Restart using hyprctl if available, otherwise direct launch
+        let (cmd, args) = shell_type.restart_command();
+
+        // Try hyprctl dispatch exec first (preferred for Wayland)
+        let hyprctl_available = run_capture("which", &["hyprctl"])
+            .await
+            .map(|(ok, _, _)| ok)
+            .unwrap_or(false);
+
+        if hyprctl_available {
+            let exec_cmd = if args.is_empty() {
+                cmd.to_string()
+            } else {
+                format!("{} {}", cmd, args.join(" "))
+            };
+
+            let _ = run_capture("hyprctl", &["dispatch", "exec", &exec_cmd]).await;
+        } else {
+            // Direct launch as fallback
+            let mut launch_args: Vec<&str> = vec![cmd];
+            launch_args.extend(args.iter());
+
+            // Use nohup to detach the process
+            let _ = run_capture("nohup", &launch_args).await;
+        }
+
+        // Wait for shell to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        // Verify restart succeeded
+        let new_shells = get_all_running_quickshell_info().await;
+        if !new_shells.is_empty() {
+            tracing::info!("Shell restarted successfully");
+        } else {
+            tracing::warn!("Shell may not have restarted properly");
+        }
+
+        Ok(Some(shell_type.name().to_string()))
     } else {
-        tracing::warn!("Shell may not have restarted properly");
-        // Still report as restarted since we attempted it
-        Ok(Some(running_info.shell_type.name().to_string()))
+        // A correct shell was already running, we just cleaned up stale ones
+        tracing::info!("Kept existing correct shell, cleaned up {} stale process(es)", wrong_pids.len());
+        Ok(Some(format!("{} (cleanup)", shell_type.name())))
     }
 }
