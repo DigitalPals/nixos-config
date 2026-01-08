@@ -9,6 +9,19 @@
   # Enable flakes
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
+  # Binary caches (Cachix for Portal)
+  nix.settings.substituters = [
+    "https://cache.nixos.org"
+    "https://digitalpals.cachix.org"
+  ];
+  nix.settings.trusted-public-keys = [
+    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+    "digitalpals.cachix.org-1:YWuWBw08EbEeTsIccpPfRTaqksfo4QtAVQaTRljYFm8="
+  ];
+
+  # Allow users to use extra substituters (for cachix in user nix.conf)
+  nix.settings.trusted-users = [ "root" "@wheel" ];
+
   # Increase download buffer size for faster fetches
   nix.settings.download-buffer-size = 256 * 1024 * 1024; # 256 MiB
 
@@ -78,14 +91,8 @@
     enable32Bit = true;
   };
 
-  # CPU microcode updates (use mkDefault so Intel hosts can override)
-  hardware.cpu.amd.updateMicrocode = lib.mkDefault true;
-
   # Firmware for AMD GPUs and other hardware
   hardware.enableRedistributableFirmware = true;
-
-  # Thermal monitoring
-  boot.kernelModules = [ "k10temp" ];
 
   # Bluetooth
   hardware.bluetooth.enable = true;
@@ -101,6 +108,7 @@
   # Network discovery for Nautilus (SMB shares, printers, etc.)
   services.avahi = {
     enable = true;
+    openFirewall = true;
     nssmdns4 = true;
   };
 
@@ -109,6 +117,12 @@
     enable = true;
     memoryPercent = 25;
   };
+
+  # SSD TRIM
+  services.fstrim.enable = true;
+
+  # Btrfs scrub
+  services.btrfs.autoScrub.enable = true;
 
   # Docker
   virtualisation.docker = {

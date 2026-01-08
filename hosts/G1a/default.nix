@@ -5,6 +5,7 @@
   imports = [
     ./hardware-configuration.nix
     ../../modules/boot/limine-plymouth.nix
+    ../../modules/hardware/amd.nix
   ];
 
   networking.hostName = "G1a";
