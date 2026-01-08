@@ -29,24 +29,15 @@ esac
 
 grim -g "$SELECTION" "$RAW_FILE"
 
-# Store expected output path for clipboard-copy-image to use
-cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/clipboard-images"
-mkdir -p "$cache_dir"
-echo "$OUTPUT_FILE" > "$cache_dir/pending-path"
-
 satty --filename "$RAW_FILE" \
   --output-filename "$OUTPUT_FILE" \
   --early-exit \
-  --save-after-copy \
   --copy-command "$HOME/.local/bin/clipboard-copy-image"
 
-# Clean up raw file if output was saved
+# Clean up: if user saved via Satty's save button, keep that file
+# Otherwise clean up the raw file
 if [ -f "$OUTPUT_FILE" ]; then
   rm -f "$RAW_FILE"
-  # Copy path to clipboard for CLI tools (file already saved by Satty)
-  printf '%s' "$OUTPUT_FILE" | wl-copy
-  echo "$OUTPUT_FILE" > "$cache_dir/latest"
 elif [ -f "$RAW_FILE" ]; then
-  # User closed without saving - copy raw image to clipboard
-  wl-copy --type image/png < "$RAW_FILE"
+  rm -f "$RAW_FILE"
 fi
