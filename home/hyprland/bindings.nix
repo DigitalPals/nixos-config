@@ -43,6 +43,9 @@ in
   bind = $mainMod, V, sendshortcut, SHIFT, Insert,
   bind = $mainMod, X, sendshortcut, CTRL, X,
 
+  # Paste clipboard image as file path (for CLI tools like Claude Code)
+  bind = $mainMod SHIFT, V, exec, ~/.local/bin/paste-image
+
   # Window management
   bind = $mainMod, Q, killactive,
   bind = $mainMod, F, togglefloating,
