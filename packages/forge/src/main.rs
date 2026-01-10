@@ -219,7 +219,7 @@ async fn run_app(
             Some(Ok(event)) = event_stream.next() => {
                 if let Event::Key(key) = event {
                     if key.kind == KeyEventKind::Press {
-                        app.handle_key(key.code).await?;
+                        app.handle_key(key).await?;
                     }
                 }
             }

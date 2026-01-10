@@ -1,7 +1,7 @@
 //! Keyboard input handlers for the application
 
 use anyhow::Result;
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::mem;
 
 use super::state::*;
@@ -10,12 +10,17 @@ use crate::commands;
 use crate::constants::MAX_INPUT_LENGTH;
 use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor};
 
+/// Check if this is a Ctrl+C key event
+fn is_ctrl_c(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
 impl App {
     /// Handle keyboard input
-    pub async fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+    pub async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         // Handle reboot confirmation dialog
         if self.show_reboot_confirm {
-            match key {
+            match key.code {
                 KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                     let _ = crate::commands::executor::run_capture("sudo", &["reboot"]).await;
                     self.should_quit = true;
@@ -31,7 +36,7 @@ impl App {
 
         // Handle exit confirmation dialog
         if self.show_exit_confirm {
-            match key {
+            match key.code {
                 KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                     self.should_quit = true;
                 }
@@ -45,7 +50,7 @@ impl App {
 
         // Handle commit list view
         if self.pending_updates.viewing_commits {
-            match key {
+            match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     if self.pending_updates.selected_commit > 0 {
                         self.pending_updates.selected_commit -= 1;
@@ -85,7 +90,7 @@ impl App {
 
         // Handle update dialog
         if self.pending_updates.has_updates() {
-            match key {
+            match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     if self.pending_updates.selected > 0 {
                         self.pending_updates.selected -= 1;
@@ -109,7 +114,7 @@ impl App {
         }
 
         // Global quit
-        if matches!(key, KeyCode::Char('q') | KeyCode::Char('Q'))
+        if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
             && matches!(
                 self.mode,
                 AppMode::MainMenu { .. }
@@ -127,13 +132,28 @@ impl App {
         }
 
         // Escape to go back (show confirm if on main menu)
-        if key == KeyCode::Esc {
+        if key.code == KeyCode::Esc {
             if matches!(self.mode, AppMode::MainMenu { .. }) {
                 self.show_exit_confirm = true;
                 return Ok(());
             }
             self.handle_back().await?;
             return Ok(());
+        }
+
+        // Handle Ctrl+C to cancel running operations
+        if is_ctrl_c(&key) {
+            if matches!(
+                self.mode,
+                AppMode::Update(UpdateState::Running { .. })
+                    | AppMode::Install(InstallState::Running { .. })
+                    | AppMode::Apps(AppProfileState::Running { .. })
+                    | AppMode::Keys(KeysState::Running { .. })
+                    | AppMode::CreateHost(CreateHostState::Generating { .. })
+            ) {
+                self.cancel_operation();
+                return Ok(());
+            }
         }
 
         // Extract values from mode to avoid borrow conflicts
@@ -164,13 +184,13 @@ impl App {
             AppMode::Install(InstallState::Complete { .. })
             | AppMode::Update(UpdateState::Complete { .. })
             | AppMode::Apps(AppProfileState::Complete { .. })
-            | AppMode::Keys(KeysState::Complete { .. }) => match key {
+            | AppMode::Keys(KeysState::Complete { .. }) => match key.code {
                 KeyCode::Enter => Some(("complete", 0, None, None)),
                 KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
                 _ => None,
             },
             AppMode::Apps(AppProfileState::Status { .. }) => {
-                if key == KeyCode::Enter {
+                if key.code == KeyCode::Enter {
                     Some(("browser_done", 0, None, None))
                 } else {
                     None
@@ -261,8 +281,8 @@ impl App {
         Ok(())
     }
 
-    async fn handle_main_menu_key(&mut self, key: KeyCode, current_selected: usize) -> Result<()> {
-        match key {
+    async fn handle_main_menu_key(&mut self, key: KeyEvent, current_selected: usize) -> Result<()> {
+        match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if let AppMode::MainMenu { selected } = &mut self.mode {
                     *selected = selected.saturating_sub(1);
@@ -329,7 +349,7 @@ impl App {
     }
 
     /// Handle scroll keys for complete screens
-    fn handle_scroll(&mut self, key: KeyCode) {
+    fn handle_scroll(&mut self, key: KeyEvent) {
         // Calculate visible height from terminal size
         // Layout: header(3) + steps(10) + output(rest) + footer(2), output has borders(2)
         let visible_height = crossterm::terminal::size()
@@ -364,7 +384,7 @@ impl App {
                 // If in auto-scroll mode (None), calculate what the start position would be
                 let current = scroll_offset.unwrap_or(max_scroll);
 
-                match key {
+                match key.code {
                     KeyCode::Up => {
                         *scroll_offset = Some(current.saturating_sub(1));
                     }
@@ -384,8 +404,8 @@ impl App {
         }
     }
 
-    async fn handle_app_menu_key(&mut self, key: KeyCode, selected: usize) -> Result<()> {
-        match key {
+    async fn handle_app_menu_key(&mut self, key: KeyEvent, selected: usize) -> Result<()> {
+        match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if let AppMode::Apps(AppProfileState::Menu { selected }) = &mut self.mode {
                     *selected = selected.saturating_sub(1);
@@ -423,8 +443,8 @@ impl App {
         Ok(())
     }
 
-    async fn handle_install_host_key(&mut self, key: KeyCode, selected: usize) -> Result<()> {
-        match key {
+    async fn handle_install_host_key(&mut self, key: KeyEvent, selected: usize) -> Result<()> {
+        match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if let AppMode::Install(InstallState::SelectHost { selected }) = &mut self.mode {
                     *selected = selected.saturating_sub(1);
@@ -459,12 +479,12 @@ impl App {
 
     async fn handle_install_disk_key(
         &mut self,
-        key: KeyCode,
+        key: KeyEvent,
         host: &str,
         disks: &[crate::system::disk::DiskInfo],
         selected: usize,
     ) -> Result<()> {
-        match key {
+        match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if let AppMode::Install(InstallState::SelectDisk { selected, .. }) = &mut self.mode
                 {
@@ -496,7 +516,7 @@ impl App {
         Ok(())
     }
 
-    async fn handle_credentials_key(&mut self, key: KeyCode, _host: &str) -> Result<()> {
+    async fn handle_credentials_key(&mut self, key: KeyEvent, _host: &str) -> Result<()> {
         if let AppMode::Install(InstallState::EnterCredentials {
             host,
             disk,
@@ -505,7 +525,7 @@ impl App {
             error,
         }) = &mut self.mode
         {
-            match key {
+            match key.code {
                 KeyCode::Tab | KeyCode::Down => {
                     // Move to next field
                     *active_field = match active_field {
@@ -573,7 +593,7 @@ impl App {
         Ok(())
     }
 
-    async fn handle_overview_key_action(&mut self, key: KeyCode, host: &str) -> Result<()> {
+    async fn handle_overview_key_action(&mut self, key: KeyEvent, host: &str) -> Result<()> {
         let (disk, credentials, should_start) = if let AppMode::Install(InstallState::Overview {
             disk,
             credentials,
@@ -581,7 +601,7 @@ impl App {
             ..
         }) = &mut self.mode
         {
-            match key {
+            match key.code {
                 KeyCode::Char(c) => {
                     if input.len() < MAX_INPUT_LENGTH {
                         input.push(c);
@@ -641,7 +661,7 @@ impl App {
     }
 
     /// Handle keyboard input for create host wizard
-    async fn handle_create_host_key(&mut self, key: KeyCode) -> Result<()> {
+    async fn handle_create_host_key(&mut self, key: KeyEvent) -> Result<()> {
         // For keys that don't transition state, handle them with mutable borrow
         let should_transition = match &mut self.mode {
             AppMode::CreateHost(CreateHostState::ConfirmCpu {
@@ -650,7 +670,7 @@ impl App {
                 ..
             }) => {
                 if *override_menu {
-                    match key {
+                    match key.code {
                         KeyCode::Up | KeyCode::Char('k') => {
                             *selected = selected.saturating_sub(1);
                             false
@@ -663,7 +683,7 @@ impl App {
                         _ => false,
                     }
                 } else {
-                    match key {
+                    match key.code {
                         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => true,
                         KeyCode::Char('n') | KeyCode::Char('N') => {
                             *override_menu = true;
@@ -679,7 +699,7 @@ impl App {
                 ..
             }) => {
                 if *override_menu {
-                    match key {
+                    match key.code {
                         KeyCode::Up | KeyCode::Char('k') => {
                             *selected = selected.saturating_sub(1);
                             false
@@ -692,7 +712,7 @@ impl App {
                         _ => false,
                     }
                 } else {
-                    match key {
+                    match key.code {
                         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => true,
                         KeyCode::Char('n') | KeyCode::Char('N') => {
                             *override_menu = true;
@@ -708,7 +728,7 @@ impl App {
                 ..
             }) => {
                 if *override_menu {
-                    match key {
+                    match key.code {
                         KeyCode::Up | KeyCode::Char('k') => {
                             *selected = selected.saturating_sub(1);
                             false
@@ -721,7 +741,7 @@ impl App {
                         _ => false,
                     }
                 } else {
-                    match key {
+                    match key.code {
                         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => true,
                         KeyCode::Char('n') | KeyCode::Char('N') => {
                             *override_menu = true;
@@ -732,7 +752,7 @@ impl App {
                 }
             }
             AppMode::CreateHost(CreateHostState::SelectDisk { disks, selected, .. }) => {
-                match key {
+                match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
                         *selected = selected.saturating_sub(1);
                         false
@@ -748,7 +768,7 @@ impl App {
                 }
             }
             AppMode::CreateHost(CreateHostState::EnterHostname { input, error, .. }) => {
-                match key {
+                match key.code {
                     KeyCode::Char(c) => {
                         if input.len() < MAX_INPUT_LENGTH && (c.is_alphanumeric() || c == '-') {
                             input.push(c.to_ascii_lowercase());
@@ -765,10 +785,10 @@ impl App {
                     _ => false,
                 }
             }
-            AppMode::CreateHost(CreateHostState::Review { .. }) => key == KeyCode::Enter,
+            AppMode::CreateHost(CreateHostState::Review { .. }) => key.code == KeyCode::Enter,
             AppMode::CreateHost(CreateHostState::Complete { success, .. }) => {
                 // Auto-proceed on any key for success, Enter for failure
-                *success || key == KeyCode::Enter
+                *success || key.code == KeyCode::Enter
             }
             _ => false,
         };

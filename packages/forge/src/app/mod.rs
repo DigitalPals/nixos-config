@@ -15,6 +15,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::commands::{self, CommandMessage};
 use crate::constants::SPINNER_TICK_MS;
@@ -44,6 +45,8 @@ pub struct App {
     pub error: Option<String>,
     pub hosts: Vec<HostConfig>,
     pub(crate) cmd_tx: Option<mpsc::Sender<CommandMessage>>,
+    /// Cancellation token for running operations
+    pub(crate) cancel_token: Option<CancellationToken>,
     screen_log: Option<File>,
     pub screen_log_path: PathBuf,
 }
@@ -83,6 +86,7 @@ impl App {
             error: None,
             hosts: discover_hosts(),
             cmd_tx: None,
+            cancel_token: None,
             screen_log,
             screen_log_path,
         }
@@ -100,6 +104,20 @@ impl App {
         }
     }
 
+    /// Cancel any running operation
+    pub fn cancel_operation(&mut self) {
+        if let Some(token) = self.cancel_token.take() {
+            token.cancel();
+        }
+    }
+
+    /// Create a new cancellation token for an operation
+    pub fn new_cancel_token(&mut self) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.cancel_token = Some(token.clone());
+        token
+    }
+
     /// Called on each tick to update animations
     pub fn tick(&mut self) {
         if self.last_tick.elapsed().as_millis() >= SPINNER_TICK_MS {
@@ -115,8 +133,10 @@ impl App {
                 if !steps.is_empty() {
                     steps[0].status = StepState::Running;
                 }
-                if let Some(tx) = &self.cmd_tx {
-                    commands::update::start_update(tx.clone()).await?;
+                let tx = self.cmd_tx.clone();
+                if let Some(tx) = tx {
+                    let cancel = self.new_cancel_token();
+                    commands::update::start_update(tx, cancel).await?;
                 }
             }
             AppMode::Apps(AppProfileState::Running {

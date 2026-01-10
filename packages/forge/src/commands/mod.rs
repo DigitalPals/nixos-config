@@ -58,6 +58,8 @@ pub enum CommandMessage {
     StepSkipped { step: String },
     /// Command fully completed
     Done { success: bool },
+    /// Operation was cancelled by user
+    Cancelled,
     /// Updates available notification (sent after startup checks complete)
     UpdatesAvailable {
         nixos_config: bool,

@@ -14,6 +14,7 @@ futures = "0.3"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "process"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # CLI parsing
 clap = { version = "4", features = ["derive"] }

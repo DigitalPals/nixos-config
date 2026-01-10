@@ -41,6 +41,9 @@ impl App {
             CommandMessage::Done { success } => {
                 self.handle_command_done(success);
             }
+            CommandMessage::Cancelled => {
+                self.handle_command_cancelled();
+            }
             CommandMessage::UpdatesAvailable {
                 nixos_config,
                 app_profiles,
@@ -255,6 +258,57 @@ impl App {
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
                 self.mode = AppMode::CreateHost(CreateHostState::Complete {
                     success,
+                    config: config.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_command_cancelled(&mut self) {
+        self.log_to_screen("\n=== Operation CANCELLED ===\n");
+
+        // Clear the cancellation token
+        self.cancel_token = None;
+
+        match &mut self.mode {
+            AppMode::Apps(AppProfileState::Running { output, .. }) => {
+                output.push_back("Operation cancelled by user.".to_string());
+                self.mode = AppMode::Apps(AppProfileState::Complete {
+                    success: false,
+                    output: output.clone(),
+                    scroll_offset: None,
+                });
+            }
+            AppMode::Keys(KeysState::Running { output, .. }) => {
+                output.push_back("Operation cancelled by user.".to_string());
+                self.mode = AppMode::Keys(KeysState::Complete {
+                    success: false,
+                    output: output.clone(),
+                    scroll_offset: None,
+                });
+            }
+            AppMode::Install(InstallState::Running { output, .. }) => {
+                output.push_back("Operation cancelled by user.".to_string());
+                self.mode = AppMode::Install(InstallState::Complete {
+                    success: false,
+                    output: output.clone(),
+                    scroll_offset: None,
+                });
+            }
+            AppMode::Update(UpdateState::Running { steps, output, .. }) => {
+                output.push_back("Operation cancelled by user.".to_string());
+                self.mode = AppMode::Update(UpdateState::Complete {
+                    success: false,
+                    steps: steps.clone(),
+                    output: output.clone(),
+                    scroll_offset: None,
+                });
+            }
+            AppMode::CreateHost(CreateHostState::Generating { config, output, .. }) => {
+                output.push_back("Operation cancelled by user.".to_string());
+                self.mode = AppMode::CreateHost(CreateHostState::Complete {
+                    success: false,
                     config: config.clone(),
                 });
             }

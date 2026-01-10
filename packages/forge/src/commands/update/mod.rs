@@ -16,10 +16,11 @@ use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::app::UpdateSummary;
 use crate::commands::errors::{ErrorContext, ParsedError};
-use crate::commands::executor::{command_exists, get_output, run_capture, run_command, run_command_transformed};
+use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable, run_command_cancellable_transformed, CommandResult};
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
@@ -117,9 +118,9 @@ fn transform_nix_output(line: &str) -> Option<String> {
 }
 
 /// Start the update process
-pub async fn start_update(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
+pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: CancellationToken) -> Result<()> {
     tokio::spawn(async move {
-        if let Err(e) = run_update(&tx).await {
+        if let Err(e) = run_update(&tx, cancel).await {
             tracing::error!("Update failed: {}", e);
             let _ = tx
                 .send(CommandMessage::StepFailed {
@@ -138,7 +139,7 @@ pub async fn start_update(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
     Ok(())
 }
 
-async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
+async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken) -> Result<()> {
     let mut summary = UpdateSummary::default();
 
     // Find the flake directory
@@ -181,24 +182,32 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     out(tx, "").await;
 
     // Transform output: filter noise and extract useful info from errors
-    let success = run_command_transformed(tx, "nix", &["flake", "update", "--flake", flake_path], transform_nix_output).await?;
+    let result = run_command_cancellable_transformed(tx, "nix", &["flake", "update", "--flake", flake_path], cancel.clone(), transform_nix_output).await?;
 
     out(tx, "").await;
-    if !success {
-        out(tx, "  ✗ Flake update failed").await;
-        let error = ParsedError::from_stderr(
-            "Flake update failed - see output above for details",
-            ErrorContext {
-                operation: "Flake update".to_string(),
-            },
-        );
-        tx.send(CommandMessage::StepFailed {
-            step: "flake".to_string(),
-            error,
-        })
-        .await?;
-        tx.send(CommandMessage::Done { success: false }).await?;
-        return Ok(());
+    match result {
+        CommandResult::Cancelled => {
+            out(tx, "  ⊘ Flake update cancelled").await;
+            tx.send(CommandMessage::Cancelled).await?;
+            return Ok(());
+        }
+        CommandResult::Completed(false) => {
+            out(tx, "  ✗ Flake update failed").await;
+            let error = ParsedError::from_stderr(
+                "Flake update failed - see output above for details",
+                ErrorContext {
+                    operation: "Flake update".to_string(),
+                },
+            );
+            tx.send(CommandMessage::StepFailed {
+                step: "flake".to_string(),
+                error,
+            })
+            .await?;
+            tx.send(CommandMessage::Done { success: false }).await?;
+            return Ok(());
+        }
+        CommandResult::Completed(true) => {}
     }
     out(tx, "  ✓ Flake inputs updated").await;
     tx.send(CommandMessage::StepComplete {
@@ -224,35 +233,43 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
 
         let config_name = hostname.clone();
         let flake_ref = format!("{}#{}", flake_path, config_name);
-        let success =
-            run_command(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref]).await?;
+        let result =
+            run_command_cancellable(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], cancel.clone()).await?;
 
         out(tx, "").await;
-        if success {
-            out(tx, "  ✓ System rebuilt successfully").await;
-            tx.send(CommandMessage::StepComplete {
-                step: "Rebuild".to_string(),
-            })
-            .await?;
-
-            // Check if shell needs restart due to store path change
-            if let Ok(Some(shell_name)) = shell::restart_shell_if_needed(tx).await {
-                out(tx, &format!("  ✓ Restarted {} shell", shell_name)).await;
+        match result {
+            CommandResult::Cancelled => {
+                out(tx, "  ⊘ System rebuild cancelled").await;
+                tx.send(CommandMessage::Cancelled).await?;
+                return Ok(());
             }
-        } else {
-            out(tx, "  ✗ System rebuild failed").await;
-            summary.rebuild_failed = true;
-            let error = ParsedError::from_stderr(
-                "System rebuild failed - see output above for details",
-                ErrorContext {
-                    operation: "System rebuild".to_string(),
-                },
-            );
-            tx.send(CommandMessage::StepFailed {
-                step: "Rebuild".to_string(),
-                error,
-            })
-            .await?;
+            CommandResult::Completed(true) => {
+                out(tx, "  ✓ System rebuilt successfully").await;
+                tx.send(CommandMessage::StepComplete {
+                    step: "Rebuild".to_string(),
+                })
+                .await?;
+
+                // Check if shell needs restart due to store path change
+                if let Ok(Some(shell_name)) = shell::restart_shell_if_needed(tx).await {
+                    out(tx, &format!("  ✓ Restarted {} shell", shell_name)).await;
+                }
+            }
+            CommandResult::Completed(false) => {
+                out(tx, "  ✗ System rebuild failed").await;
+                summary.rebuild_failed = true;
+                let error = ParsedError::from_stderr(
+                    "System rebuild failed - see output above for details",
+                    ErrorContext {
+                        operation: "System rebuild".to_string(),
+                    },
+                );
+                tx.send(CommandMessage::StepFailed {
+                    step: "Rebuild".to_string(),
+                    error,
+                })
+                .await?;
+            }
         }
     } else {
         out(tx, "").await;
