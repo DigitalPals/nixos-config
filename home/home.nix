@@ -174,6 +174,7 @@ in
     lazygit
     ripgrep
     fd
+    opencode
 
     # CLI enhancements
     bat              # cat with syntax highlighting
