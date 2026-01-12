@@ -27,6 +27,78 @@ use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
 use packages::{parse_package_changes_from_history, PackageCompareResult};
 use tools::{check_browser_status, clean_version, get_npm_package_version};
 
+use crate::constants::nixos_config_dir;
+
+/// Check for local uncommitted changes in the NixOS config directory.
+/// Returns a list of changed files (empty if no changes).
+pub fn check_local_changes() -> Vec<String> {
+    let config_path = nixos_config_dir();
+
+    // Check if this is a git repository
+    if !config_path.join(".git").exists() {
+        return Vec::new();
+    }
+
+    // Run git status --porcelain to get changed files
+    let output = std::process::Command::new("git")
+        .args(["-C", &config_path.to_string_lossy(), "status", "--porcelain"])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(|line| {
+                    // Format: "XY filename" where XY is the status code
+                    // Extract just the filename (skip first 3 chars: status + space)
+                    if line.len() > 3 {
+                        line[3..].to_string()
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Get the default branch name (main or master) for the remote
+pub fn get_default_branch() -> String {
+    let config_path = nixos_config_dir();
+
+    // Try to get the default branch from remote HEAD
+    let output = std::process::Command::new("git")
+        .args(["-C", &config_path.to_string_lossy(), "symbolic-ref", "refs/remotes/origin/HEAD"])
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Format: refs/remotes/origin/main
+            if let Some(branch) = stdout.trim().strip_prefix("refs/remotes/origin/") {
+                return branch.to_string();
+            }
+        }
+    }
+
+    // Fall back to checking if origin/main exists
+    let check_main = std::process::Command::new("git")
+        .args(["-C", &config_path.to_string_lossy(), "rev-parse", "--verify", "origin/main"])
+        .output();
+
+    if let Ok(output) = check_main {
+        if output.status.success() {
+            return "main".to_string();
+        }
+    }
+
+    // Default to master
+    "master".to_string()
+}
+
 /// Regex to extract "message" from JSON error responses
 static JSON_MESSAGE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""message"\s*:\s*"([^"]+)""#).unwrap());

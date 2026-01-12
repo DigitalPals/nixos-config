@@ -66,6 +66,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
             }
         },
         AppMode::Update(state) => match state {
+            UpdateState::LocalChangesPrompt {
+                changed_files,
+                selected,
+            } => {
+                screens::update::draw_local_changes_prompt(frame, changed_files, *selected);
+            }
             UpdateState::Running {
                 steps, output, ..
             } => {
@@ -76,7 +82,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 steps,
                 output,
                 scroll_offset,
-                success: _,
+                ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
                 screens::update::draw_running(frame, steps, &output_vec, true, *scroll_offset, app);

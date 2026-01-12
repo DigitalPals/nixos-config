@@ -10,8 +10,9 @@ use super::state::{
 };
 use super::App;
 use crate::commands::errors::ParsedError;
+use crate::commands::executor::run_capture;
 use crate::commands::CommandMessage;
-use crate::constants::OUTPUT_BUFFER_SIZE;
+use crate::constants::{nixos_config_dir, OUTPUT_BUFFER_SIZE};
 
 /// Regex to match ANSI escape codes.
 static ANSI_RE: LazyLock<Regex> =
@@ -39,7 +40,7 @@ impl App {
                 self.mark_step_skipped(&step);
             }
             CommandMessage::Done { success } => {
-                self.handle_command_done(success);
+                self.handle_command_done(success).await;
             }
             CommandMessage::Cancelled => {
                 self.handle_command_cancelled();
@@ -219,7 +220,7 @@ impl App {
         }
     }
 
-    fn handle_command_done(&mut self, success: bool) {
+    async fn handle_command_done(&mut self, success: bool) {
         self.log_to_screen(&format!(
             "\n=== Operation {} ===\n",
             if success { "COMPLETED" } else { "FAILED" }
@@ -247,12 +248,53 @@ impl App {
                     scroll_offset: None, // None = auto-scroll continues
                 });
             }
-            AppMode::Update(UpdateState::Running { steps, output, .. }) => {
+            AppMode::Update(UpdateState::Running {
+                steps,
+                output,
+                stashed,
+                ..
+            }) => {
+                let was_stashed = *stashed;
+                let mut final_output = output.clone();
+
+                // If we stashed changes and update succeeded, restore them
+                if was_stashed && success {
+                    let config_path = nixos_config_dir();
+                    let config_str = config_path.to_string_lossy().to_string();
+
+                    final_output.push_back("".to_string());
+                    final_output.push_back("Restoring stashed changes...".to_string());
+
+                    match run_capture("git", &["-C", &config_str, "stash", "pop"]).await {
+                        Ok((pop_ok, stdout, stderr)) => {
+                            if pop_ok {
+                                final_output.push_back("  ✓ Stashed changes restored successfully".to_string());
+                            } else {
+                                final_output.push_back("  ✗ Failed to restore stashed changes".to_string());
+                                if !stderr.is_empty() {
+                                    final_output.push_back(format!("    {}", stderr.trim()));
+                                }
+                                final_output.push_back("    Run 'git stash pop' manually to restore".to_string());
+                            }
+                            if !stdout.is_empty() {
+                                for line in stdout.lines() {
+                                    final_output.push_back(format!("    {}", line));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            final_output.push_back(format!("  ✗ Error restoring stash: {}", e));
+                            final_output.push_back("    Run 'git stash pop' manually to restore".to_string());
+                        }
+                    }
+                }
+
                 self.mode = AppMode::Update(UpdateState::Complete {
                     success,
                     steps: steps.clone(),
-                    output: output.clone(),
+                    output: final_output,
                     scroll_offset: None, // None = auto-scroll continues
+                    stashed: was_stashed,
                 });
             }
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
@@ -296,13 +338,14 @@ impl App {
                     scroll_offset: None,
                 });
             }
-            AppMode::Update(UpdateState::Running { steps, output, .. }) => {
+            AppMode::Update(UpdateState::Running { steps, output, stashed, .. }) => {
                 output.push_back("Operation cancelled by user.".to_string());
                 self.mode = AppMode::Update(UpdateState::Complete {
                     success: false,
                     steps: steps.clone(),
                     output: output.clone(),
                     scroll_offset: None,
+                    stashed: *stashed,
                 });
             }
             AppMode::CreateHost(CreateHostState::Generating { config, output, .. }) => {

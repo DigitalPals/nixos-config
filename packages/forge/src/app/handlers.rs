@@ -7,6 +7,9 @@ use std::mem;
 use super::state::*;
 use super::App;
 use crate::commands;
+use crate::commands::executor::run_capture;
+use crate::commands::update::{check_local_changes, get_default_branch};
+use crate::constants::nixos_config_dir;
 use crate::constants::MAX_INPUT_LENGTH;
 use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor};
 
@@ -74,8 +77,7 @@ impl App {
                 KeyCode::Enter => {
                     // Run system update
                     self.pending_updates.clear();
-                    self.mode = AppMode::Update(UpdateState::new());
-                    self.start_initial_command().await?;
+                    self.start_update_with_changes_check().await?;
                 }
                 KeyCode::Esc | KeyCode::Backspace => {
                     // Go back to main dialog
@@ -154,6 +156,38 @@ impl App {
                 self.cancel_operation();
                 return Ok(());
             }
+        }
+
+        // Handle local changes prompt dialog
+        if let AppMode::Update(UpdateState::LocalChangesPrompt {
+            changed_files,
+            selected,
+        }) = &mut self.mode
+        {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = selected.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1).min(2); // 3 options: 0, 1, 2
+                }
+                KeyCode::Enter => {
+                    let resolution = match *selected {
+                        0 => LocalChangesResolution::Overwrite,
+                        1 => LocalChangesResolution::Stash,
+                        _ => LocalChangesResolution::Cancel,
+                    };
+                    // Take ownership of changed_files before applying resolution
+                    let _files = std::mem::take(changed_files);
+                    self.apply_local_changes_resolution(resolution).await?;
+                }
+                KeyCode::Esc => {
+                    // Cancel - return to main menu
+                    self.mode = AppMode::MainMenu { selected: 1 };
+                }
+                _ => {}
+            }
+            return Ok(());
         }
 
         // Extract values from mode to avoid borrow conflicts
@@ -271,8 +305,7 @@ impl App {
         // Check if Update all was selected
         if both && selected == idx {
             self.pending_updates.clear();
-            self.mode = AppMode::Update(UpdateState::new());
-            self.start_initial_command().await?;
+            self.start_update_with_changes_check().await?;
             return Ok(());
         }
 
@@ -332,8 +365,7 @@ impl App {
             }
             1 => {
                 // Update
-                self.mode = AppMode::Update(UpdateState::new());
-                self.start_initial_command().await?;
+                self.start_update_with_changes_check().await?;
             }
             2 => {
                 // App profiles
@@ -344,6 +376,96 @@ impl App {
                 self.should_quit = true;
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// Start update, checking for local changes first
+    /// If local changes exist, shows a prompt dialog
+    /// Otherwise, starts the update directly
+    async fn start_update_with_changes_check(&mut self) -> Result<()> {
+        let changed_files = check_local_changes();
+        if changed_files.is_empty() {
+            // No local changes, start update directly
+            self.mode = AppMode::Update(UpdateState::new());
+            self.start_initial_command().await?;
+        } else {
+            // Local changes detected, show prompt
+            self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {
+                changed_files,
+                selected: 0,
+            });
+        }
+        Ok(())
+    }
+
+    /// Apply the selected resolution for local changes and start the update
+    async fn apply_local_changes_resolution(
+        &mut self,
+        resolution: LocalChangesResolution,
+    ) -> Result<()> {
+        let config_path = nixos_config_dir();
+        let config_str = config_path.to_string_lossy().to_string();
+
+        match resolution {
+            LocalChangesResolution::Overwrite => {
+                // Get the default branch name
+                let branch = get_default_branch();
+
+                // Fetch from remote first
+                let _ = run_capture("git", &["-C", &config_str, "fetch", "origin"]).await;
+
+                // Reset to remote branch
+                let (reset_ok, _, _) = run_capture(
+                    "git",
+                    &[
+                        "-C",
+                        &config_str,
+                        "reset",
+                        "--hard",
+                        &format!("origin/{}", branch),
+                    ],
+                )
+                .await?;
+
+                if reset_ok {
+                    // Also clean untracked files
+                    let _ = run_capture("git", &["-C", &config_str, "clean", "-fd"]).await;
+                }
+
+                // Start update (no stash needed)
+                self.mode = AppMode::Update(UpdateState::new_with_stash(false));
+                self.start_initial_command().await?;
+            }
+            LocalChangesResolution::Stash => {
+                // Stash changes
+                let (stash_ok, _, _) = run_capture(
+                    "git",
+                    &[
+                        "-C",
+                        &config_str,
+                        "stash",
+                        "push",
+                        "-m",
+                        "forge-update-autostash",
+                    ],
+                )
+                .await?;
+
+                if stash_ok {
+                    // Start update with stash flag
+                    self.mode = AppMode::Update(UpdateState::new_with_stash(true));
+                    self.start_initial_command().await?;
+                } else {
+                    // Stash failed, go back to main menu
+                    self.error = Some("Failed to stash changes".to_string());
+                    self.mode = AppMode::MainMenu { selected: 1 };
+                }
+            }
+            LocalChangesResolution::Cancel => {
+                // Just return to main menu
+                self.mode = AppMode::MainMenu { selected: 1 };
+            }
         }
         Ok(())
     }

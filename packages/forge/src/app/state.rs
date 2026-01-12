@@ -236,13 +236,31 @@ impl CreateHostState {
     }
 }
 
+/// Resolution options for local git changes
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LocalChangesResolution {
+    /// Discard all changes and untracked files (git reset --hard + git clean -fd)
+    Overwrite,
+    /// Stash changes, update, then restore (git stash push + pop)
+    Stash,
+    /// Cancel the update
+    Cancel,
+}
+
 /// Update state machine
 #[derive(Debug, Clone)]
 pub enum UpdateState {
+    /// Prompt user about local changes before updating
+    LocalChangesPrompt {
+        changed_files: Vec<String>,
+        selected: usize, // 0=Overwrite, 1=Stash, 2=Cancel
+    },
     Running {
         step: usize,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
+        /// Whether we stashed changes that need to be restored
+        stashed: bool,
     },
     Complete {
         #[allow(dead_code)]
@@ -251,11 +269,17 @@ pub enum UpdateState {
         output: VecDeque<String>,
         /// None = auto-scroll, Some(n) = manual scroll at position n
         scroll_offset: Option<usize>,
+        /// Whether we stashed changes that need to be restored
+        stashed: bool,
     },
 }
 
 impl UpdateState {
     pub fn new() -> Self {
+        Self::new_with_stash(false)
+    }
+
+    pub fn new_with_stash(stashed: bool) -> Self {
         UpdateState::Running {
             step: 0,
             steps: vec![
@@ -268,6 +292,7 @@ impl UpdateState {
                 StepStatus::new("Checking browser profiles"),
             ],
             output: VecDeque::new(),
+            stashed,
         }
     }
 }
