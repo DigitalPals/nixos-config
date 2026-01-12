@@ -201,6 +201,13 @@ in
 
   programs.firefox.enable = true;
 
+  # Direnv - auto-activate nix develop shells when entering directories
+  # Add `.envrc` with `use flake` to your Rust projects
+  programs.direnv = {
+    enable = true;
+    nix-direnv.enable = true;  # Caches dev shell evaluation
+  };
+
   # App profile backup/restore (browsers - encrypted, synced via GitHub)
   # Keys are stored locally with 1Password as fallback
   programs.app-backup = {
