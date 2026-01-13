@@ -542,45 +542,44 @@ async fn step_install_nixos(
     runner.out("  /mnt/home exists (btrfs subvolume mounted)").await;
 
     // Copy configuration to user home directory
+    // Note: We use sudo for all file operations because nix run doesn't preserve EUID=0
     runner.out(&format!("  Creating user directory: /mnt/home/{}", username)).await;
     let config_parent = std::path::Path::new(&config_dir)
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid config directory path: {}", config_dir))?;
     runner.out(&format!("  Target path: {}", config_parent.display())).await;
 
-    match std::fs::create_dir_all(config_parent) {
-        Ok(()) => {
-            runner.out(&format!("  Created: {}", config_parent.display())).await;
-        }
-        Err(e) => {
-            runner.err(&format!("ERROR creating {}: {}", config_parent.display(), e)).await;
-            runner.err(&format!("  Error kind: {:?}", e.kind())).await;
-            // Try to show more context
-            if let Some(parent) = config_parent.parent() {
-                runner.err(&format!("  Parent exists: {}", parent.exists())).await;
-                if parent.exists() {
-                    if let Ok(meta) = std::fs::metadata(parent) {
-                        runner.err(&format!("  Parent permissions: {:o}", meta.permissions().mode())).await;
-                    }
-                }
-            }
-            runner.step_failed("NixOS", &format!("Failed to create {}: {}", config_parent.display(), e), "NixOS installation").await?;
-            runner.done(false).await?;
-            return Ok(false);
-        }
+    // Use sudo mkdir -p since nix run doesn't preserve root privileges
+    let mkdir_ok = runner.run("sudo", &["mkdir", "-p", &config_parent.to_string_lossy()]).await?;
+    if !mkdir_ok {
+        runner.err(&format!("ERROR: Failed to create {}", config_parent.display())).await;
+        runner.step_failed("NixOS", &format!("Failed to create {}", config_parent.display()), "NixOS installation").await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+    runner.out(&format!("  Created: {}", config_parent.display())).await;
+
+    // Copy configuration using sudo cp -r
+    runner.out("  Copying configuration...").await;
+    let copy_ok = runner.run("sudo", &["cp", "-r", &temp_config_str.to_string(), &config_dir]).await?;
+    if !copy_ok {
+        runner.err(&format!("ERROR: Failed to copy {} to {}", temp_config_str, config_dir)).await;
+        runner.step_failed("NixOS", "Failed to copy configuration", "NixOS installation").await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
-    runner.out("  Copying configuration...").await;
-    copy_dir_recursive(&temp_config_str, &config_dir)
-        .with_context(|| format!("Failed to copy {} to {}", temp_config_str, config_dir))?;
-
     // Remove .git from copied config
-    let _ = std::fs::remove_dir_all(format!("{}/.git", config_dir));
+    let _ = runner.run("sudo", &["rm", "-rf", &format!("{}/.git", config_dir)]).await;
 
-    // Create symlink
+    // Create symlink using sudo
     runner.out("  Setting up symlink...").await;
-    setup_config_symlink(&symlink_target)
-        .with_context(|| format!("Failed to create symlink to {}", symlink_target))?;
+    let symlink_ok = setup_config_symlink_sudo(runner, &symlink_target).await?;
+    if !symlink_ok {
+        runner.step_failed("NixOS", "Failed to create /etc/nixos symlink", "NixOS installation").await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
 
     // Initialize git repo (optional, log failures)
     init_git_repo(runner, &config_dir).await;
@@ -670,34 +669,38 @@ async fn show_completion_message(runner: &CommandRunner<'_>, username: &str) -> 
 // Helper Functions
 // =============================================================================
 
-/// Set up the /mnt/etc/nixos symlink
-fn setup_config_symlink(symlink_target: &str) -> Result<()> {
+/// Set up the /mnt/etc/nixos symlink using sudo (for nix run compatibility)
+async fn setup_config_symlink_sudo(runner: &CommandRunner<'_>, symlink_target: &str) -> Result<bool> {
     let symlink_parent = std::path::Path::new(INSTALL_SYMLINK_PATH)
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid symlink path: cannot determine parent of {}", INSTALL_SYMLINK_PATH))?;
-    std::fs::create_dir_all(symlink_parent)
-        .with_context(|| format!("Failed to create directory: {}", symlink_parent.display()))?;
 
-    let symlink_path = std::path::Path::new(INSTALL_SYMLINK_PATH);
-    if symlink_path.is_symlink() || symlink_path.is_file() {
-        std::fs::remove_file(INSTALL_SYMLINK_PATH)
-            .with_context(|| format!("Failed to remove existing symlink/file at {}", INSTALL_SYMLINK_PATH))?;
-    } else if symlink_path.is_dir() {
-        std::fs::remove_dir_all(INSTALL_SYMLINK_PATH)
-            .with_context(|| format!("Failed to remove existing directory at {}", INSTALL_SYMLINK_PATH))?;
+    // Create parent directory
+    if !runner.run("sudo", &["mkdir", "-p", &symlink_parent.to_string_lossy()]).await? {
+        runner.err(&format!("Failed to create {}", symlink_parent.display())).await;
+        return Ok(false);
     }
-    std::os::unix::fs::symlink(symlink_target, INSTALL_SYMLINK_PATH)
-        .with_context(|| format!("Failed to create symlink {} -> {}", INSTALL_SYMLINK_PATH, symlink_target))?;
 
-    Ok(())
+    // Remove existing symlink/file/directory
+    let _ = runner.run("sudo", &["rm", "-rf", INSTALL_SYMLINK_PATH]).await;
+
+    // Create symlink
+    if !runner.run("sudo", &["ln", "-s", symlink_target, INSTALL_SYMLINK_PATH]).await? {
+        runner.err(&format!("Failed to create symlink {} -> {}", INSTALL_SYMLINK_PATH, symlink_target)).await;
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 /// Initialize git repository in the config directory
 async fn init_git_repo(runner: &CommandRunner<'_>, config_dir: &str) {
+    // Use sudo for git operations since the config dir is owned by root at this point
     match runner
         .run(
-            "nix-shell",
+            "sudo",
             &[
+                "nix-shell",
                 "-p",
                 "git",
                 "--run",
@@ -727,12 +730,13 @@ async fn set_config_ownership(
     let uid_gid = format!("{}:{}", PRIMARY_USER_UID, PRIMARY_USER_GID);
     let config_parent_str = config_parent.to_str().unwrap_or(".");
 
-    match runner.run("chown", &[&uid_gid, config_parent_str]).await {
+    // Use sudo for chown since nix run doesn't preserve root privileges
+    match runner.run("sudo", &["chown", &uid_gid, config_parent_str]).await {
         Ok(true) => tracing::info!("Set ownership on config parent directory"),
         Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config parent directory"),
     }
 
-    match runner.run("chown", &["-R", &uid_gid, config_dir]).await {
+    match runner.run("sudo", &["chown", "-R", &uid_gid, config_dir]).await {
         Ok(true) => tracing::info!("Set ownership on config directory"),
         Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config directory"),
     }
@@ -832,30 +836,6 @@ fn inject_luks_password_file(content: &str) -> String {
         LUKS_PASSWORD_FILE
     );
     LUKS_NAME_RE.replace_all(content, replacement.as_str()).to_string()
-}
-
-fn copy_dir_recursive(src: &str, dst: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let path = entry.path();
-        let dst_path = format!("{}/{}", dst, entry.file_name().to_string_lossy());
-
-        // Skip symlinks to avoid loops and external references
-        if path.is_symlink() {
-            continue;
-        }
-
-        if path.is_dir() {
-            // Skip paths with invalid UTF-8 (rare edge case)
-            if let Some(path_str) = path.to_str() {
-                copy_dir_recursive(path_str, &dst_path)?;
-            }
-        } else {
-            std::fs::copy(&path, &dst_path)?;
-        }
-    }
-    Ok(())
 }
 
 /// Update flake.nix to set username for a specific host configuration
