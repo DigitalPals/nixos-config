@@ -141,8 +141,8 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
 
         let _ = tx.send(CommandMessage::Stdout("Cloning configuration repository...".to_string())).await;
 
-        // Enable flakes
-        std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes");
+        // Enable flakes and disable sandbox for disk operations
+        std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes\nsandbox = false");
 
         // Remove any partial clone
         let _ = std::fs::remove_dir_all(&temp_config);
@@ -194,10 +194,10 @@ async fn step_check_network(runner: &CommandRunner<'_>) -> Result<bool> {
     Ok(true)
 }
 
-/// Step 2: Enable Nix flakes
+/// Step 2: Enable Nix flakes and disable sandbox for disk operations
 async fn step_enable_flakes(runner: &CommandRunner<'_>) -> Result<bool> {
     runner.out("Enabling Nix flakes...").await;
-    std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes");
+    std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes\nsandbox = false");
     runner.step_complete("flakes").await?;
     Ok(true)
 }
