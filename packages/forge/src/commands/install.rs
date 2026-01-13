@@ -53,6 +53,12 @@ static LUKS_NAME_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("LUKS name regex pattern is statically validated")
 });
 
+/// Regex to remove existing passwordFile entries (avoid duplicate attribute errors).
+static PASSWORD_FILE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"(?m)^\s*passwordFile\s*=\s*"[^"]*";\s*$\n?"#)
+        .expect("passwordFile regex pattern is statically validated")
+});
+
 /// Regex to match AMD GPU bus ID in PRIME configuration.
 static AMD_BUS_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"amdgpuBusId = "PCI:[^"]*""#)
@@ -1030,17 +1036,15 @@ fn update_gpu_bus_ids(content: &str, amd_bus_id: &str, nvidia_bus_id: &str) -> S
 /// Inject passwordFile into disko LUKS configuration
 /// Adds `passwordFile = "/tmp/luks-password";` after `name = "cryptroot";`
 fn inject_luks_password_file(content: &str) -> String {
-    // Skip if already injected (check for actual attribute, not comments)
-    if content.contains("passwordFile =") {
-        return content.to_string();
-    }
+    // Strip any existing passwordFile lines to avoid duplicate attributes.
+    let cleaned = PASSWORD_FILE_RE.replace_all(content, "").to_string();
     let replacement = format!(
         r#"$1
               passwordFile = "{}";"#,
         LUKS_PASSWORD_FILE
     );
     // Use replace (not replace_all) to only inject once
-    LUKS_NAME_RE.replace(content, replacement.as_str()).to_string()
+    LUKS_NAME_RE.replace(&cleaned, replacement.as_str()).to_string()
 }
 
 /// Inject @swap subvolume into disko configuration for hibernate support
