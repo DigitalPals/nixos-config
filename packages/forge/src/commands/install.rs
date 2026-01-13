@@ -444,22 +444,26 @@ async fn step_run_disko(
         tracing::error!("passwordFile NOT found in modified disko config");
     }
 
-    // Pre-fetch disko (optional optimization)
-    match runner.run("nix", &["build", &format!("{}#disko", temp_config_str), "--no-link"]).await {
-        Ok(true) => tracing::info!("Disko pre-fetch succeeded"),
-        Ok(false) => tracing::warn!("Disko pre-fetch failed - continuing anyway"),
-        Err(e) => tracing::warn!("Disko pre-fetch error: {} - continuing anyway", e),
+    // Build disko and get output path (to run directly without nix run wrapper)
+    runner.out("Building disko...").await;
+    let (build_ok, disko_path, _) = run_capture(
+        "nix",
+        &["build", &format!("{}#disko", temp_config_str), "--no-link", "--print-out-paths"],
+    ).await?;
+
+    if !build_ok || disko_path.trim().is_empty() {
+        runner.step_failed("disko", "Failed to build disko", "Disko build").await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
-    // Run disko (sandbox must be disabled for disk access)
+    let disko_bin = format!("{}/bin/disko", disko_path.trim());
+
+    // Run disko directly (not via nix run, to avoid sandbox issues)
     let success = runner
         .run(
-            "nix",
+            &disko_bin,
             &[
-                "run",
-                "--option", "sandbox", "false",
-                &format!("{}#disko", temp_config_str),
-                "--",
                 "--yes-wipe-all-disks",
                 "--mode",
                 "destroy,format,mount",
