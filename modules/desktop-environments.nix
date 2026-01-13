@@ -40,6 +40,12 @@ in
     TTYVTDisallocate = true;
   };
 
+  # Ensure Home Manager has populated Hyprland config before greetd autologin.
+  systemd.services.greetd = {
+    after = [ "home-manager-${username}.service" ];
+    wants = [ "home-manager-${username}.service" ];
+  };
+
   # Hyprland at system level (for session registration)
   programs.hyprland = {
     enable = true;
