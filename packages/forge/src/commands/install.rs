@@ -504,25 +504,36 @@ async fn step_install_nixos(
 
     let config_dir = get_config_dir(username);
     let symlink_target = get_symlink_target(username);
+    runner.out(&format!("  Config dir: {}", config_dir)).await;
+    runner.out(&format!("  Source: {}", temp_config_str)).await;
 
     // Copy configuration to user home directory
+    runner.out("  Creating directories...").await;
     let config_parent = std::path::Path::new(&config_dir)
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid config directory path"))?;
-    std::fs::create_dir_all(config_parent)?;
-    copy_dir_recursive(&temp_config_str, &config_dir)?;
+    std::fs::create_dir_all(config_parent)
+        .with_context(|| format!("Failed to create directory: {}", config_parent.display()))?;
+
+    runner.out("  Copying configuration...").await;
+    copy_dir_recursive(&temp_config_str, &config_dir)
+        .with_context(|| format!("Failed to copy {} to {}", temp_config_str, config_dir))?;
 
     // Remove .git from copied config
     let _ = std::fs::remove_dir_all(format!("{}/.git", config_dir));
 
     // Create symlink
-    setup_config_symlink(&symlink_target)?;
+    runner.out("  Setting up symlink...").await;
+    setup_config_symlink(&symlink_target)
+        .with_context(|| format!("Failed to create symlink to {}", symlink_target))?;
 
     // Initialize git repo (optional, log failures)
     init_git_repo(runner, &config_dir).await;
 
     // Set ownership
     set_config_ownership(runner, config_parent, &config_dir).await;
+
+    runner.out("  Configuration ready.").await;
 
     // Verify flake is valid before installing
     runner.out("Checking NixOS configuration...").await;
