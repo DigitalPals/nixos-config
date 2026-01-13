@@ -451,12 +451,13 @@ async fn step_run_disko(
         Err(e) => tracing::warn!("Disko pre-fetch error: {} - continuing anyway", e),
     }
 
-    // Run disko
+    // Run disko (sandbox must be disabled for disk access)
     let success = runner
         .run(
             "nix",
             &[
                 "run",
+                "--option", "sandbox", "false",
                 &format!("{}#disko", temp_config_str),
                 "--",
                 "--yes-wipe-all-disks",
