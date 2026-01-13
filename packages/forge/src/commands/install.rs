@@ -491,15 +491,59 @@ async fn step_run_disko(
 
     // Get the LUKS UUID and update config to use by-uuid instead of by-partlabel
     // This matches what the NixOS graphical installer does and is more reliable
+    runner.out("").await;
+    runner.out("=== LUKS UUID Detection ===").await;
     runner.out("Detecting LUKS UUID for boot configuration...").await;
-    let (uuid_ok, luks_uuid, uuid_err) = run_capture(
+
+    // Try multiple methods to find the LUKS device
+    let mut luks_uuid: Option<String> = None;
+
+    // Method 1: Try by-partlabel (disko's default)
+    runner.out("  Trying /dev/disk/by-partlabel/cryptroot...").await;
+    let (ok1, uuid1, err1) = run_capture(
         "cryptsetup",
         &["luksUUID", "/dev/disk/by-partlabel/cryptroot"],
     ).await?;
+    if ok1 && !uuid1.trim().is_empty() {
+        luks_uuid = Some(uuid1.trim().to_string());
+        runner.out(&format!("  Found via by-partlabel: {}", uuid1.trim())).await;
+    } else {
+        runner.out(&format!("  by-partlabel failed: {}", err1.trim())).await;
+    }
 
-    if uuid_ok && !luks_uuid.trim().is_empty() {
-        let uuid = luks_uuid.trim();
-        runner.out(&format!("  LUKS UUID: {}", uuid)).await;
+    // Method 2: If method 1 failed, try to find the backing device of /dev/mapper/cryptroot
+    if luks_uuid.is_none() {
+        runner.out("  Trying to find backing device of /dev/mapper/cryptroot...").await;
+        let (ok2, dmsetup_out, _) = run_capture(
+            "sh",
+            &["-c", "dmsetup deps -o devname cryptroot 2>/dev/null | grep -oP '\\(\\K[^)]+' | head -1"],
+        ).await?;
+        if ok2 && !dmsetup_out.trim().is_empty() {
+            let backing_dev = format!("/dev/{}", dmsetup_out.trim());
+            runner.out(&format!("  Backing device: {}", backing_dev)).await;
+            let (ok3, uuid3, _) = run_capture("cryptsetup", &["luksUUID", &backing_dev]).await?;
+            if ok3 && !uuid3.trim().is_empty() {
+                luks_uuid = Some(uuid3.trim().to_string());
+                runner.out(&format!("  Found via dmsetup: {}", uuid3.trim())).await;
+            }
+        }
+    }
+
+    // Method 3: Try common NVMe partition paths
+    if luks_uuid.is_none() {
+        runner.out("  Trying common partition paths...").await;
+        for dev in &["/dev/nvme0n1p2", "/dev/sda2", "/dev/vda2"] {
+            let (ok, uuid, _) = run_capture("cryptsetup", &["luksUUID", dev]).await?;
+            if ok && !uuid.trim().is_empty() {
+                luks_uuid = Some(uuid.trim().to_string());
+                runner.out(&format!("  Found via {}: {}", dev, uuid.trim())).await;
+                break;
+            }
+        }
+    }
+
+    if let Some(uuid) = luks_uuid {
+        runner.out(&format!("  SUCCESS: LUKS UUID = {}", uuid)).await;
 
         // Update disko config to use by-uuid instead of by-partlabel
         let luks_override = format!(
@@ -511,6 +555,8 @@ async fn step_run_disko(
         );
 
         let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
+        runner.out(&format!("  Updating: {}", disko_default_file)).await;
+
         let disko_content = std::fs::read_to_string(&disko_default_file)
             .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
 
@@ -518,18 +564,20 @@ async fn step_run_disko(
         let updated_content = if let Some(pos) = disko_content.rfind('}') {
             format!("{}{}\n}}", &disko_content[..pos], luks_override)
         } else {
-            runner.err("WARNING: Could not inject LUKS UUID override").await;
+            runner.err("  ERROR: Could not find closing brace in disko config").await;
             disko_content
         };
 
-        std::fs::write(&disko_default_file, updated_content)
+        std::fs::write(&disko_default_file, &updated_content)
             .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
 
-        runner.out("  Updated config to use LUKS UUID").await;
+        runner.out("  Config updated to use LUKS UUID").await;
     } else {
-        runner.err(&format!("WARNING: Could not detect LUKS UUID: {}", uuid_err)).await;
-        runner.out("  Continuing with by-partlabel (may be less reliable)").await;
+        runner.err("  FAILED: Could not detect LUKS UUID by any method!").await;
+        runner.err("  Boot may fail - will use by-partlabel as fallback").await;
     }
+    runner.out("=== End LUKS UUID Detection ===").await;
+    runner.out("").await;
 
     runner.step_complete("disko").await?;
     Ok(true)
