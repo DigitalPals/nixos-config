@@ -1030,12 +1030,17 @@ fn update_gpu_bus_ids(content: &str, amd_bus_id: &str, nvidia_bus_id: &str) -> S
 /// Inject passwordFile into disko LUKS configuration
 /// Adds `passwordFile = "/tmp/luks-password";` after `name = "cryptroot";`
 fn inject_luks_password_file(content: &str) -> String {
+    // Skip if already injected (idempotent)
+    if content.contains("passwordFile") {
+        return content.to_string();
+    }
     let replacement = format!(
         r#"$1
               passwordFile = "{}";"#,
         LUKS_PASSWORD_FILE
     );
-    LUKS_NAME_RE.replace_all(content, replacement.as_str()).to_string()
+    // Use replace (not replace_all) to only inject once
+    LUKS_NAME_RE.replace(content, replacement.as_str()).to_string()
 }
 
 /// Inject @swap subvolume into disko configuration for hibernate support
