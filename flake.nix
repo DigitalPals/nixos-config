@@ -87,17 +87,21 @@
     };
 
     # Helper to create NixOS configurations with shell specialisations
-    mkNixosSystem = { hostname, username ? "john", extraModules ? [] }:
+    # Set useDisko = false for hosts with manual partition setup (e.g., hibernate swap)
+    mkNixosSystem = { hostname, username ? "john", extraModules ? [], useDisko ? true }:
       nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit inputs plymouth-cybex forge username; };
         modules = [
           # Apply overlay for patched xdg-desktop-portal-gtk
           { nixpkgs.overlays = [ gtkPortalOverlay ]; }
-          # Disko for declarative disk partitioning
+        ]
+        # Disko for declarative disk partitioning (optional)
+        ++ (if useDisko then [
           disko.nixosModules.disko
           ./modules/disko/${hostname}.nix
-
+        ] else [])
+        ++ [
           ./hosts/${hostname}
           ./modules/common.nix
           ./modules/shell-config.nix
@@ -147,9 +151,11 @@
       };
 
       # ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090)
+      # Manual LUKS + hibernate swap setup (not using disko)
       # Default: Noctalia | Specialisations: illogical
       proart = mkNixosSystem {
         hostname = "proart";
+        useDisko = false;
         extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
