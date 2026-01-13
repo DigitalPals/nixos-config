@@ -51,6 +51,18 @@ static LUKS_NAME_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("LUKS name regex pattern is statically validated")
 });
 
+/// Regex to match AMD GPU bus ID in PRIME configuration.
+static AMD_BUS_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"amdgpuBusId = "PCI:[^"]*""#)
+        .expect("AMD bus ID regex pattern is statically validated")
+});
+
+/// Regex to match NVIDIA GPU bus ID in PRIME configuration.
+static NVIDIA_BUS_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"nvidiaBusId = "PCI:[^"]*""#)
+        .expect("NVIDIA bus ID regex pattern is statically validated")
+});
+
 /// Get the config directory path for the mounted system
 fn get_config_dir(username: &str) -> String {
     format!("{}/home/{}/{}", INSTALL_MOUNT_POINT, username, NIXOS_CONFIG_HOME_DIR)
@@ -231,6 +243,95 @@ async fn step_configure_disk(
     }
 
     runner.step_complete("disk").await?;
+    Ok(true)
+}
+
+/// Step 4b: Configure GPU bus IDs for hybrid GPU systems
+async fn step_configure_gpu(
+    runner: &CommandRunner<'_>,
+    temp_config: &std::path::Path,
+    hostname: &str,
+) -> Result<bool> {
+    use crate::system::hardware::{detect_gpu, GpuVendor};
+
+    runner.out("Detecting GPU configuration...").await;
+
+    // Detect GPU on the live system
+    let gpu = match detect_gpu() {
+        Ok(gpu) => gpu,
+        Err(e) => {
+            runner.out(&format!("GPU detection skipped: {}", e)).await;
+            return Ok(true); // Non-fatal, continue installation
+        }
+    };
+
+    // Only configure bus IDs for hybrid GPU systems
+    if gpu.vendor != GpuVendor::HybridNvidiaAmd {
+        runner.out(&format!("GPU: {} (no PRIME configuration needed)", gpu.vendor)).await;
+        return Ok(true);
+    }
+
+    let hybrid = match &gpu.hybrid {
+        Some(h) => h,
+        None => {
+            runner.out("Hybrid GPU detected but no bus IDs available").await;
+            return Ok(true);
+        }
+    };
+
+    let amd_bus_id = match &hybrid.amd_bus_id {
+        Some(id) => id.clone(),
+        None => {
+            runner.out("AMD iGPU bus ID not detected, skipping PRIME configuration").await;
+            return Ok(true);
+        }
+    };
+
+    let nvidia_bus_id = match &hybrid.nvidia_bus_id {
+        Some(id) => id.clone(),
+        None => {
+            runner.out("NVIDIA dGPU bus ID not detected, skipping PRIME configuration").await;
+            return Ok(true);
+        }
+    };
+
+    runner.out(&format!(
+        "Hybrid GPU detected: AMD iGPU ({}), NVIDIA dGPU ({})",
+        amd_bus_id, nvidia_bus_id
+    )).await;
+
+    // Update host config with detected bus IDs
+    let host_config_file = format!(
+        "{}/hosts/{}/default.nix",
+        temp_config.to_string_lossy(),
+        hostname
+    );
+
+    if !std::path::Path::new(&host_config_file).exists() {
+        runner.out("Host config not found, skipping GPU bus ID configuration").await;
+        return Ok(true);
+    }
+
+    let content = std::fs::read_to_string(&host_config_file)
+        .with_context(|| format!("Failed to read host config: {}", host_config_file))?;
+
+    // Check if this host has PRIME configuration
+    if !content.contains("amdgpuBusId") || !content.contains("nvidiaBusId") {
+        runner.out("No PRIME configuration found in host config, skipping").await;
+        return Ok(true);
+    }
+
+    // Update bus IDs
+    let updated = update_gpu_bus_ids(&content, &amd_bus_id, &nvidia_bus_id);
+
+    if updated != content {
+        std::fs::write(&host_config_file, &updated)
+            .with_context(|| format!("Failed to write host config: {}", host_config_file))?;
+        runner.out("GPU bus IDs configured successfully").await;
+    } else {
+        runner.out("GPU bus IDs already configured").await;
+    }
+
     Ok(true)
 }
 
@@ -510,6 +611,11 @@ async fn run_install(
         return Ok(());
     }
 
+    // Step 4b: Configure GPU bus IDs (for hybrid GPU systems)
+    if !step_configure_gpu(&runner, &temp_config, hostname).await? {
+        return Ok(());
+    }
+
     // Step 5: Run disko
     if !step_run_disko(&runner, &temp_config, hostname, password).await? {
         return Ok(());
@@ -541,6 +647,17 @@ fn update_disk_device(content: &str, disk: &str) -> String {
             "Disk device replacement may have failed - pattern not found in disko config"
         );
     }
+
+    result.to_string()
+}
+
+/// Update GPU bus IDs in host configuration for NVIDIA PRIME
+fn update_gpu_bus_ids(content: &str, amd_bus_id: &str, nvidia_bus_id: &str) -> String {
+    let amd_replacement = format!("amdgpuBusId = \"{}\"", amd_bus_id);
+    let nvidia_replacement = format!("nvidiaBusId = \"{}\"", nvidia_bus_id);
+
+    let result = AMD_BUS_ID_RE.replace_all(content, amd_replacement.as_str());
+    let result = NVIDIA_BUS_ID_RE.replace_all(&result, nvidia_replacement.as_str());
 
     result.to_string()
 }
