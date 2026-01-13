@@ -146,13 +146,6 @@
         hostname = "G1a";
       };
 
-      # ASUS ProArt P16 (Hybrid NVIDIA + AMD)
-      # Default: Noctalia | Specialisations: illogical
-      proart-p16 = mkNixosSystem {
-        hostname = "proart-p16";
-        extraModules = [ ./modules/hardware/nvidia.nix ];
-      };
-
       # Forge Installer ISO
       # Build: nix build .#nixosConfigurations.iso.config.system.build.isoImage
       iso = nixpkgs.lib.nixosSystem {
