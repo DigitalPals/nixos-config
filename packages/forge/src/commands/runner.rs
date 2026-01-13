@@ -9,7 +9,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
-use super::executor::run_command;
+use super::executor::{run_command, run_command_with_timeout};
 use super::CommandMessage;
 
 /// A helper for running commands with consistent formatting and error handling
@@ -56,6 +56,11 @@ impl<'a> CommandRunner<'a> {
     /// Run a command and return success status
     pub async fn run(&self, cmd: &str, args: &[&str]) -> Result<bool> {
         run_command(self.tx, cmd, args).await
+    }
+
+    /// Run a command with a custom timeout (in seconds)
+    pub async fn run_with_timeout(&self, cmd: &str, args: &[&str], timeout_secs: u64) -> Result<bool> {
+        run_command_with_timeout(self.tx, cmd, args, Some(timeout_secs)).await
     }
 
     /// Send a step complete message

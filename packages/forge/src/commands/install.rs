@@ -606,9 +606,11 @@ async fn step_install_nixos(
     }
 
     // Run nixos-install with sudo (nix run doesn't preserve root privileges)
+    // Use 30-minute timeout since nixos-install can take a long time
     runner.out(&format!("Running: sudo nixos-install --flake {}", flake_ref)).await;
+    runner.out("  (This may take 10-30 minutes...)").await;
     let success = runner
-        .run(
+        .run_with_timeout(
             "sudo",
             &[
                 "nixos-install",
@@ -616,6 +618,7 @@ async fn step_install_nixos(
                 &flake_ref,
                 "--no-root-passwd",
             ],
+            1800, // 30 minutes
         )
         .await?;
 
