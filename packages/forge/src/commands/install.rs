@@ -542,39 +542,12 @@ async fn step_run_disko(
         }
     }
 
-    if let Some(uuid) = luks_uuid {
+    if let Some(uuid) = &luks_uuid {
         runner.out(&format!("  SUCCESS: LUKS UUID = {}", uuid)).await;
-
-        // Update disko config to use by-uuid instead of by-partlabel
-        let luks_override = format!(
-            r#"
-
-  # Override disko's by-partlabel with by-uuid for reliable boot (detected after format)
-  boot.initrd.luks.devices."cryptroot".device = lib.mkForce "/dev/disk/by-uuid/{}";"#,
-            uuid
-        );
-
-        let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
-        runner.out(&format!("  Updating: {}", disko_default_file)).await;
-
-        let disko_content = std::fs::read_to_string(&disko_default_file)
-            .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
-
-        // Append the override before the closing brace
-        let updated_content = if let Some(pos) = disko_content.rfind('}') {
-            format!("{}{}\n}}", &disko_content[..pos], luks_override)
-        } else {
-            runner.err("  ERROR: Could not find closing brace in disko config").await;
-            disko_content
-        };
-
-        std::fs::write(&disko_default_file, &updated_content)
-            .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
-
-        runner.out("  Config updated to use LUKS UUID").await;
+        runner.out("  Using disko's default by-partlabel configuration").await;
+        // Note: Not overriding device path - testing if disko defaults work
     } else {
-        runner.err("  FAILED: Could not detect LUKS UUID by any method!").await;
-        runner.err("  Boot may fail - will use by-partlabel as fallback").await;
+        runner.err("  Could not detect LUKS UUID (informational only)").await;
     }
     runner.out("=== End LUKS UUID Detection ===").await;
     runner.out("").await;

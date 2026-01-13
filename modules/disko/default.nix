@@ -53,21 +53,19 @@
                 subvolumes = {
                   "@" = {
                     mountpoint = "/";
-                    # x-systemd.device-timeout=0 disables the 90s default timeout (NixOS#250003)
-                    # x-systemd.after ensures mount waits for udev to settle after LUKS decryption
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" ];
                   };
                   "@home" = {
                     mountpoint = "/home";
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" ];
                   };
                   "@nix" = {
                     mountpoint = "/nix";
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" ];
                   };
                   "@var-log" = {
                     mountpoint = "/var/log";
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" ];
                   };
                 };
               };
@@ -95,22 +93,4 @@
   # Enable emergency shell access for debugging boot issues
   # If boot hangs, add rd.systemd.unit=rescue.target to kernel params at boot
   boot.initrd.systemd.emergencyAccess = true;
-
-  # Fix for udev race condition with systemd initrd + LUKS
-  # After LUKS decryption, udev needs to process the new /dev/mapper/cryptroot device.
-  # Without this, systemd may not recognize the device as ready, causing boot to hang
-  # with "A start job is running for /dev/mapper/cryptroot".
-  # Reference: https://github.com/NixOS/nixpkgs/issues/42165
-  boot.initrd.systemd.services.cryptsetup-udev-settle = {
-    description = "Wait for udev after LUKS decryption";
-    wantedBy = [ "cryptsetup.target" ];
-    after = [ "systemd-cryptsetup@cryptroot.service" ];
-    before = [ "cryptsetup.target" ];
-    unitConfig.DefaultDependencies = "no";
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = "/bin/udevadm settle";
-      RemainAfterExit = true;
-    };
-  };
 }
