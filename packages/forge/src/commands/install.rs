@@ -683,9 +683,11 @@ async fn step_set_user_password(
 ) -> Result<bool> {
     runner.out("Setting up user account...").await;
 
+    // Use sudo because nix run doesn't preserve root privileges
+    // nixos-enter needs root to create mount namespaces
     let escaped_password = password.replace('\'', "'\"'\"'");
     let chpasswd_script = format!(
-        "echo '{}:{}' | nixos-enter --root /mnt -c 'chpasswd'",
+        "echo '{}:{}' | sudo nixos-enter --root /mnt -c 'chpasswd'",
         username, escaped_password
     );
     let success = run_command_sensitive(runner.tx(), "sh", &["-c", &chpasswd_script]).await?;
