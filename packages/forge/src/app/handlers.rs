@@ -362,7 +362,11 @@ impl App {
                         scroll_offset: None,
                     });
                 } else {
-                    self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
+                    // On live ISO, clone repository first to discover hosts
+                    self.mode = AppMode::Install(InstallState::CloneRepository {
+                        output: std::collections::VecDeque::new(),
+                    });
+                    self.start_initial_command().await?;
                 }
             }
             1 => {

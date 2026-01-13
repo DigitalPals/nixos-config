@@ -67,8 +67,36 @@ impl App {
                 self.show_reboot_confirm = true;
                 self.reboot_reasons = reasons;
             }
+            CommandMessage::CloneComplete { success } => {
+                self.handle_clone_complete(success);
+            }
         }
         Ok(())
+    }
+
+    fn handle_clone_complete(&mut self, success: bool) {
+        if success {
+            // Re-discover hosts from the newly cloned repository
+            self.hosts = crate::system::config::discover_hosts();
+            // Transition to host selection
+            self.mode = AppMode::Install(InstallState::SelectHost { selected: 0 });
+        } else {
+            // Clone failed - show error screen
+            use std::collections::VecDeque;
+            let mut output = VecDeque::new();
+            output.push_back("Failed to clone configuration repository.".to_string());
+            output.push_back("".to_string());
+            output.push_back("Please check:".to_string());
+            output.push_back("  1. Internet connection (run 'nmtui' to configure WiFi)".to_string());
+            output.push_back("  2. GitHub is accessible".to_string());
+            output.push_back("".to_string());
+            output.push_back("Press Enter to return to main menu.".to_string());
+            self.mode = AppMode::Install(InstallState::Complete {
+                success: false,
+                output,
+                scroll_offset: None,
+            });
+        }
     }
 
     fn append_output(&mut self, line: &str) {
@@ -78,6 +106,12 @@ impl App {
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { output, .. })
             | AppMode::Update(UpdateState::Complete { output, .. }) => {
+                output.push_back(clean_line);
+                while output.len() > OUTPUT_BUFFER_SIZE {
+                    output.pop_front();
+                }
+            }
+            AppMode::Install(InstallState::CloneRepository { output }) => {
                 output.push_back(clean_line);
                 while output.len() > OUTPUT_BUFFER_SIZE {
                     output.pop_front();

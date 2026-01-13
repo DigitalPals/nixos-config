@@ -30,7 +30,7 @@ let
     echo "  Connected! Starting Forge..."
     echo ""
     sleep 1
-    exec nix run github:DigitalPals/nixos-config
+    exec sudo nix run github:DigitalPals/nixos-config
   '';
 in
 {

@@ -69,4 +69,6 @@ pub enum CommandMessage {
     },
     /// Reboot recommended after update (kernel/bootloader/firmware changes)
     RebootRecommended { reasons: Vec<String> },
+    /// Repository clone completed (for install host discovery)
+    CloneComplete { success: bool },
 }

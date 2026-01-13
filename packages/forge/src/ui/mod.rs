@@ -21,6 +21,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
             screens::main_menu::draw(frame, *selected, app);
         }
         AppMode::Install(state) => match state {
+            InstallState::CloneRepository { output } => {
+                let output_vec: Vec<String> = output.iter().cloned().collect();
+                screens::install::draw_clone_repository(frame, &output_vec, app);
+            }
             InstallState::SelectHost { selected } => {
                 screens::install::draw_host_selection(frame, *selected, &app.hosts, app);
             }

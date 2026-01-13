@@ -56,6 +56,10 @@ pub struct InstallCredentials {
 /// Installation state machine
 #[derive(Debug, Clone)]
 pub enum InstallState {
+    /// Cloning repository from GitHub (live ISO only)
+    CloneRepository {
+        output: VecDeque<String>,
+    },
     SelectHost {
         selected: usize,
     },

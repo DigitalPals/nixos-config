@@ -14,6 +14,55 @@ use crate::ui::layout::{centered_rect, host_selection_layout, progress_layout};
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, MenuList, ProgressSteps};
 
+/// Draw repository cloning screen
+pub fn draw_clone_repository(frame: &mut Frame, output: &[String], app: &App) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(10),
+            Constraint::Length(2),
+        ])
+        .split(centered_rect(70, 70, area));
+
+    // Header with spinner
+    let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spinner = spinner_chars[app.spinner_state % spinner_chars.len()];
+
+    let header = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{} ", spinner), theme::info()),
+            Span::styled("Preparing Installation", theme::title()),
+        ]),
+        Line::from(Span::styled(
+            "Cloning configuration repository...",
+            theme::dim(),
+        )),
+    ])
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border_active()),
+    );
+    frame.render_widget(header, chunks[0]);
+
+    // Output log
+    let log = crate::ui::widgets::LogView::new(output).title(" Output ");
+    frame.render_widget(log, chunks[1]);
+
+    // Footer
+    let footer = Paragraph::new(Line::from(vec![
+        Span::styled("[", theme::dim()),
+        Span::styled("Ctrl+C", theme::key_hint()),
+        Span::styled("] Cancel", theme::dim()),
+    ]))
+    .alignment(Alignment::Center);
+    frame.render_widget(footer, chunks[2]);
+}
+
 /// Draw hostname selection screen
 pub fn draw_host_selection(frame: &mut Frame, selected: usize, hosts: &[HostConfig], _app: &App) {
     let area = frame.area();

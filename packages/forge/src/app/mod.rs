@@ -178,6 +178,11 @@ impl App {
                     }
                 }
             }
+            AppMode::Install(InstallState::CloneRepository { .. }) => {
+                if let Some(tx) = &self.cmd_tx {
+                    commands::install::start_clone_repository(tx.clone()).await?;
+                }
+            }
             AppMode::Install(InstallState::SelectDisk { disks, .. }) => {
                 *disks = crate::system::disk::get_available_disks()?;
             }

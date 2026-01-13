@@ -106,6 +106,75 @@ pub async fn start_install(
     Ok(())
 }
 
+/// Clone the repository to /tmp/nixos-config for host discovery
+/// This is called before the install wizard to populate the host list
+pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
+    tokio::spawn(async move {
+        let temp_config = constants::temp_config_dir();
+        let temp_config_str = temp_config.to_string_lossy().to_string();
+
+        // Check if already cloned
+        let hosts_dir = temp_config.join(constants::HOSTS_SUBDIR);
+        if hosts_dir.exists() {
+            let _ = tx.send(CommandMessage::Stdout("Using existing configuration...".to_string())).await;
+            let _ = tx.send(CommandMessage::CloneComplete { success: true }).await;
+            return;
+        }
+
+        let _ = tx.send(CommandMessage::Stdout("Checking network connectivity...".to_string())).await;
+
+        // Check network
+        let (net_ok, _, _) = match run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await {
+            Ok(result) => result,
+            Err(_) => {
+                let _ = tx.send(CommandMessage::Stderr("Network check failed".to_string())).await;
+                let _ = tx.send(CommandMessage::CloneComplete { success: false }).await;
+                return;
+            }
+        };
+
+        if !net_ok {
+            let _ = tx.send(CommandMessage::Stderr("No internet connection. Please configure WiFi with nmtui.".to_string())).await;
+            let _ = tx.send(CommandMessage::CloneComplete { success: false }).await;
+            return;
+        }
+
+        let _ = tx.send(CommandMessage::Stdout("Cloning configuration repository...".to_string())).await;
+
+        // Enable flakes
+        std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes");
+
+        // Remove any partial clone
+        let _ = std::fs::remove_dir_all(&temp_config);
+
+        // Clone repository
+        let clone_cmd = format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str);
+        let (success, stdout, stderr) = match run_capture("nix-shell", &["-p", "git", "--run", &clone_cmd]).await {
+            Ok(result) => result,
+            Err(e) => {
+                let _ = tx.send(CommandMessage::Stderr(format!("Clone command failed: {}", e))).await;
+                let _ = tx.send(CommandMessage::CloneComplete { success: false }).await;
+                return;
+            }
+        };
+
+        if !stdout.is_empty() {
+            let _ = tx.send(CommandMessage::Stdout(stdout)).await;
+        }
+        if !stderr.is_empty() && !success {
+            let _ = tx.send(CommandMessage::Stderr(stderr)).await;
+        }
+
+        if success {
+            let _ = tx.send(CommandMessage::Stdout("Repository cloned successfully".to_string())).await;
+        }
+
+        let _ = tx.send(CommandMessage::CloneComplete { success }).await;
+    });
+
+    Ok(())
+}
+
 // =============================================================================
 // Installation Steps
 // =============================================================================
