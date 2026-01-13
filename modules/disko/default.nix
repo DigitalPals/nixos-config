@@ -53,20 +53,21 @@
                 subvolumes = {
                   "@" = {
                     mountpoint = "/";
+                    # x-systemd.device-timeout=0 disables the 90s default timeout (NixOS#250003)
                     # x-systemd.after ensures mount waits for udev to settle after LUKS decryption
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
                   };
                   "@home" = {
                     mountpoint = "/home";
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
                   };
                   "@nix" = {
                     mountpoint = "/nix";
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
                   };
                   "@var-log" = {
                     mountpoint = "/var/log";
-                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.after=systemd-udev-settle.service" ];
+                    mountOptions = [ "compress=zstd" "noatime" "x-systemd.device-timeout=0" "x-systemd.after=systemd-udev-settle.service" ];
                   };
                 };
               };
@@ -84,8 +85,16 @@
   fileSystems."/nix".neededForBoot = true;
   fileSystems."/var/log".neededForBoot = true;
 
-  # Kernel modules needed for LUKS decryption performance
-  boot.initrd.availableKernelModules = [ "cryptd" "aesni_intel" ];
+  # Kernel modules needed for LUKS and device mapper
+  # dm_mod and dm_crypt are essential for /dev/mapper/cryptroot
+  boot.initrd.availableKernelModules = [ "dm_mod" "dm_crypt" "cryptd" "aesni_intel" ];
+
+  # Ensure btrfs is supported in initrd
+  boot.initrd.supportedFilesystems = [ "btrfs" ];
+
+  # Enable emergency shell access for debugging boot issues
+  # If boot hangs, add rd.systemd.unit=rescue.target to kernel params at boot
+  boot.initrd.systemd.emergencyAccess = true;
 
   # Fix for udev race condition with systemd initrd + LUKS
   # After LUKS decryption, udev needs to process the new /dev/mapper/cryptroot device.
