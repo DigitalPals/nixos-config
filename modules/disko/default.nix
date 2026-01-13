@@ -83,15 +83,6 @@
   fileSystems."/nix".neededForBoot = true;
   fileSystems."/var/log".neededForBoot = true;
 
-  # LUKS device configuration for initrd
-  # Disko creates the partition but doesn't auto-configure boot.initrd.luks.devices
-  # Reference: https://github.com/nix-community/disko/issues/386
-  boot.initrd.luks.devices."cryptroot" = {
-    device = "/dev/disk/by-partlabel/cryptroot";
-    allowDiscards = true;
-    bypassWorkqueues = true;
-  };
-
   # Kernel modules needed for LUKS decryption performance
   boot.initrd.availableKernelModules = [ "cryptd" "aesni_intel" ];
 }
