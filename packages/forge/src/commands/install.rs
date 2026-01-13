@@ -594,8 +594,8 @@ async fn step_install_nixos(
     let flake_ref = format!("{}#{}", config_dir, hostname);
     let check_ok = runner
         .run(
-            "nix",
-            &["flake", "check", &config_dir, "--no-build"],
+            "sudo",
+            &["nix", "flake", "check", &config_dir, "--no-build"],
         )
         .await
         .unwrap_or(false);
@@ -605,12 +605,13 @@ async fn step_install_nixos(
         // Continue anyway - the actual build might still work
     }
 
-    // Run nixos-install
-    runner.out(&format!("Running: nixos-install --flake {}", flake_ref)).await;
+    // Run nixos-install with sudo (nix run doesn't preserve root privileges)
+    runner.out(&format!("Running: sudo nixos-install --flake {}", flake_ref)).await;
     let success = runner
         .run(
-            "nixos-install",
+            "sudo",
             &[
+                "nixos-install",
                 "--flake",
                 &flake_ref,
                 "--no-root-passwd",
