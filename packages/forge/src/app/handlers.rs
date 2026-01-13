@@ -217,8 +217,13 @@ impl App {
             AppMode::Install(InstallState::Overview { host, disk: _, .. }) => {
                 Some(("install_overview", 0, Some(host.clone()), None))
             }
-            AppMode::Install(InstallState::Complete { .. })
-            | AppMode::Update(UpdateState::Complete { .. })
+            AppMode::Install(InstallState::Complete { success, .. }) => match key.code {
+                KeyCode::Enter => Some(("complete", 0, None, None)),
+                KeyCode::Char('r') | KeyCode::Char('R') if *success => Some(("reboot", 0, None, None)),
+                KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
+                _ => None,
+            },
+            AppMode::Update(UpdateState::Complete { .. })
             | AppMode::Apps(AppProfileState::Complete { .. })
             | AppMode::Keys(KeysState::Complete { .. }) => match key.code {
                 KeyCode::Enter => Some(("complete", 0, None, None)),
@@ -258,6 +263,11 @@ impl App {
             }
             Some(("complete", _, _, _)) => {
                 self.mode = AppMode::MainMenu { selected: 0 };
+            }
+            Some(("reboot", _, _, _)) => {
+                // Reboot the system
+                self.should_quit = true;
+                let _ = std::process::Command::new("reboot").spawn();
             }
             Some(("scroll", _, _, _)) => {
                 self.handle_scroll(key);

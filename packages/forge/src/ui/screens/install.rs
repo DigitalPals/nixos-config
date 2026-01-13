@@ -617,18 +617,29 @@ pub fn draw_complete(
     }
     frame.render_widget(log, chunks[1]);
 
-    // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("↑↓", theme::key_hint()),
-        Span::styled("] Scroll  [", theme::dim()),
-        Span::styled("Enter", theme::key_hint()),
-        Span::styled("] Done  [", theme::dim()),
-        Span::styled("q", theme::key_hint()),
-        Span::styled("] Quit", theme::dim()),
-    ]))
-    .alignment(Alignment::Center);
-    frame.render_widget(footer, chunks[2]);
+    // Footer - show reboot option on success
+    let footer = if success {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[", theme::dim()),
+            Span::styled("↑↓", theme::key_hint()),
+            Span::styled("] Scroll  [", theme::dim()),
+            Span::styled("r", theme::key_hint()),
+            Span::styled("] Reboot  [", theme::dim()),
+            Span::styled("Enter", theme::key_hint()),
+            Span::styled("] Done", theme::dim()),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[", theme::dim()),
+            Span::styled("↑↓", theme::key_hint()),
+            Span::styled("] Scroll  [", theme::dim()),
+            Span::styled("Enter", theme::key_hint()),
+            Span::styled("] Done  [", theme::dim()),
+            Span::styled("q", theme::key_hint()),
+            Span::styled("] Quit", theme::dim()),
+        ]))
+    };
+    frame.render_widget(footer.alignment(Alignment::Center), chunks[2]);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, title: &str) {
