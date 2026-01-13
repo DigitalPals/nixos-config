@@ -10,6 +10,7 @@
 //! 7. Set user password
 
 use anyhow::{Context, Result};
+use std::os::unix::fs::PermissionsExt;
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
@@ -88,12 +89,17 @@ pub async fn start_install(
 
     tokio::spawn(async move {
         if let Err(e) = run_install(&tx, &hostname, &disk, &username, &password).await {
-            tracing::error!("Installation failed: {}", e);
+            let error_msg = format!("{:#}", e); // Full error chain with context
+            tracing::error!("Installation failed: {}", error_msg);
+            // Display error to user
+            let _ = tx.send(CommandMessage::Stderr(format!("\n*** INSTALLATION ERROR ***"))).await;
+            let _ = tx.send(CommandMessage::Stderr(error_msg.clone())).await;
+            let _ = tx.send(CommandMessage::Stderr("".to_string())).await;
             let _ = tx
                 .send(CommandMessage::StepFailed {
                     step: "Install".to_string(),
                     error: ParsedError::from_stderr(
-                        &e.to_string(),
+                        &error_msg,
                         ErrorContext {
                             operation: "Installation".to_string(),
                         },
@@ -420,12 +426,8 @@ async fn step_run_disko(
     std::fs::write(LUKS_PASSWORD_FILE, password.as_bytes())
         .with_context(|| format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE))?;
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(LUKS_PASSWORD_FILE, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("Failed to set permissions on {}", LUKS_PASSWORD_FILE))?;
-    }
+    std::fs::set_permissions(LUKS_PASSWORD_FILE, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("Failed to set permissions on {}", LUKS_PASSWORD_FILE))?;
 
     // Inject passwordFile into disko default.nix
     let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
@@ -522,18 +524,43 @@ async fn step_install_nixos(
         runner.out(&format!("  /mnt contents: {:?}", dirs)).await;
     }
 
-    // Copy configuration to user home directory
-    runner.out("  Creating directories...").await;
-    let config_parent = std::path::Path::new(&config_dir)
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Invalid config directory path"))?;
-    runner.out(&format!("  Target parent: {}", config_parent.display())).await;
-
-    if let Err(e) = std::fs::create_dir_all(config_parent) {
-        runner.err(&format!("ERROR creating {}: {}", config_parent.display(), e)).await;
-        runner.step_failed("NixOS", &format!("Failed to create {}: {}", config_parent.display(), e), "NixOS installation").await?;
+    // Verify /mnt/home exists (btrfs @home subvolume should be mounted here)
+    let mnt_home = std::path::Path::new("/mnt/home");
+    if !mnt_home.exists() {
+        runner.err("ERROR: /mnt/home does not exist! Disko may not have mounted subvolumes correctly.").await;
+        runner.step_failed("NixOS", "/mnt/home missing - disko mount issue", "NixOS installation").await?;
         runner.done(false).await?;
         return Ok(false);
+    }
+    runner.out("  /mnt/home exists (btrfs subvolume mounted)").await;
+
+    // Copy configuration to user home directory
+    runner.out(&format!("  Creating user directory: /mnt/home/{}", username)).await;
+    let config_parent = std::path::Path::new(&config_dir)
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Invalid config directory path: {}", config_dir))?;
+    runner.out(&format!("  Target path: {}", config_parent.display())).await;
+
+    match std::fs::create_dir_all(config_parent) {
+        Ok(()) => {
+            runner.out(&format!("  Created: {}", config_parent.display())).await;
+        }
+        Err(e) => {
+            runner.err(&format!("ERROR creating {}: {}", config_parent.display(), e)).await;
+            runner.err(&format!("  Error kind: {:?}", e.kind())).await;
+            // Try to show more context
+            if let Some(parent) = config_parent.parent() {
+                runner.err(&format!("  Parent exists: {}", parent.exists())).await;
+                if parent.exists() {
+                    if let Ok(meta) = std::fs::metadata(parent) {
+                        runner.err(&format!("  Parent permissions: {:o}", meta.permissions().mode())).await;
+                    }
+                }
+            }
+            runner.step_failed("NixOS", &format!("Failed to create {}: {}", config_parent.display(), e), "NixOS installation").await?;
+            runner.done(false).await?;
+            return Ok(false);
+        }
     }
 
     runner.out("  Copying configuration...").await;
