@@ -76,6 +76,10 @@
     };
   };
 
-  # Ensure /var/log is available early for boot logging
+  # Mount all subvolumes in initrd to avoid race conditions with LUKS device
+  # Without this, systemd may try to mount before /dev/mapper/cryptroot is ready
+  fileSystems."/".neededForBoot = true;
+  fileSystems."/home".neededForBoot = true;
+  fileSystems."/nix".neededForBoot = true;
   fileSystems."/var/log".neededForBoot = true;
 }
