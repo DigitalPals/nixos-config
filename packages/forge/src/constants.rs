@@ -150,9 +150,9 @@ pub fn nixos_config_dir() -> PathBuf {
     std::env::current_dir().unwrap_or_default()
 }
 
-/// Get temporary config directory for fresh install (with PID for uniqueness)
+/// Get temporary config directory for fresh install
 pub fn temp_config_dir() -> PathBuf {
-    PathBuf::from(format!("/tmp/nixos-config-{}", std::process::id()))
+    PathBuf::from(NIXOS_CONFIG_TEMP)
 }
 
 /// Get hosts directory paths to check
@@ -196,11 +196,10 @@ mod tests {
     }
 
     #[test]
-    fn test_temp_config_dir_contains_pid() {
+    fn test_temp_config_dir() {
         let path = temp_config_dir();
         let path_str = path.to_string_lossy();
-        let pid = std::process::id().to_string();
-        assert!(path_str.contains(&pid), "Temp config dir should contain process ID");
+        assert_eq!(path_str, NIXOS_CONFIG_TEMP, "Temp config dir should match NIXOS_CONFIG_TEMP");
         assert!(path_str.starts_with("/tmp"), "Temp config dir should be in /tmp");
     }
 
