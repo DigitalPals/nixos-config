@@ -9,7 +9,9 @@ use ratatui::{
 
 use super::helpers::{draw_footer, draw_header};
 use crate::app::App;
-use crate::system::hardware::{CpuInfo, FormFactor, GpuInfo};
+use crate::system::hardware::{
+    gpu_vendor_label, gpu_vendor_options, CpuInfo, FormFactor, GpuInfo,
+};
 use crate::ui::layout::centered_rect;
 use crate::ui::theme;
 use crate::ui::widgets::MenuList;
@@ -108,7 +110,9 @@ pub fn draw_confirm_cpu(
                 Span::styled("Y", theme::key_hint()),
                 Span::styled("]es  [", theme::dim()),
                 Span::styled("N", theme::key_hint()),
-                Span::styled("]o, let me choose", theme::dim()),
+                Span::styled("]o / [", theme::dim()),
+                Span::styled("O", theme::key_hint()),
+                Span::styled("]verride", theme::dim()),
             ]),
             Line::from(""),
         ])
@@ -119,7 +123,7 @@ pub fn draw_confirm_cpu(
                 .border_style(theme::border()),
         );
         frame.render_widget(confirm, chunks[2]);
-        draw_footer(frame, chunks[3], &["y Confirm", "n Override", "Esc Back"]);
+        draw_footer(frame, chunks[3], &["y Confirm", "n/o Override", "Esc Back"]);
     }
 }
 
@@ -147,9 +151,7 @@ pub fn draw_confirm_gpu(
 
     draw_header(frame, chunks[0], "Confirm GPU");
 
-    // Detected GPU info - show different message if detection failed
-    let (title, lines) = if override_menu && gpu.model.is_none() {
-        // Detection failed - show selection prompt
+    let (title, mut lines) = if gpu.model.is_none() {
         (
             " GPU Selection ",
             vec![
@@ -164,14 +166,9 @@ pub fn draw_confirm_gpu(
                     theme::text(),
                 )),
                 Line::from(""),
-                Line::from(vec![
-                    Span::styled("  CPU:    ", theme::dim()),
-                    Span::styled(format!("{}", cpu.vendor), theme::dim()),
-                ]),
             ],
         )
     } else {
-        // Detection succeeded
         let model_str = gpu.model.as_deref().unwrap_or("Unknown");
         (
             " GPU Detection ",
@@ -187,13 +184,28 @@ pub fn draw_confirm_gpu(
                     Span::styled(model_str, theme::text()),
                 ]),
                 Line::from(""),
-                Line::from(vec![
-                    Span::styled("  CPU:    ", theme::dim()),
-                    Span::styled(format!("{}", cpu.vendor), theme::dim()),
-                ]),
             ],
         )
     };
+
+    if let Some(hybrid) = &gpu.hybrid {
+        let nvidia_model = hybrid.nvidia_model.as_deref().unwrap_or("NVIDIA dGPU");
+        let amd_model = hybrid.amd_model.as_deref().unwrap_or("AMD iGPU");
+        lines.push(Line::from(vec![
+            Span::styled("  NVIDIA: ", theme::dim()),
+            Span::styled(nvidia_model, theme::text()),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  AMD:    ", theme::dim()),
+            Span::styled(amd_model, theme::text()),
+        ]));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("  CPU:    ", theme::dim()),
+        Span::styled(format!("{}", cpu.vendor), theme::dim()),
+    ]));
 
     let gpu_info = Paragraph::new(lines).block(
         Block::default()
@@ -204,7 +216,11 @@ pub fn draw_confirm_gpu(
     frame.render_widget(gpu_info, chunks[1]);
 
     if override_menu {
-        let items = vec!["NVIDIA", "AMD", "Intel", "None (integrated/software)"];
+        let options = gpu_vendor_options(gpu.hybrid.is_some());
+        let items = options
+            .iter()
+            .map(|vendor| gpu_vendor_label(*vendor))
+            .collect();
         let menu = MenuList::new(items, selected).title(" Select GPU Vendor ");
         frame.render_widget(menu, chunks[2]);
         draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);

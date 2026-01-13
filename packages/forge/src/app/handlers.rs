@@ -11,7 +11,9 @@ use crate::commands::executor::run_capture;
 use crate::commands::update::{check_local_changes, get_default_branch};
 use crate::constants::nixos_config_dir;
 use crate::constants::MAX_INPUT_LENGTH;
-use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor};
+use crate::system::hardware::{
+    gpu_vendor_options, CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor,
+};
 
 /// Check if this is a Ctrl+C key event
 fn is_ctrl_c(key: &KeyEvent) -> bool {
@@ -818,16 +820,19 @@ impl App {
             AppMode::CreateHost(CreateHostState::ConfirmGpu {
                 override_menu,
                 selected,
+                gpu,
                 ..
             }) => {
                 if *override_menu {
+                    let options = gpu_vendor_options(gpu.hybrid.is_some());
                     match key.code {
                         KeyCode::Up | KeyCode::Char('k') => {
                             *selected = selected.saturating_sub(1);
                             false
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            *selected = (*selected + 1).min(3);
+                            let max_index = options.len().saturating_sub(1);
+                            *selected = (*selected + 1).min(max_index);
                             false
                         }
                         KeyCode::Enter => true,
@@ -836,7 +841,7 @@ impl App {
                 } else {
                     match key.code {
                         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => true,
-                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('o') => {
                             *override_menu = true;
                             false
                         }
@@ -966,17 +971,29 @@ impl App {
                 selected,
             }) => {
                 if override_menu {
-                    let new_vendor = match selected {
-                        0 => GpuVendor::NVIDIA,
-                        1 => GpuVendor::AMD,
-                        2 => GpuVendor::Intel,
-                        _ => GpuVendor::None,
+                    let options = gpu_vendor_options(gpu.hybrid.is_some());
+                    let new_vendor = options
+                        .get(selected)
+                        .copied()
+                        .unwrap_or(GpuVendor::None);
+                    let hybrid = if new_vendor == GpuVendor::HybridNvidiaAmd {
+                        gpu.hybrid.clone()
+                    } else {
+                        None
+                    };
+                    let model = if new_vendor == GpuVendor::HybridNvidiaAmd {
+                        gpu.model.clone().or_else(|| {
+                            Some(format!("{} (manually selected)", new_vendor))
+                        })
+                    } else {
+                        Some(format!("{} (manually selected)", new_vendor))
                     };
                     AppMode::CreateHost(CreateHostState::ConfirmFormFactor {
                         cpu,
                         gpu: GpuInfo {
                             vendor: new_vendor,
-                            model: Some(format!("{} (manually selected)", new_vendor)),
+                            model,
+                            hybrid,
                         },
                         form_factor: detected_form_factor,
                         override_menu: false,

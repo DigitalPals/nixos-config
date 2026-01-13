@@ -328,7 +328,9 @@ fn update_flake_nix(content: &str, config: &NewHostConfig) -> Result<String> {
     // Generate the new host entry
     // Only include extraModules if we need hardware-specific modules
     let extra_modules_line = match config.gpu.vendor {
-        GpuVendor::NVIDIA => "\n        extraModules = [ ./modules/hardware/nvidia.nix ];",
+        GpuVendor::NVIDIA | GpuVendor::HybridNvidiaAmd => {
+            "\n        extraModules = [ ./modules/hardware/nvidia.nix ];"
+        }
         GpuVendor::Intel => "\n        extraModules = [ ./modules/hardware/intel.nix ];",
         _ => "", // AMD and None don't need extra modules
     };
@@ -336,6 +338,12 @@ fn update_flake_nix(content: &str, config: &NewHostConfig) -> Result<String> {
     let description = match (&config.gpu.vendor, &config.form_factor) {
         (GpuVendor::NVIDIA, FormFactor::Desktop) => format!("{} - Desktop with NVIDIA GPU", config.hostname),
         (GpuVendor::NVIDIA, FormFactor::Laptop) => format!("{} - Laptop with NVIDIA GPU", config.hostname),
+        (GpuVendor::HybridNvidiaAmd, FormFactor::Desktop) => {
+            format!("{} - Desktop with Hybrid NVIDIA + AMD GPU", config.hostname)
+        }
+        (GpuVendor::HybridNvidiaAmd, FormFactor::Laptop) => {
+            format!("{} - Laptop with Hybrid NVIDIA + AMD GPU", config.hostname)
+        }
         (GpuVendor::AMD, FormFactor::Desktop) => format!("{} - Desktop with AMD GPU", config.hostname),
         (GpuVendor::AMD, FormFactor::Laptop) => format!("{} - Laptop with AMD GPU", config.hostname),
         (GpuVendor::Intel, FormFactor::Desktop) => format!("{} - Desktop with Intel GPU", config.hostname),

@@ -203,6 +203,7 @@ impl App {
                             detected_gpu: GpuInfo {
                                 vendor: GpuVendor::None,
                                 model: None,
+                                hybrid: None,
                             },
                             detected_form_factor: crate::system::hardware::FormFactor::Desktop,
                             override_menu: true,

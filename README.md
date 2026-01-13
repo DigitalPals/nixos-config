@@ -39,6 +39,7 @@ The selected shell persists for that boot session. To switch shells, reboot and 
 |------|-------------|-----|
 | `kraken` | Desktop PC | NVIDIA RTX 5090 |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
+| `proart-p16` | ASUS ProArt P16 | Hybrid NVIDIA + AMD |
 
 ## Flake Configurations
 

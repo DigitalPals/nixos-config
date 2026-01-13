@@ -28,6 +28,7 @@ pub enum GpuVendor {
     NVIDIA,
     AMD,
     Intel,
+    HybridNvidiaAmd,
     None,
 }
 
@@ -37,6 +38,7 @@ impl std::fmt::Display for GpuVendor {
             GpuVendor::NVIDIA => write!(f, "NVIDIA"),
             GpuVendor::AMD => write!(f, "AMD"),
             GpuVendor::Intel => write!(f, "Intel"),
+            GpuVendor::HybridNvidiaAmd => write!(f, "Hybrid (NVIDIA + AMD)"),
             GpuVendor::None => write!(f, "None (integrated/software)"),
         }
     }
@@ -70,6 +72,23 @@ pub struct CpuInfo {
 pub struct GpuInfo {
     pub vendor: GpuVendor,
     pub model: Option<String>,
+    pub hybrid: Option<HybridGpuInfo>,
+}
+
+/// Hybrid GPU details (NVIDIA dGPU + AMD iGPU)
+#[derive(Debug, Clone)]
+pub struct HybridGpuInfo {
+    pub amd_bus_id: Option<String>,
+    pub nvidia_bus_id: Option<String>,
+    pub amd_model: Option<String>,
+    pub nvidia_model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct GpuDevice {
+    vendor: GpuVendor,
+    model: Option<String>,
+    bus_id: Option<String>,
 }
 
 /// Complete hardware information
@@ -135,43 +154,22 @@ pub fn detect_gpu() -> Result<GpuInfo> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // PCI vendor IDs
-    const NVIDIA_VENDOR: &str = "10de";
-    const AMD_VENDOR: &str = "1002";
-    const INTEL_VENDOR: &str = "8086";
+    let devices = detect_gpu_devices(&stdout);
 
-    let mut best_gpu: Option<GpuInfo> = None;
+    let mut best_gpu: Option<GpuDevice> = None;
+    let mut amd_gpu: Option<GpuDevice> = None;
+    let mut nvidia_gpu: Option<GpuDevice> = None;
 
     // Priority: NVIDIA > AMD > Intel
     // This handles cases where a system has both discrete and integrated GPUs
-    for line in stdout.lines() {
-        // Look for VGA compatible controller, 3D controller, or Display controller
-        // Display controller [0380] is used by some AMD GPUs (e.g., Strix Halo)
-        if !line.contains("VGA compatible controller")
-            && !line.contains("3D controller")
-            && !line.contains("Display controller")
-        {
-            continue;
+    for device in devices {
+        match device.vendor {
+            GpuVendor::NVIDIA => nvidia_gpu = Some(device.clone()),
+            GpuVendor::AMD => amd_gpu = Some(device.clone()),
+            _ => {}
         }
 
-        let line_lower = line.to_lowercase();
-
-        // Check for vendor IDs in the PCI ID brackets [xxxx:yyyy]
-        let (vendor, model) = if line_lower.contains(&format!("[{}:", NVIDIA_VENDOR)) {
-            let model = extract_gpu_model(line, "NVIDIA");
-            (GpuVendor::NVIDIA, model)
-        } else if line_lower.contains(&format!("[{}:", AMD_VENDOR)) {
-            let model = extract_gpu_model(line, "AMD");
-            (GpuVendor::AMD, model)
-        } else if line_lower.contains(&format!("[{}:", INTEL_VENDOR)) {
-            let model = extract_gpu_model(line, "Intel");
-            (GpuVendor::Intel, model)
-        } else {
-            continue;
-        };
-
-        // Prioritize discrete GPUs (NVIDIA > AMD discrete > Intel)
-        let should_update = match (&best_gpu, vendor) {
+        let should_update = match (&best_gpu, device.vendor) {
             (None, _) => true,
             (Some(current), GpuVendor::NVIDIA) if current.vendor != GpuVendor::NVIDIA => true,
             (Some(current), GpuVendor::AMD)
@@ -183,14 +181,38 @@ pub fn detect_gpu() -> Result<GpuInfo> {
         };
 
         if should_update {
-            best_gpu = Some(GpuInfo { vendor, model });
+            best_gpu = Some(device);
         }
     }
 
-    Ok(best_gpu.unwrap_or(GpuInfo {
-        vendor: GpuVendor::None,
-        model: None,
-    }))
+    let hybrid = match (amd_gpu, nvidia_gpu) {
+        (Some(amd), Some(nvidia)) => Some(HybridGpuInfo {
+            amd_bus_id: amd.bus_id,
+            nvidia_bus_id: nvidia.bus_id,
+            amd_model: amd.model,
+            nvidia_model: nvidia.model,
+        }),
+        _ => None,
+    };
+
+    let (vendor, model) = if let Some(hybrid_ref) = hybrid.as_ref() {
+        let amd_model = hybrid_ref.amd_model.as_deref().unwrap_or("AMD iGPU");
+        let nvidia_model = hybrid_ref.nvidia_model.as_deref().unwrap_or("NVIDIA dGPU");
+        (
+            GpuVendor::HybridNvidiaAmd,
+            Some(format!("{} + {}", nvidia_model, amd_model)),
+        )
+    } else if let Some(best) = best_gpu {
+        (best.vendor, best.model)
+    } else {
+        (GpuVendor::None, None)
+    };
+
+    Ok(GpuInfo {
+        vendor,
+        model,
+        hybrid,
+    })
 }
 
 /// Extract GPU model name from lspci line
@@ -212,6 +234,83 @@ fn extract_gpu_model(line: &str, vendor_name: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn detect_gpu_devices(stdout: &str) -> Vec<GpuDevice> {
+    // PCI vendor IDs
+    const NVIDIA_VENDOR: &str = "10de";
+    const AMD_VENDOR: &str = "1002";
+    const INTEL_VENDOR: &str = "8086";
+
+    let mut devices = Vec::new();
+
+    for line in stdout.lines() {
+        // Look for VGA compatible controller, 3D controller, or Display controller
+        // Display controller [0380] is used by some AMD GPUs (e.g., Strix Halo)
+        if !line.contains("VGA compatible controller")
+            && !line.contains("3D controller")
+            && !line.contains("Display controller")
+        {
+            continue;
+        }
+
+        let line_lower = line.to_lowercase();
+        let (vendor, model) = if line_lower.contains(&format!("[{}:", NVIDIA_VENDOR)) {
+            (GpuVendor::NVIDIA, extract_gpu_model(line, "NVIDIA"))
+        } else if line_lower.contains(&format!("[{}:", AMD_VENDOR)) {
+            (GpuVendor::AMD, extract_gpu_model(line, "AMD"))
+        } else if line_lower.contains(&format!("[{}:", INTEL_VENDOR)) {
+            (GpuVendor::Intel, extract_gpu_model(line, "Intel"))
+        } else {
+            continue;
+        };
+
+        devices.push(GpuDevice {
+            vendor,
+            model,
+            bus_id: parse_pci_bus_id(line),
+        });
+    }
+
+    devices
+}
+
+fn parse_pci_bus_id(line: &str) -> Option<String> {
+    let slot = line.split_whitespace().next()?;
+    let mut parts = slot.split([':', '.']);
+    let bus_hex = parts.next()?;
+    let device_hex = parts.next()?;
+    let function_hex = parts.next()?;
+
+    let bus = u32::from_str_radix(bus_hex, 16).ok()?;
+    let device = u32::from_str_radix(device_hex, 16).ok()?;
+    let function = u32::from_str_radix(function_hex, 16).ok()?;
+
+    Some(format!("PCI:{}:{}:{}", bus, device, function))
+}
+
+pub fn gpu_vendor_label(vendor: GpuVendor) -> &'static str {
+    match vendor {
+        GpuVendor::NVIDIA => "NVIDIA",
+        GpuVendor::AMD => "AMD",
+        GpuVendor::Intel => "Intel",
+        GpuVendor::HybridNvidiaAmd => "Hybrid (NVIDIA + AMD)",
+        GpuVendor::None => "None (integrated/software)",
+    }
+}
+
+pub fn gpu_vendor_options(has_hybrid: bool) -> Vec<GpuVendor> {
+    let mut options = Vec::new();
+    if has_hybrid {
+        options.push(GpuVendor::HybridNvidiaAmd);
+    }
+    options.extend([
+        GpuVendor::NVIDIA,
+        GpuVendor::AMD,
+        GpuVendor::Intel,
+        GpuVendor::None,
+    ]);
+    options
 }
 
 /// Detect form factor by checking for battery presence
@@ -263,6 +362,10 @@ mod tests {
         assert_eq!(format!("{}", GpuVendor::NVIDIA), "NVIDIA");
         assert_eq!(format!("{}", GpuVendor::AMD), "AMD");
         assert_eq!(format!("{}", GpuVendor::Intel), "Intel");
+        assert_eq!(
+            format!("{}", GpuVendor::HybridNvidiaAmd),
+            "Hybrid (NVIDIA + AMD)"
+        );
         assert_eq!(format!("{}", GpuVendor::None), "None (integrated/software)");
     }
 
@@ -356,6 +459,7 @@ mod tests {
         let gpu = GpuInfo {
             vendor: GpuVendor::NVIDIA,
             model: Some("GeForce RTX 5090".to_string()),
+            hybrid: None,
         };
         let cloned = gpu.clone();
         assert_eq!(cloned.vendor, GpuVendor::NVIDIA);
@@ -367,6 +471,7 @@ mod tests {
         let gpu = GpuInfo {
             vendor: GpuVendor::None,
             model: None,
+            hybrid: None,
         };
         assert_eq!(gpu.vendor, GpuVendor::None);
         assert!(gpu.model.is_none());
@@ -382,6 +487,7 @@ mod tests {
             gpu: GpuInfo {
                 vendor: GpuVendor::NVIDIA,
                 model: Some("RTX 4090".to_string()),
+                hybrid: None,
             },
             form_factor: FormFactor::Desktop,
         };

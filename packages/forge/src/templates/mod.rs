@@ -1,14 +1,14 @@
 //! NixOS configuration template generators
 
 use crate::app::NewHostConfig;
-use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuVendor};
+use crate::system::hardware::{CpuInfo, CpuVendor, FormFactor, GpuInfo, GpuVendor};
 
 /// Generate the host's default.nix configuration
 pub fn generate_host_default_nix(config: &NewHostConfig) -> String {
-    let gpu_config = generate_gpu_config(&config.gpu.vendor);
+    let gpu_config = generate_gpu_config(&config.gpu);
     let form_factor_config = generate_form_factor_config(&config.form_factor);
     let cpu_config = generate_cpu_config(&config.cpu.vendor);
-    let initrd_modules = generate_initrd_modules(&config.gpu.vendor);
+    let initrd_modules = generate_initrd_modules(&config.gpu);
 
     format!(
         r#"# {hostname} - {description}
@@ -47,6 +47,7 @@ fn generate_description(config: &NewHostConfig) -> String {
         GpuVendor::NVIDIA => "NVIDIA GPU",
         GpuVendor::AMD => "AMD GPU",
         GpuVendor::Intel => "Intel GPU",
+        GpuVendor::HybridNvidiaAmd => "Hybrid NVIDIA + AMD GPU",
         GpuVendor::None => "integrated graphics",
     };
 
@@ -54,8 +55,8 @@ fn generate_description(config: &NewHostConfig) -> String {
 }
 
 /// Generate GPU-specific configuration
-fn generate_gpu_config(vendor: &GpuVendor) -> String {
-    match vendor {
+fn generate_gpu_config(gpu: &GpuInfo) -> String {
+    match gpu.vendor {
         GpuVendor::NVIDIA => {
             // NVIDIA config is handled via nvidia.nix module imported in flake.nix
             String::new()
@@ -70,6 +71,35 @@ fn generate_gpu_config(vendor: &GpuVendor) -> String {
   ];
 "#
             .to_string()
+        }
+        GpuVendor::HybridNvidiaAmd => {
+            let (amd_bus_id, nvidia_bus_id) = if let Some(hybrid) = &gpu.hybrid {
+                (
+                    hybrid.amd_bus_id.as_deref().unwrap_or("PCI:0:0:0"),
+                    hybrid.nvidia_bus_id.as_deref().unwrap_or("PCI:0:0:0"),
+                )
+            } else {
+                ("PCI:0:0:0", "PCI:0:0:0")
+            };
+            format!(
+                r#"
+  # Hybrid NVIDIA + AMD GPU configuration (PRIME offload)
+  # Verify bus IDs with: lspci -nn | grep -E "VGA|3D|Display"
+  hardware.amdgpu.initrd.enable = true;
+  hardware.nvidia.prime = {{
+    offload.enable = true;
+    offload.enableOffloadCmd = true;
+    amdgpuBusId = "{amd_bus_id}";
+    nvidiaBusId = "{nvidia_bus_id}";
+  }};
+
+  boot.kernelParams = [
+    "amdgpu.ppfeaturemask=0xffffffff"
+  ];
+"#,
+                amd_bus_id = amd_bus_id,
+                nvidia_bus_id = nvidia_bus_id
+            )
         }
         GpuVendor::Intel => {
             // Intel config is handled via intel.nix module imported in flake.nix
@@ -137,8 +167,8 @@ fn generate_form_factor_config(form_factor: &FormFactor) -> String {
 }
 
 /// Generate initrd kernel modules based on GPU type
-fn generate_initrd_modules(vendor: &GpuVendor) -> String {
-    match vendor {
+fn generate_initrd_modules(gpu: &GpuInfo) -> String {
+    match gpu.vendor {
         GpuVendor::NVIDIA => {
             r#"    "nvidia"
     "nvidia_modeset"
@@ -151,6 +181,17 @@ fn generate_initrd_modules(vendor: &GpuVendor) -> String {
         }
         GpuVendor::AMD => {
             r#"    "amdgpu"
+    "hid-generic"
+    "usbhid"
+"#
+            .to_string()
+        }
+        GpuVendor::HybridNvidiaAmd => {
+            r#"    "nvidia"
+    "nvidia_modeset"
+    "nvidia_uvm"
+    "nvidia_drm"
+    "amdgpu"
     "hid-generic"
     "usbhid"
 "#
@@ -253,6 +294,7 @@ mod tests {
             gpu: GpuInfo {
                 vendor: GpuVendor::NVIDIA,
                 model: Some("RTX 5090".to_string()),
+                hybrid: None,
             },
             form_factor: FormFactor::Desktop,
             disk: DiskInfo {
@@ -281,6 +323,7 @@ mod tests {
             gpu: GpuInfo {
                 vendor: GpuVendor::AMD,
                 model: Some("RX 7900".to_string()),
+                hybrid: None,
             },
             form_factor: FormFactor::Laptop,
             disk: DiskInfo {
