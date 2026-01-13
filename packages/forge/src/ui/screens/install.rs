@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, CredentialField, InstallCredentials, StepStatus};
+use crate::app::{App, CredentialField, InstallCredentials, StepStatus, SwapMode};
 use crate::system::config::HostConfig;
 use crate::system::disk::DiskInfo;
 use crate::ui::layout::{centered_rect, host_selection_layout, progress_layout};
@@ -424,11 +424,113 @@ pub fn draw_enter_credentials(
     );
 }
 
+/// Draw swap mode selection screen
+pub fn draw_select_swap_mode(
+    frame: &mut Frame,
+    host: &str,
+    disk: &DiskInfo,
+    selected: usize,
+    ram_gb: u64,
+    _app: &App,
+) {
+    let area = frame.area();
+    let center = centered_rect(65, 60, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(4),
+            Constraint::Length(12),
+            Constraint::Min(3),
+        ])
+        .split(center);
+
+    // Header
+    draw_header(frame, chunks[0], "Select Swap Configuration");
+
+    // Host/Disk info
+    let info = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("  Host: ", theme::dim()),
+            Span::styled(host, theme::text()),
+            Span::styled("  |  Disk: ", theme::dim()),
+            Span::styled(&disk.path, theme::text()),
+            Span::styled(format!(" ({})", disk.size), theme::dim()),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border()),
+    );
+    frame.render_widget(info, chunks[1]);
+
+    // Calculate swap size for hibernate (RAM + 2GB)
+    let swap_size_gb = ram_gb + 2;
+
+    // Swap mode options
+    let zram_style = if selected == 0 {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+    let hibernate_style = if selected == 1 {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+
+    let zram_indicator = if selected == 0 { ">" } else { " " };
+    let hibernate_indicator = if selected == 1 { ">" } else { " " };
+
+    let options = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!(" {} ", zram_indicator), zram_style),
+            Span::styled("Zram Only", zram_style),
+            Span::styled(" (Recommended)", theme::dim()),
+        ]),
+        Line::from(vec![
+            Span::styled("     ", theme::dim()),
+            Span::styled("Compressed RAM swap, fast, no hibernate", theme::dim()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!(" {} ", hibernate_indicator), hibernate_style),
+            Span::styled("Hibernate Support", hibernate_style),
+        ]),
+        Line::from(vec![
+            Span::styled("     ", theme::dim()),
+            Span::styled(
+                format!("Swapfile inside encrypted volume ({} GB)", swap_size_gb),
+                theme::dim(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("     ", theme::dim()),
+            Span::styled("Enables suspend-to-disk", theme::dim()),
+        ]),
+        Line::from(""),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(Span::styled(" Swap Mode ", theme::title())),
+    );
+    frame.render_widget(options, chunks[2]);
+
+    // Footer
+    draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+}
+
 /// Draw overview/confirmation screen
 pub fn draw_overview(
     frame: &mut Frame,
     host: &str,
     disk: &DiskInfo,
+    credentials: &InstallCredentials,
     input: &str,
     hardware_config: Option<&crate::app::state::NewHostConfig>,
     _app: &App,
@@ -437,7 +539,7 @@ pub fn draw_overview(
     let center = centered_rect(70, 70, area);
 
     // Calculate details height based on whether we have hardware info
-    let details_height = if hardware_config.is_some() { 10 } else { 6 };
+    let details_height = if hardware_config.is_some() { 12 } else { 8 };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -474,6 +576,21 @@ pub fn draw_overview(
         Span::styled("  Disk:     ", theme::dim()),
         Span::styled(&disk.path, theme::text()),
         Span::styled(format!(" ({})", disk.size), theme::dim()),
+    ]));
+
+    detail_lines.push(Line::from(vec![
+        Span::styled("  User:     ", theme::dim()),
+        Span::styled(&credentials.username, theme::text()),
+    ]));
+
+    // Show swap mode selection
+    let swap_mode_text = match credentials.swap_mode {
+        SwapMode::ZramOnly => "Zram Only (no hibernate)",
+        SwapMode::HibernateSupport => "Hibernate Support (disk swapfile)",
+    };
+    detail_lines.push(Line::from(vec![
+        Span::styled("  Swap:     ", theme::dim()),
+        Span::styled(swap_mode_text, theme::text()),
     ]));
 
     // Add hardware info if available (new host)

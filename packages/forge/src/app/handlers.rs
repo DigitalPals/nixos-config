@@ -20,6 +20,27 @@ fn is_ctrl_c(key: &KeyEvent) -> bool {
     key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
+/// Get total RAM size in GB (rounded up)
+fn get_ram_size_gb() -> u64 {
+    // Read from /proc/meminfo
+    if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+        for line in content.lines() {
+            if line.starts_with("MemTotal:") {
+                // Format: "MemTotal:       16384000 kB"
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(kb) = parts[1].parse::<u64>() {
+                        // Convert KB to GB, rounded up
+                        return (kb + 1024 * 1024 - 1) / (1024 * 1024);
+                    }
+                }
+            }
+        }
+    }
+    // Fallback to 8GB if detection fails
+    8
+}
+
 impl App {
     /// Handle keyboard input
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -214,6 +235,9 @@ impl App {
             AppMode::Install(InstallState::EnterCredentials { host, .. }) => {
                 Some(("install_credentials", 0, Some(host.clone()), None))
             }
+            AppMode::Install(InstallState::SelectSwapMode { host, selected, .. }) => {
+                Some(("install_swap_mode", *selected, Some(host.clone()), None))
+            }
             AppMode::Install(InstallState::Overview { host, disk: _, .. }) => {
                 Some(("install_overview", 0, Some(host.clone()), None))
             }
@@ -257,6 +281,9 @@ impl App {
             }
             Some(("install_credentials", _, Some(host), _)) => {
                 self.handle_credentials_key(key, &host).await?;
+            }
+            Some(("install_swap_mode", selected, Some(_host), _)) => {
+                self.handle_swap_mode_key(key, selected).await?;
             }
             Some(("install_overview", _, Some(host), _)) => {
                 self.handle_overview_key_action(key, &host).await?;
@@ -709,21 +736,66 @@ impl App {
                     *error = None;
                 }
                 KeyCode::Enter => {
-                    // Validate and proceed to confirmation
+                    // Validate and proceed to swap mode selection
                     if let Some(err) = validate_username(&credentials.username) {
                         *error = Some(err);
                     } else if let Some(err) = validate_password(&credentials.password, &credentials.confirm_password) {
                         *error = Some(err);
                     } else {
-                        // All valid, proceed to overview
-                        self.mode = AppMode::Install(InstallState::Overview {
+                        // All valid, proceed to swap mode selection
+                        // Get RAM size for display
+                        let ram_gb = get_ram_size_gb();
+                        self.mode = AppMode::Install(InstallState::SelectSwapMode {
                             host: host.clone(),
                             disk: disk.clone(),
                             credentials: credentials.clone(),
-                            hardware_config: None,
-                            input: String::new(),
+                            selected: 0,
+                            ram_gb,
                         });
                     }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_swap_mode_key(&mut self, key: KeyEvent, _current_selected: usize) -> Result<()> {
+        if let AppMode::Install(InstallState::SelectSwapMode {
+            host,
+            disk,
+            credentials,
+            selected,
+            ram_gb: _,
+        }) = &mut self.mode
+        {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = selected.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1).min(1); // 2 options: 0, 1
+                }
+                KeyCode::Enter => {
+                    // Set swap mode based on selection
+                    let swap_mode = if *selected == 0 {
+                        SwapMode::ZramOnly
+                    } else {
+                        SwapMode::HibernateSupport
+                    };
+
+                    // Update credentials with selected swap mode
+                    let mut creds = credentials.clone();
+                    creds.swap_mode = swap_mode;
+
+                    // Proceed to overview
+                    self.mode = AppMode::Install(InstallState::Overview {
+                        host: host.clone(),
+                        disk: disk.clone(),
+                        credentials: creds,
+                        hardware_config: None,
+                        input: String::new(),
+                    });
                 }
                 _ => {}
             }
@@ -791,6 +863,7 @@ impl App {
                         &disk.path,
                         &creds.username,
                         &creds.password,
+                        creds.swap_mode.clone(),
                     ).await?;
                 }
             }
@@ -1164,6 +1237,7 @@ impl App {
         let needs_disk_refresh = matches!(
             old_mode,
             AppMode::Install(InstallState::EnterCredentials { .. })
+                | AppMode::Install(InstallState::SelectSwapMode { .. })
                 | AppMode::Install(InstallState::Overview { .. })
                 | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
         );
@@ -1189,14 +1263,25 @@ impl App {
                     selected: 0,
                 })
             }
-            AppMode::Install(InstallState::Overview { host, disk, credentials, .. }) => {
-                // Go back to credentials entry, keeping the entered credentials
+            AppMode::Install(InstallState::SelectSwapMode { host, disk, credentials, .. }) => {
+                // Go back to credentials entry
                 AppMode::Install(InstallState::EnterCredentials {
                     host,
                     disk,
                     credentials,
                     active_field: CredentialField::Username,
                     error: None,
+                })
+            }
+            AppMode::Install(InstallState::Overview { host, disk, credentials, .. }) => {
+                // Go back to swap mode selection
+                let ram_gb = get_ram_size_gb();
+                AppMode::Install(InstallState::SelectSwapMode {
+                    host,
+                    disk,
+                    credentials,
+                    selected: 0,
+                    ram_gb,
                 })
             }
             AppMode::Install(InstallState::Complete { .. }) => AppMode::MainMenu { selected: 0 },

@@ -146,6 +146,13 @@
         hostname = "G1a";
       };
 
+      # ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090)
+      # Default: Noctalia | Specialisations: illogical
+      proart = mkNixosSystem {
+        hostname = "proart";
+        extraModules = [ ./modules/hardware/nvidia.nix ];
+      };
+
       # Forge Installer ISO
       # Build: nix build .#nixosConfigurations.iso.config.system.build.isoImage
       iso = nixpkgs.lib.nixosSystem {

@@ -26,7 +26,7 @@ use crate::system::hardware::{CpuVendor, GpuInfo, GpuVendor};
 pub use state::{
     AppMode, AppOp, AppProfileState, CreateHostState, CredentialField, InstallCredentials,
     InstallState, KeysOp, KeysState, NewHostConfig, PendingUpdates, StepState, StepStatus,
-    UpdateState, UpdateSummary, APP_MENU_ITEMS, MAIN_MENU_ITEMS,
+    SwapMode, UpdateState, UpdateSummary, APP_MENU_ITEMS, MAIN_MENU_ITEMS,
 };
 
 /// Main application state

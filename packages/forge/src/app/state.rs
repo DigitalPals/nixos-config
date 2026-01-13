@@ -45,12 +45,23 @@ pub enum CredentialField {
     ConfirmPassword,
 }
 
-/// User credentials collected during installation
+/// Swap mode selection for installation
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SwapMode {
+    /// Zram only - compressed RAM swap, no hibernate support
+    #[default]
+    ZramOnly,
+    /// Hibernate support - disk swapfile sized at RAM + 2GB
+    HibernateSupport,
+}
+
+/// User credentials and options collected during installation
 #[derive(Debug, Clone, Default)]
 pub struct InstallCredentials {
     pub username: String,
     pub password: String,
     pub confirm_password: String,
+    pub swap_mode: SwapMode,
 }
 
 /// Installation state machine
@@ -74,6 +85,14 @@ pub enum InstallState {
         credentials: InstallCredentials,
         active_field: CredentialField,
         error: Option<String>,
+    },
+    SelectSwapMode {
+        host: String,
+        disk: DiskInfo,
+        credentials: InstallCredentials,
+        selected: usize,
+        /// Total RAM in GB (for display)
+        ram_gb: u64,
     },
     Overview {
         host: String,

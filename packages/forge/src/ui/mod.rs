@@ -46,8 +46,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     frame, host, disk, credentials, active_field, error.as_deref(), app,
                 );
             }
-            InstallState::Overview { host, disk, input, hardware_config, .. } => {
-                screens::install::draw_overview(frame, host, disk, input, hardware_config.as_ref(), app);
+            InstallState::SelectSwapMode {
+                host,
+                disk,
+                selected,
+                ram_gb,
+                ..
+            } => {
+                screens::install::draw_select_swap_mode(frame, host, disk, *selected, *ram_gb, app);
+            }
+            InstallState::Overview { host, disk, credentials, input, hardware_config, .. } => {
+                screens::install::draw_overview(frame, host, disk, credentials, input, hardware_config.as_ref(), app);
             }
             InstallState::Running {
                 host,

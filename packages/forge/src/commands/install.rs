@@ -18,6 +18,7 @@ use super::errors::{ErrorContext, ParsedError};
 use super::executor::{run_capture, run_command_sensitive};
 use super::runner::CommandRunner;
 use super::CommandMessage;
+use crate::app::SwapMode;
 use crate::constants::{
     self, INSTALL_MOUNT_POINT, INSTALL_SYMLINK_PATH, NIXOS_CONFIG_HOME_DIR,
     PRIMARY_USER_GID, PRIMARY_USER_UID,
@@ -64,6 +65,24 @@ static NVIDIA_BUS_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("NVIDIA bus ID regex pattern is statically validated")
 });
 
+/// Get total RAM size in GB (rounded up) from /proc/meminfo
+fn get_ram_size_gb() -> u64 {
+    if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+        for line in content.lines() {
+            if line.starts_with("MemTotal:") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(kb) = parts[1].parse::<u64>() {
+                        // Convert KB to GB, rounding up
+                        return (kb + 1024 * 1024 - 1) / (1024 * 1024);
+                    }
+                }
+            }
+        }
+    }
+    8 // Fallback to 8GB
+}
+
 /// Get the config directory path for the mounted system
 fn get_config_dir(username: &str) -> String {
     format!("{}/home/{}/{}", INSTALL_MOUNT_POINT, username, NIXOS_CONFIG_HOME_DIR)
@@ -81,6 +100,7 @@ pub async fn start_install(
     disk: &str,
     username: &str,
     password: &str,
+    swap_mode: SwapMode,
 ) -> Result<()> {
     let hostname = hostname.to_string();
     let disk = disk.to_string();
@@ -88,7 +108,7 @@ pub async fn start_install(
     let password = password.to_string();
 
     tokio::spawn(async move {
-        if let Err(e) = run_install(&tx, &hostname, &disk, &username, &password).await {
+        if let Err(e) = run_install(&tx, &hostname, &disk, &username, &password, &swap_mode).await {
             let error_msg = format!("{:#}", e); // Full error chain with context
             tracing::error!("Installation failed: {}", error_msg);
             // Display error to user
@@ -257,6 +277,7 @@ async fn step_configure_disk(
     hostname: &str,
     disk: &str,
     username: &str,
+    swap_mode: &SwapMode,
 ) -> Result<bool> {
     let temp_config_str = temp_config.to_string_lossy();
     runner.out(&format!("Configuring disk device {}...", disk)).await;
@@ -304,6 +325,35 @@ async fn step_configure_disk(
     let updated_content = update_disk_device(&disko_content, disk);
     std::fs::write(&disko_file, &updated_content)
         .with_context(|| format!("Failed to write disko config: {}", disko_file))?;
+
+    // Configure swap mode - modify disko default.nix for hibernate support
+    if *swap_mode == SwapMode::HibernateSupport {
+        let ram_gb = get_ram_size_gb();
+        let swap_size_gb = ram_gb + 2; // RAM + 2GB for hibernate
+        runner.out(&format!("Configuring hibernate swap ({}GB swapfile)...", swap_size_gb)).await;
+
+        let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
+        let disko_default_content = std::fs::read_to_string(&disko_default_file)
+            .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
+
+        // Inject @swap subvolume
+        let updated_disko = inject_swap_subvolume(&disko_default_content, swap_size_gb);
+
+        // Add fileSystems."/swap".neededForBoot
+        let updated_disko = inject_swap_filesystem_config(&updated_disko);
+
+        std::fs::write(&disko_default_file, &updated_disko)
+            .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
+
+        // Verify injection
+        if updated_disko.contains("@swap") {
+            runner.out("  Swap subvolume configured successfully").await;
+        } else {
+            runner.err("  WARNING: Swap subvolume injection may have failed").await;
+        }
+    } else {
+        runner.out("Using zram-only swap (no hibernate)").await;
+    }
 
     // Update flake.nix with username if it differs from default
     if username != DEFAULT_USERNAME {
@@ -553,6 +603,81 @@ async fn step_run_disko(
     runner.out("").await;
 
     runner.step_complete("disko").await?;
+    Ok(true)
+}
+
+/// Step 5b: Configure hibernate boot settings (after disko, before nixos-install)
+/// Detects resume_offset from swapfile and injects boot settings into host config
+async fn step_configure_hibernate(
+    runner: &CommandRunner<'_>,
+    temp_config: &std::path::Path,
+    hostname: &str,
+    swap_mode: &SwapMode,
+) -> Result<bool> {
+    if *swap_mode != SwapMode::HibernateSupport {
+        return Ok(true); // Skip if not hibernate mode
+    }
+
+    runner.out("Configuring hibernate boot settings...").await;
+
+    // The swapfile should be at /mnt/swap/swapfile after disko
+    let swapfile_path = "/mnt/swap/swapfile";
+    if !std::path::Path::new(swapfile_path).exists() {
+        runner.err(&format!("Swapfile not found at {}", swapfile_path)).await;
+        runner.err("Hibernate configuration skipped - swapfile missing").await;
+        // Non-fatal - continue with installation, user can configure manually
+        return Ok(true);
+    }
+
+    // Get resume_offset using btrfs inspect-internal map-swapfile
+    runner.out("  Detecting resume_offset for swapfile...").await;
+    let (success, output, _) = run_capture(
+        "sudo",
+        &["btrfs", "inspect-internal", "map-swapfile", "-r", swapfile_path],
+    ).await?;
+
+    if !success || output.trim().is_empty() {
+        runner.err("  Failed to detect resume_offset").await;
+        runner.err("  Hibernate configuration skipped - you can configure manually").await;
+        return Ok(true);
+    }
+
+    let resume_offset: u64 = match output.trim().parse() {
+        Ok(offset) => offset,
+        Err(_) => {
+            runner.err(&format!("  Invalid resume_offset value: {}", output.trim())).await;
+            runner.err("  Hibernate configuration skipped").await;
+            return Ok(true);
+        }
+    };
+
+    runner.out(&format!("  Resume offset: {}", resume_offset)).await;
+
+    // Update host's default.nix with hibernate configuration
+    let host_config_file = format!(
+        "{}/hosts/{}/default.nix",
+        temp_config.to_string_lossy(),
+        hostname
+    );
+
+    if !std::path::Path::new(&host_config_file).exists() {
+        runner.err("  Host config not found, hibernate settings not applied").await;
+        return Ok(true);
+    }
+
+    let content = std::fs::read_to_string(&host_config_file)
+        .with_context(|| format!("Failed to read host config: {}", host_config_file))?;
+
+    let updated_content = inject_hibernate_config(&content, resume_offset);
+
+    std::fs::write(&host_config_file, &updated_content)
+        .with_context(|| format!("Failed to write host config: {}", host_config_file))?;
+
+    runner.out("  Hibernate boot settings configured:").await;
+    runner.out("    - boot.resumeDevice = /dev/mapper/cryptroot").await;
+    runner.out(&format!("    - resume_offset = {}", resume_offset)).await;
+    runner.out("    - zramSwap disabled").await;
+
     Ok(true)
 }
 
@@ -821,6 +946,7 @@ async fn run_install(
     disk: &str,
     username: &str,
     password: &str,
+    swap_mode: &SwapMode,
 ) -> Result<()> {
     let runner = CommandRunner::new(tx);
 
@@ -840,8 +966,8 @@ async fn run_install(
         None => return Ok(()),
     };
 
-    // Step 4: Configure disk
-    if !step_configure_disk(&runner, &temp_config, hostname, disk, username).await? {
+    // Step 4: Configure disk (including swap mode)
+    if !step_configure_disk(&runner, &temp_config, hostname, disk, username, swap_mode).await? {
         return Ok(());
     }
 
@@ -852,6 +978,11 @@ async fn run_install(
 
     // Step 5: Run disko
     if !step_run_disko(&runner, &temp_config, hostname, password).await? {
+        return Ok(());
+    }
+
+    // Step 5b: Configure hibernate boot settings (if hibernate mode selected)
+    if !step_configure_hibernate(&runner, &temp_config, hostname, swap_mode).await? {
         return Ok(());
     }
 
@@ -905,6 +1036,68 @@ fn inject_luks_password_file(content: &str) -> String {
         LUKS_PASSWORD_FILE
     );
     LUKS_NAME_RE.replace_all(content, replacement.as_str()).to_string()
+}
+
+/// Inject @swap subvolume into disko configuration for hibernate support
+/// Adds the swap subvolume after the @var-log subvolume
+fn inject_swap_subvolume(content: &str, swap_size_gb: u64) -> String {
+    // Find the @var-log subvolume closing brace and add @swap after it
+    let pattern = r#"("@var-log" = \{[^}]*mountpoint = "/var/log";[^}]*mountOptions = \[[^\]]*\];[^}]*\};)"#;
+    if let Ok(re) = regex::Regex::new(pattern) {
+        let swap_subvolume = format!(
+            r#"$1
+                  "@swap" = {{
+                    mountpoint = "/swap";
+                    mountOptions = [ "noatime" ];
+                    swap.swapfile = {{
+                      size = "{}G";
+                      path = "swapfile";
+                    }};
+                  }};"#,
+            swap_size_gb
+        );
+        return re.replace(content, swap_subvolume.as_str()).to_string();
+    }
+    content.to_string()
+}
+
+/// Add hibernate boot configuration to host's default.nix
+/// Adds boot.resumeDevice, boot.kernelParams with resume_offset, and disables zram
+fn inject_hibernate_config(content: &str, resume_offset: u64) -> String {
+    // Look for the final closing brace and add hibernate config before it
+    // The host default.nix typically ends with a closing brace
+    if let Some(pos) = content.rfind('}') {
+        let hibernate_config = format!(
+            r#"
+  # Hibernate support (auto-generated by Forge installer)
+  boot.resumeDevice = "/dev/mapper/cryptroot";
+  boot.kernelParams = [ "resume_offset={}" ];
+  zramSwap.enable = lib.mkForce false;
+"#,
+            resume_offset
+        );
+        let mut result = content[..pos].to_string();
+        result.push_str(&hibernate_config);
+        result.push_str(&content[pos..]);
+        return result;
+    }
+    content.to_string()
+}
+
+/// Add fileSystems entry for /swap mount point needed by hibernate
+fn inject_swap_filesystem_config(content: &str) -> String {
+    // Look for the final closing brace and add swap filesystem config before it
+    if let Some(pos) = content.rfind('}') {
+        let swap_fs_config = r#"
+  # Swap filesystem mount for hibernate (auto-generated by Forge installer)
+  fileSystems."/swap".neededForBoot = true;
+"#;
+        let mut result = content[..pos].to_string();
+        result.push_str(swap_fs_config);
+        result.push_str(&content[pos..]);
+        return result;
+    }
+    content.to_string()
 }
 
 /// Update flake.nix to set username for a specific host configuration
