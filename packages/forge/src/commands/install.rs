@@ -524,6 +524,13 @@ async fn step_install_nixos(
         runner.out(&format!("  /mnt contents: {:?}", dirs)).await;
     }
 
+    // Show mount points under /mnt for debugging
+    let (_, mount_out, _) = run_capture("sh", &["-c", "mount | grep /mnt || echo 'No mounts found'"]).await
+        .unwrap_or((false, "mount command failed".to_string(), String::new()));
+    for line in mount_out.lines().take(10) {
+        runner.out(&format!("  mount: {}", line)).await;
+    }
+
     // Verify /mnt/home exists (btrfs @home subvolume should be mounted here)
     let mnt_home = std::path::Path::new("/mnt/home");
     if !mnt_home.exists() {
