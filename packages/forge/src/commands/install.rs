@@ -1030,8 +1030,8 @@ fn update_gpu_bus_ids(content: &str, amd_bus_id: &str, nvidia_bus_id: &str) -> S
 /// Inject passwordFile into disko LUKS configuration
 /// Adds `passwordFile = "/tmp/luks-password";` after `name = "cryptroot";`
 fn inject_luks_password_file(content: &str) -> String {
-    // Skip if already injected (idempotent)
-    if content.contains("passwordFile") {
+    // Skip if already injected (check for actual attribute, not comments)
+    if content.contains("passwordFile =") {
         return content.to_string();
     }
     let replacement = format!(

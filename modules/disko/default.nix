@@ -37,7 +37,7 @@
             content = {
               type = "luks";
               name = "cryptroot";
-              # No keyFile or passwordFile = interactive passphrase prompt
+              # Forge installer injects passwordFile here during installation
               extraOpenArgs = [
                 "--allow-discards"
                 "--perf-no_read_workqueue"
