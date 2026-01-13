@@ -374,6 +374,45 @@ Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kra
 2. Import it unconditionally in `home/home.nix`
 3. Keep program configs (fish, starship, theming) in the conditionally-imported module to avoid conflicts
 
+## Shell Restart on Store Path Change
+
+**Problem:** After `nixos-rebuild switch`, the running quickshell process has old `/nix/store/...` paths baked in, while IPC commands (like `qs -c noctalia-shell ipc call launcher toggle`) reference the new path. This causes IPC failures with "No running instances" errors.
+
+**Root cause:** Quickshell processes embed their store path at startup. When the package updates, the symlink at `~/.config/quickshell/noctalia-shell` points to the new path, but the running process still has the old path.
+
+**Solution:** Home Manager activation hook that automatically restarts the shell when store paths change.
+
+**Implementation:** `home/shells/restart-on-change.nix`
+
+The hook:
+1. Hashes the current shell package path (noctalia-shell or quickshell)
+2. Compares to previously stored hash in `~/.local/state/shell-store-hash`
+3. If changed and quickshell is running, kills old process and restarts via `hyprctl dispatch exec`
+4. Records new hash for next comparison
+
+**Behavior:**
+- **First run**: No restart (no previous hash to compare), just records hash
+- **Package unchanged**: No restart, hash matches
+- **Package updated**: Automatic restart via hyprctl
+
+**Edge cases handled:**
+- First run after adding the hook (no restart)
+- No Hyprland running (gracefully skipped)
+- No quickshell running (gracefully skipped)
+- Dry-run mode (respects `$DRY_RUN_CMD`)
+
+**Files:**
+- `home/shells/restart-on-change.nix` - Shared activation hook
+- `home/shells/noctalia/default.nix` - Imports restart module
+- `home/shells/illogical/default.nix` - Imports restart module
+
+**Manual restart** (if needed):
+```bash
+pkill -x quickshell && hyprctl dispatch exec noctalia-shell
+# Or for Illogical:
+pkill -x quickshell && hyprctl dispatch exec "quickshell -c ~/.config/quickshell/ii"
+```
+
 ## Noctalia Settings (Hybrid Management)
 
 Noctalia settings use a hybrid approach that allows GUI changes while preserving reproducibility across machines.
