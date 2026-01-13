@@ -444,26 +444,24 @@ async fn step_run_disko(
         tracing::error!("passwordFile NOT found in modified disko config");
     }
 
-    // Build disko and get output path (to run directly without nix run wrapper)
-    runner.out("Building disko...").await;
-    let (build_ok, disko_path, _) = run_capture(
-        "nix",
-        &["build", &format!("{}#disko", temp_config_str), "--no-link", "--print-out-paths"],
-    ).await?;
+    // Disable nix sandbox in daemon config (required for disk access)
+    runner.out("Configuring nix for disk operations...").await;
+    let _ = std::fs::write("/etc/nix/nix.conf", "experimental-features = nix-command flakes\nsandbox = false\n");
 
-    if !build_ok || disko_path.trim().is_empty() {
-        runner.step_failed("disko", "Failed to build disko", "Disko build").await?;
-        runner.done(false).await?;
-        return Ok(false);
-    }
+    // Restart nix-daemon to pick up new config
+    let _ = runner.run("systemctl", &["restart", "nix-daemon"]).await;
 
-    let disko_bin = format!("{}/bin/disko", disko_path.trim());
+    // Small delay for daemon restart
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Run disko directly (not via nix run, to avoid sandbox issues)
+    // Run disko
     let success = runner
         .run(
-            &disko_bin,
+            "nix",
             &[
+                "run",
+                &format!("{}#disko", temp_config_str),
+                "--",
                 "--yes-wipe-all-disks",
                 "--mode",
                 "destroy,format,mount",
