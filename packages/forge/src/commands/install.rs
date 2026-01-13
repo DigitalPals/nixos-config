@@ -489,6 +489,48 @@ async fn step_run_disko(
         return Ok(false);
     }
 
+    // Get the LUKS UUID and update config to use by-uuid instead of by-partlabel
+    // This matches what the NixOS graphical installer does and is more reliable
+    runner.out("Detecting LUKS UUID for boot configuration...").await;
+    let (uuid_ok, luks_uuid, uuid_err) = run_capture(
+        "cryptsetup",
+        &["luksUUID", "/dev/disk/by-partlabel/cryptroot"],
+    ).await?;
+
+    if uuid_ok && !luks_uuid.trim().is_empty() {
+        let uuid = luks_uuid.trim();
+        runner.out(&format!("  LUKS UUID: {}", uuid)).await;
+
+        // Update disko config to use by-uuid instead of by-partlabel
+        let luks_override = format!(
+            r#"
+
+  # Override disko's by-partlabel with by-uuid for reliable boot (detected after format)
+  boot.initrd.luks.devices."cryptroot".device = lib.mkForce "/dev/disk/by-uuid/{}";"#,
+            uuid
+        );
+
+        let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
+        let disko_content = std::fs::read_to_string(&disko_default_file)
+            .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
+
+        // Append the override before the closing brace
+        let updated_content = if let Some(pos) = disko_content.rfind('}') {
+            format!("{}{}\n}}", &disko_content[..pos], luks_override)
+        } else {
+            runner.err("WARNING: Could not inject LUKS UUID override").await;
+            disko_content
+        };
+
+        std::fs::write(&disko_default_file, updated_content)
+            .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
+
+        runner.out("  Updated config to use LUKS UUID").await;
+    } else {
+        runner.err(&format!("WARNING: Could not detect LUKS UUID: {}", uuid_err)).await;
+        runner.out("  Continuing with by-partlabel (may be less reliable)").await;
+    }
+
     runner.step_complete("disko").await?;
     Ok(true)
 }
