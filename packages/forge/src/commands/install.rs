@@ -507,13 +507,34 @@ async fn step_install_nixos(
     runner.out(&format!("  Config dir: {}", config_dir)).await;
     runner.out(&format!("  Source: {}", temp_config_str)).await;
 
+    // Verify /mnt is mounted
+    runner.out("  Checking mount point...").await;
+    if !std::path::Path::new("/mnt").exists() {
+        runner.err("ERROR: /mnt does not exist!").await;
+        runner.step_failed("NixOS", "/mnt mount point missing", "NixOS installation").await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    // List what's in /mnt to debug
+    if let Ok(entries) = std::fs::read_dir("/mnt") {
+        let dirs: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        runner.out(&format!("  /mnt contents: {:?}", dirs)).await;
+    }
+
     // Copy configuration to user home directory
     runner.out("  Creating directories...").await;
     let config_parent = std::path::Path::new(&config_dir)
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid config directory path"))?;
-    std::fs::create_dir_all(config_parent)
-        .with_context(|| format!("Failed to create directory: {}", config_parent.display()))?;
+    runner.out(&format!("  Target parent: {}", config_parent.display())).await;
+
+    if let Err(e) = std::fs::create_dir_all(config_parent) {
+        runner.err(&format!("ERROR creating {}: {}", config_parent.display(), e)).await;
+        runner.step_failed("NixOS", &format!("Failed to create {}: {}", config_parent.display(), e), "NixOS installation").await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
 
     runner.out("  Copying configuration...").await;
     copy_dir_recursive(&temp_config_str, &config_dir)
