@@ -151,11 +151,9 @@
       };
 
       # ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090)
-      # Manual LUKS + hibernate swap setup (not using disko)
       # Default: Noctalia | Specialisations: illogical
       proart = mkNixosSystem {
         hostname = "proart";
-        useDisko = false;
         extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
