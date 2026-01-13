@@ -524,19 +524,37 @@ async fn step_install_nixos(
     // Set ownership
     set_config_ownership(runner, config_parent, &config_dir).await;
 
+    // Verify flake is valid before installing
+    runner.out("Checking NixOS configuration...").await;
+    let flake_ref = format!("{}#{}", config_dir, hostname);
+    let check_ok = runner
+        .run(
+            "nix",
+            &["flake", "check", &config_dir, "--no-build"],
+        )
+        .await
+        .unwrap_or(false);
+
+    if !check_ok {
+        runner.err("Flake check failed - there may be syntax errors in the configuration.").await;
+        // Continue anyway - the actual build might still work
+    }
+
     // Run nixos-install
+    runner.out(&format!("Running: nixos-install --flake {}", flake_ref)).await;
     let success = runner
         .run(
             "nixos-install",
             &[
                 "--flake",
-                &format!("{}#{}", config_dir, hostname),
+                &flake_ref,
                 "--no-root-passwd",
             ],
         )
         .await?;
 
     if !success {
+        runner.err("nixos-install failed! Check the output above for errors.").await;
         runner.step_failed("NixOS", "nixos-install failed", "NixOS installation").await?;
         runner.done(false).await?;
         return Ok(false);
