@@ -262,7 +262,7 @@ in
   # Install Claude Code native binary if not present
   home.activation.installClaudeCode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     if [ ! -x "$HOME/.local/bin/claude" ]; then
-      if ${pkgs.curl}/bin/curl -fsSL https://claude.ai/ >/dev/null 2>&1; then
+      if ${pkgs.curl}/bin/curl -fsSL https://claude.ai/install.sh >/dev/null 2>&1; then
         PATH="${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnutar}/bin:${pkgs.gzip}/bin:$PATH" \
           $DRY_RUN_CMD ${pkgs.bash}/bin/bash -c "curl -fsSL https://claude.ai/install.sh | bash" || \
           echo "Claude Code install failed (offline or installer issue)"
