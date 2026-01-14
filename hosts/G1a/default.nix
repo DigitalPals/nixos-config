@@ -6,6 +6,7 @@
     ./hardware-configuration.nix
     ../../modules/boot/limine-plymouth.nix
     ../../modules/hardware/amd.nix
+    ../../modules/hardware/mediatek-wifi.nix
   ];
 
   networking.hostName = "G1a";
@@ -36,16 +37,6 @@
     "amdgpu.dcdebugmask=0x10"  # Helps with display init on new AMD APUs
     "pcie_aspm=force"  # Give Linux ASPM control so mt7925e driver can disable it
   ];
-
-  # MediaTek MT7925 WiFi configuration
-  # 1. Load driver explicitly - udev auto-loading can be unreliable
-  # 2. Disable ASPM in driver for stable suspend/resume
-  # 3. Disable CLC to prevent random disconnects (known bug, fixed in kernel 6.19)
-  boot.kernelModules = [ "mt7925e" ];
-  boot.extraModprobeConfig = ''
-    options mt7925e disable_aspm=1
-    options mt7925-common disable_clc=1
-  '';
 
   # AMD Wayland environment variables (equivalent to NVIDIA config)
   environment.sessionVariables = {

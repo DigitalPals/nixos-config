@@ -5,9 +5,6 @@ let
   nvidia-sleep = config.hardware.nvidia.package + "/bin/nvidia-sleep.sh";
 in
 {
-  # NVIDIA driver
-  services.xserver.videoDrivers = [ "nvidia" ];
-
   hardware.nvidia = {
     open = true;                    # Use open-source kernel modules
     modesetting.enable = true;      # Required for Wayland

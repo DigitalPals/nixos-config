@@ -7,6 +7,7 @@
     ./hardware-configuration.nix
     ../../modules/boot/limine-plymouth.nix
     ../../modules/hardware/amd.nix
+    ../../modules/hardware/mediatek-wifi.nix
   ];
 
   networking.hostName = "proart";
@@ -55,31 +56,6 @@
     "amdgpu.dcdebugmask=0x10"  # Helps with display init on new AMD APUs
     "pcie_aspm=force"  # Give Linux ASPM control so mt7925e driver can disable it
   ];
-
-  # MediaTek MT7925 WiFi 7 configuration
-  # 1. Load driver explicitly - udev auto-loading can be unreliable
-  # 2. Disable ASPM in driver for stable suspend/resume
-  # 3. Disable CLC to prevent random disconnects (known bug, fixed in kernel 6.19)
-  boot.kernelModules = [ "mt7925e" ];
-  boot.extraModprobeConfig = ''
-    options mt7925e disable_aspm=1
-    options mt7925-common disable_clc=1
-  '';
-
-  # Use iwd instead of wpa_supplicant for faster WiFi reconnection after suspend
-  # iwd handles suspend/resume much better than wpa_supplicant
-  networking.wireless.iwd = {
-    enable = true;
-    settings = {
-      General = {
-        EnableNetworkConfiguration = false;  # Let NetworkManager handle IP config
-      };
-      Settings = {
-        AutoConnect = true;
-      };
-    };
-  };
-  networking.networkmanager.wifi.backend = "iwd";
 
   # === Mic mute LED fix ===
   # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
