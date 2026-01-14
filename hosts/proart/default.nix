@@ -50,13 +50,6 @@
     "usbhid"           # USB HID for keyboard
   ];
 
-  # AMD APU kernel parameters for power management and display init
-  boot.kernelParams = [
-    "amdgpu.ppfeaturemask=0xffffffff"
-    "amdgpu.dcdebugmask=0x10"  # Helps with display init on new AMD APUs
-    "pcie_aspm=force"  # Give Linux ASPM control so mt7925e driver can disable it
-  ];
-
   # === Mic mute LED fix ===
   # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
   # This udev rule allows the user service to control the LED.

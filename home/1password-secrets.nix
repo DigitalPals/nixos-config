@@ -22,6 +22,8 @@
   };
 
   # SSH client configuration
+  # Note: enableDefaultConfig = false is recommended by Home Manager (defaults are being deprecated)
+  # We explicitly set the defaults we want in matchBlocks and extraConfig
   programs.ssh = {
     enable = true;
     enableDefaultConfig = false;
@@ -30,6 +32,13 @@
       identityFile = "~/.ssh/id_ed25519";
       identityAgent = "~/.1password/agent.sock";
     };
+    extraConfig = ''
+      # Security defaults (previously provided by Home Manager)
+      StrictHostKeyChecking accept-new
+      HashKnownHosts yes
+      # Auto-add keys to agent on first use
+      AddKeysToAgent yes
+    '';
   };
 
 }

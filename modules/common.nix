@@ -57,6 +57,15 @@
       glib
       gtk3
       libGL
+      # Additional libraries for CLI tools and games
+      libxkbcommon
+      wayland
+      fontconfig
+      libdrm
+      xorg.libX11
+      xorg.libXcursor
+      xorg.libXrandr
+      xorg.libXi
     ];
   };
 
