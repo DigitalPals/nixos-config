@@ -15,11 +15,14 @@
   # Enable official amdgpu initrd support for early KMS and Plymouth
   hardware.amdgpu.initrd.enable = true;
 
-  # Override shared config: set GPU + HID modules for early boot
+  # Early boot kernel modules (order matters for proper initialization)
+  # - GPU modules first: enables early KMS for high-res Plymouth/console
+  # - HID modules: ensures keyboard works for LUKS passphrase entry
+  # Using mkForce to override any defaults from imported modules
   boot.initrd.kernelModules = lib.mkForce [
-    "amdgpu"       # AMD GPU for early KMS/Plymouth
-    "hid-generic"  # Generic HID for keyboard
-    "usbhid"       # USB HID for keyboard
+    "amdgpu"       # GPU: early KMS for Plymouth and console
+    "hid-generic"  # Input: generic HID driver for keyboards
+    "usbhid"       # Input: USB HID for external keyboards
   ];
 
   # AMD GPU Configuration

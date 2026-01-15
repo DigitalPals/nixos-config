@@ -10,15 +10,17 @@
 
   networking.hostName = "kraken";
 
-  # NVIDIA early KMS for Plymouth
-  # Override shared config to ensure all required modules are loaded
-  # Note: simpledrm is builtin to the kernel, no need to specify it
+  # Early boot kernel modules (order matters for proper initialization)
+  # - NVIDIA modules: enables early KMS for high-res Plymouth/console
+  # - HID modules: ensures keyboard works for LUKS passphrase entry
+  # Using mkForce to override any defaults from imported modules
+  # Note: simpledrm is kernel builtin, provides fallback framebuffer
   boot.initrd.kernelModules = lib.mkForce [
-    "nvidia"
-    "nvidia_modeset"
-    "nvidia_uvm"
-    "nvidia_drm"
-    "hid-generic"
-    "usbhid"
+    "nvidia"           # GPU: main NVIDIA driver
+    "nvidia_modeset"   # GPU: kernel modesetting for early KMS
+    "nvidia_uvm"       # GPU: unified virtual memory (CUDA)
+    "nvidia_drm"       # GPU: DRM for Wayland compositor
+    "hid-generic"      # Input: generic HID driver for keyboards
+    "usbhid"           # Input: USB HID for external keyboards
   ];
 }

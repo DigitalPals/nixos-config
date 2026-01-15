@@ -10,12 +10,14 @@ let
   # Select session script based on shell
   sessionScript =
     if shell == "illogical" then "${hyprlandSessions.illogicalScript}/bin/hyprland-illogical"
-    else "${hyprlandSessions.noctaliaScript}/bin/hyprland-noctalia";
+    else if shell == "noctalia" then "${hyprlandSessions.noctaliaScript}/bin/hyprland-noctalia"
+    else throw "Unknown desktop shell: '${shell}'. Valid options: noctalia, illogical";
 
   # Select wrapper script for PATH based on shell
   wrapperScript =
     if shell == "illogical" then hyprlandSessions.illogicalScript
-    else hyprlandSessions.noctaliaScript;
+    else if shell == "noctalia" then hyprlandSessions.noctaliaScript
+    else throw "Unknown desktop shell: '${shell}'. Valid options: noctalia, illogical";
 in
 {
   # Auto-login directly to Hyprland with selected shell (no session selector)

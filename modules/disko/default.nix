@@ -39,13 +39,18 @@
               name = "cryptroot";
               # Forge installer injects passwordFile here during installation
               extraOpenArgs = [
+                # Allow TRIM commands to pass through to SSD (safe for modern SSDs)
+                # Slight theoretical info leak but major performance/longevity benefit
                 "--allow-discards"
+                # Bypass dm-crypt workqueues for better I/O performance on NVMe
+                # Reduces latency by avoiding extra thread scheduling
                 "--perf-no_read_workqueue"
                 "--perf-no_write_workqueue"
               ];
               settings = {
-                allowDiscards = true;
-                bypassWorkqueues = true;
+                # Persistent settings (written to LUKS header)
+                allowDiscards = true;      # Enable TRIM passthrough
+                bypassWorkqueues = true;   # Bypass dm-crypt workqueues
               };
               content = {
                 type = "btrfs";

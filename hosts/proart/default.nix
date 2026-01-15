@@ -38,16 +38,19 @@
     __GLX_VENDOR_LIBRARY_NAME = lib.mkForce "";
   };
 
-  # Dual GPU module loading: amdgpu first (integrated), nvidia second (discrete)
-  # Override shared config to ensure proper module ordering
+  # Early boot kernel modules (order matters for hybrid GPU systems)
+  # - amdgpu FIRST: integrated GPU handles early KMS/Plymouth (lower power)
+  # - nvidia modules SECOND: discrete GPU initializes but stays idle until needed
+  # - HID modules: ensures keyboard works for LUKS passphrase entry
+  # Using mkForce to override any defaults from imported modules
   boot.initrd.kernelModules = lib.mkForce [
-    "amdgpu"           # AMD integrated GPU (early KMS, Plymouth)
-    "nvidia"           # NVIDIA discrete GPU
-    "nvidia_modeset"
-    "nvidia_uvm"
-    "nvidia_drm"
-    "hid-generic"      # Generic HID for keyboard
-    "usbhid"           # USB HID for keyboard
+    "amdgpu"           # GPU: integrated AMD for early KMS/Plymouth
+    "nvidia"           # GPU: discrete NVIDIA (loads after amdgpu)
+    "nvidia_modeset"   # GPU: NVIDIA kernel modesetting
+    "nvidia_uvm"       # GPU: NVIDIA unified virtual memory
+    "nvidia_drm"       # GPU: NVIDIA DRM for Wayland
+    "hid-generic"      # Input: generic HID driver for keyboards
+    "usbhid"           # Input: USB HID for external keyboards
   ];
 
   # === Mic mute LED fix ===

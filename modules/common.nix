@@ -136,8 +136,8 @@
   # SSD TRIM
   services.fstrim.enable = true;
 
-  # Btrfs scrub
-  services.btrfs.autoScrub.enable = true;
+  # Btrfs scrub (use mkDefault so laptops can disable to save battery)
+  services.btrfs.autoScrub.enable = lib.mkDefault true;
 
   # Docker
   virtualisation.docker = {

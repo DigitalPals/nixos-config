@@ -35,12 +35,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # COSMIC Desktop Environment (temporarily disabled - upstream hash mismatch)
-    # nixos-cosmic = {
-    #   url = "github:lilyinstarlight/nixos-cosmic";
-    #   inputs.nixpkgs.follows = "nixpkgs";
-    # };
-
     # Disko for declarative disk partitioning
     disko = {
       url = "github:nix-community/disko";
@@ -92,10 +86,7 @@
       nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit inputs plymouth-cybex forge username; };
-        modules = [
-          # Apply overlay for patched xdg-desktop-portal-gtk
-          { nixpkgs.overlays = [ gtkPortalOverlay ]; }
-        ]
+        modules = []
         # Disko for declarative disk partitioning (optional)
         ++ (if useDisko then [
           disko.nixosModules.disko
