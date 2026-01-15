@@ -8,10 +8,10 @@ let
   # Enable auto-suspend for known hosts
   shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname;
 
-  # Shell-specific lock command
+  # Shell-specific lock command (no pidof check - process runs as "quickshell")
   lockCmd = if shell == "illogical"
     then "hyprlock"
-    else "pidof -q noctalia-shell && noctalia-shell ipc call lockScreen lock";
+    else "noctalia-shell ipc call lockScreen lock";
 
   # Auto-suspend listener
   suspendListener = if shouldAutoSuspend then ''
@@ -31,7 +31,7 @@ in
     general {
       lock_cmd = ${lockCmd}
       before_sleep_cmd = ${lockCmd}
-      after_sleep_cmd = hyprctl dispatch dpms on
+      after_sleep_cmd = ${lockCmd} && hyprctl dispatch dpms on
     }
 
     listener {
