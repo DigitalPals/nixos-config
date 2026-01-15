@@ -81,6 +81,11 @@ ${masterConfig}
     disable_hyprland_logo = true
   }
 
+  # XWayland scaling - let Hyprland handle scaling for X11 apps
+  xwayland {
+    force_zero_scaling = true
+  }
+
   # Window rules - Hyprland 0.53+ syntax
   # https://wiki.hyprland.org/Configuring/Window-Rules/
 
