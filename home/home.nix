@@ -100,15 +100,6 @@ in
   };
 
   # Desktop entry overrides for Wayland
-  xdg.desktopEntries.termius-app = {
-    name = "Termius";
-    exec = "termius-app --enable-features=UseOzonePlatform,WaylandWindowDecorations --ozone-platform=wayland %U";
-    icon = "termius-app";
-    comment = "SSH platform for Mobile and Desktop";
-    categories = [ "Network" "Security" ];
-    mimeType = [ "x-scheme-handler/termius" "x-scheme-handler/ssh" ];
-  };
-
   xdg.desktopEntries."1password" = {
     name = "1Password";
     exec = "1password --enable-features=UseOzonePlatform,WaylandWindowDecorations --ozone-platform=wayland %U";
@@ -169,7 +160,6 @@ in
     fastfetch
     jq
     nodejs
-    termius
     portal.packages.${pkgs.system}.default  # SSH client
     lazygit
     ripgrep
