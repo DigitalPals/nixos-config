@@ -328,7 +328,6 @@ impl App {
                     steps: steps.clone(),
                     output: final_output,
                     scroll_offset: None, // None = auto-scroll continues
-                    stashed: was_stashed,
                 });
             }
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
@@ -372,14 +371,13 @@ impl App {
                     scroll_offset: None,
                 });
             }
-            AppMode::Update(UpdateState::Running { steps, output, stashed, .. }) => {
+            AppMode::Update(UpdateState::Running { steps, output, .. }) => {
                 output.push_back("Operation cancelled by user.".to_string());
                 self.mode = AppMode::Update(UpdateState::Complete {
                     success: false,
                     steps: steps.clone(),
                     output: output.clone(),
                     scroll_offset: None,
-                    stashed: *stashed,
                 });
             }
             AppMode::CreateHost(CreateHostState::Generating { config, output, .. }) => {

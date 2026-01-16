@@ -25,8 +25,9 @@ use crate::system::hardware::{CpuVendor, GpuInfo, GpuVendor};
 // Re-export commonly used types
 pub use state::{
     AppMode, AppOp, AppProfileState, CreateHostState, CredentialField, InstallCredentials,
-    InstallState, KeysOp, KeysState, NewHostConfig, PendingUpdates, StepState, StepStatus,
-    SwapMode, UpdateState, UpdateSummary, APP_MENU_ITEMS, MAIN_MENU_ITEMS,
+    InstallState, Keybinding, KeybindingsPanel, KeybindingsState, KeysOp, KeysState, NewHostConfig,
+    PendingUpdates, StepState, StepStatus, SwapMode, UpdateState, UpdateSummary, APP_MENU_ITEMS,
+    MAIN_MENU_ITEMS,
 };
 
 /// Main application state
@@ -224,6 +225,26 @@ impl App {
                 if let Some(tx) = &self.cmd_tx {
                     self.startup_check_running = true;
                     commands::apps::start_quick_update_check(tx.clone()).await?;
+                }
+            }
+            AppMode::Keybindings(KeybindingsState::Loading) => {
+                // Parse keybindings synchronously and transition to Viewing
+                match commands::keybindings::parse_bindings() {
+                    Ok((bindings, categories, shell)) => {
+                        self.mode = AppMode::Keybindings(KeybindingsState::Viewing {
+                            bindings,
+                            categories,
+                            selected_category: 0,
+                            selected_binding: 0,
+                            scroll_offset: 0,
+                            shell,
+                            focus: KeybindingsPanel::Categories,
+                        });
+                    }
+                    Err(e) => {
+                        self.error = Some(format!("Failed to load keybindings: {}", e));
+                        self.mode = AppMode::MainMenu { selected: 3 };
+                    }
                 }
             }
             _ => {}

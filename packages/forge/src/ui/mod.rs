@@ -12,7 +12,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, KeysState, PendingUpdates, UpdateState};
+use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState, PendingUpdates, UpdateState};
 
 /// Main draw function - dispatches to appropriate screen
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -209,6 +209,32 @@ pub fn draw(frame: &mut Frame, app: &App) {
             }
             CreateHostState::Complete { success, config } => {
                 screens::create_host::draw_complete(frame, *success, config, app);
+            }
+        },
+        AppMode::Keybindings(state) => match state {
+            KeybindingsState::Loading => {
+                screens::keybindings::draw_loading(frame, app);
+            }
+            KeybindingsState::Viewing {
+                bindings,
+                categories,
+                selected_category,
+                selected_binding,
+                scroll_offset,
+                shell,
+                focus,
+            } => {
+                screens::keybindings::draw_viewing(
+                    frame,
+                    bindings,
+                    categories,
+                    *selected_category,
+                    *selected_binding,
+                    *scroll_offset,
+                    shell,
+                    *focus,
+                    app,
+                );
             }
         },
         AppMode::Quit => {}

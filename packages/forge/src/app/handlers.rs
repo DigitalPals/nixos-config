@@ -147,6 +147,7 @@ impl App {
                     | AppMode::Apps(AppProfileState::Complete { .. })
                     | AppMode::Apps(AppProfileState::Status { .. })
                     | AppMode::Keys(KeysState::Complete { .. })
+                    | AppMode::Keybindings(KeybindingsState::Viewing { .. })
                     | AppMode::Update(UpdateState::Complete { .. })
                     | AppMode::Install(InstallState::Complete { .. })
                     | AppMode::CreateHost(CreateHostState::Complete { .. })
@@ -262,6 +263,9 @@ impl App {
                 }
             }
             AppMode::CreateHost(_) => Some(("create_host", 0, None, None)),
+            AppMode::Keybindings(KeybindingsState::Viewing { .. }) => {
+                Some(("keybindings_viewing", 0, None, None))
+            }
             _ => None,
         };
 
@@ -304,6 +308,9 @@ impl App {
             }
             Some(("create_host", _, _, _)) => {
                 self.handle_create_host_key(key).await?;
+            }
+            Some(("keybindings_viewing", _, _, _)) => {
+                self.handle_keybindings_key(key).await?;
             }
             _ => {}
         }
@@ -415,6 +422,11 @@ impl App {
                 self.mode = AppMode::Apps(AppProfileState::Menu { selected: 0 });
             }
             3 => {
+                // Keybindings
+                self.mode = AppMode::Keybindings(KeybindingsState::Loading);
+                self.start_initial_command().await?;
+            }
+            4 => {
                 // Exit
                 self.should_quit = true;
             }
@@ -851,7 +863,6 @@ impl App {
                 self.mode = AppMode::Install(InstallState::Running {
                     host: host.to_string(),
                     disk: disk.clone(),
-                    credentials: creds.clone(),
                     step: 0,
                     steps,
                     output: std::collections::VecDeque::new(),
@@ -1362,6 +1373,10 @@ impl App {
             AppMode::CreateHost(CreateHostState::Complete { .. }) => {
                 AppMode::Install(InstallState::SelectHost { selected: 0 })
             }
+            // Keybindings back navigation
+            AppMode::Keybindings(KeybindingsState::Viewing { .. }) => {
+                AppMode::MainMenu { selected: 3 }
+            }
             other => {
                 // Restore the original mode if no match
                 self.mode = other;
@@ -1373,6 +1388,83 @@ impl App {
             self.start_initial_command().await?;
         }
 
+        Ok(())
+    }
+
+    /// Handle keyboard input for keybindings viewer
+    async fn handle_keybindings_key(&mut self, key: KeyEvent) -> Result<()> {
+        if let AppMode::Keybindings(KeybindingsState::Viewing {
+            bindings,
+            categories,
+            selected_category,
+            selected_binding,
+            scroll_offset,
+            shell: _,
+            focus,
+        }) = &mut self.mode
+        {
+            let filtered_count = bindings
+                .iter()
+                .filter(|b| {
+                    categories
+                        .get(*selected_category)
+                        .map(|c| b.category == *c)
+                        .unwrap_or(false)
+                })
+                .count();
+
+            match key.code {
+                KeyCode::Tab | KeyCode::BackTab => {
+                    // Switch focus between panels
+                    *focus = match focus {
+                        KeybindingsPanel::Categories => KeybindingsPanel::Bindings,
+                        KeybindingsPanel::Bindings => KeybindingsPanel::Categories,
+                    };
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    match focus {
+                        KeybindingsPanel::Categories => {
+                            // Previous category
+                            if *selected_category > 0 {
+                                *selected_category -= 1;
+                                *selected_binding = 0;
+                                *scroll_offset = 0;
+                            }
+                        }
+                        KeybindingsPanel::Bindings => {
+                            // Previous binding
+                            *selected_binding = selected_binding.saturating_sub(1);
+                            if *selected_binding < *scroll_offset {
+                                *scroll_offset = *selected_binding;
+                            }
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    match focus {
+                        KeybindingsPanel::Categories => {
+                            // Next category
+                            if *selected_category < categories.len().saturating_sub(1) {
+                                *selected_category += 1;
+                                *selected_binding = 0;
+                                *scroll_offset = 0;
+                            }
+                        }
+                        KeybindingsPanel::Bindings => {
+                            // Next binding
+                            if filtered_count > 0 {
+                                *selected_binding = (*selected_binding + 1).min(filtered_count.saturating_sub(1));
+                                let visible = 15;
+                                if *selected_binding >= *scroll_offset + visible {
+                                    *scroll_offset = selected_binding.saturating_sub(visible - 1);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         Ok(())
     }
 }

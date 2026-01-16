@@ -5,6 +5,7 @@ pub mod create_host;
 pub mod errors;
 pub mod executor;
 pub mod install;
+pub mod keybindings;
 pub mod keys;
 pub mod runner;
 pub mod update;

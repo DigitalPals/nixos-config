@@ -12,6 +12,7 @@ pub const MAIN_MENU_ITEMS: &[&str] = &[
     "Install NixOS (fresh installation)",
     "Update system",
     "App profiles",
+    "Keybindings",
     "Exit",
 ];
 
@@ -32,6 +33,7 @@ pub enum AppMode {
     Update(UpdateState),
     Apps(AppProfileState),
     Keys(KeysState),
+    Keybindings(KeybindingsState),
     #[allow(dead_code)]
     Quit,
 }
@@ -104,7 +106,6 @@ pub enum InstallState {
     Running {
         host: String,
         disk: DiskInfo,
-        credentials: InstallCredentials,
         step: usize,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
@@ -292,8 +293,6 @@ pub enum UpdateState {
         output: VecDeque<String>,
         /// None = auto-scroll, Some(n) = manual scroll at position n
         scroll_offset: Option<usize>,
-        /// Whether we stashed changes that need to be restored
-        stashed: bool,
     },
 }
 
@@ -431,6 +430,39 @@ pub enum KeysOp {
     Restore,
     Status,
 }
+
+/// A parsed keybinding entry
+#[derive(Debug, Clone)]
+pub struct Keybinding {
+    pub modifiers: String,
+    pub key: String,
+    pub category: String,
+    pub description: String,
+}
+
+/// Which panel is focused in the keybindings viewer
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum KeybindingsPanel {
+    #[default]
+    Categories,
+    Bindings,
+}
+
+/// Keybindings viewer state
+#[derive(Debug, Clone)]
+pub enum KeybindingsState {
+    Loading,
+    Viewing {
+        bindings: Vec<Keybinding>,
+        categories: Vec<String>,
+        selected_category: usize,
+        selected_binding: usize,
+        scroll_offset: usize,
+        shell: String,
+        focus: KeybindingsPanel,
+    },
+}
+
 
 /// Step progress status
 #[derive(Debug, Clone)]
