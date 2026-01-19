@@ -30,40 +30,45 @@ in
   $terminal = ghostty
   $browser = google-chrome-stable
 
-  # Application launchers
+  # Applications
   bind = $mainMod, Return, exec, $terminal
   ${standardLauncherBind}
   ${if shell == "illogical" then illogicalWallpaperBind else ""}
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
+  bind = $mainMod, M, exec, spotify
+  bind = $mainMod SHIFT, SLASH, exec, 1password
+  bind = $mainMod, D, exec, $terminal -e lazydocker
+  bind = $mainMod SHIFT, T, exec, $terminal -e btop
+  bind = $mainMod, W, exec, $browser --app=https://web.whatsapp.com/
+  bind = $mainMod, Y, exec, $browser --app=https://youtube.com/
+  bind = $mainMod SHIFT, A, exec, $browser --app=https://chatgpt.com/
+  bind = $mainMod SHIFT, P, exec, $browser --app=https://photos.google.com/
+  bind = $mainMod SHIFT, X, exec, $browser --app=https://x.com/
 
-  # Universal copy/paste (sends Ctrl+Insert / Shift+Insert)
+  # Clipboard
   bind = $mainMod, C, sendshortcut, CTRL, Insert,
   bind = $mainMod, V, sendshortcut, SHIFT, Insert,
   bind = $mainMod, X, sendshortcut, CTRL, X,
   bind = $mainMod SHIFT, V, exec, ~/.local/bin/clipboard-image-to-file
 
-  # Window management
+  # Windows
   bind = $mainMod, Q, killactive,
   bind = $mainMod, F, togglefloating,
   bind = $mainMod, P, pseudo,
   bind = $mainMod, J, togglesplit,
   bind = $mainMod, BACKSPACE, exec, hyprctl dispatch setprop address:$(hyprctl activewindow -j | jq -r '.address') alpha 0.85 toggle
-
-  # Exit Hyprland
   bind = $mainMod SHIFT, M, exit,
-
-  # Lock screen
   bind = $mainMod, L, exec, ${lockCmd}
 
-  # Focus movement
+  # Navigation
   bind = $mainMod, left, movefocus, l
   bind = $mainMod, right, movefocus, r
   bind = $mainMod, up, movefocus, u
   bind = $mainMod, down, movefocus, d
 
-  # Workspace switching
+  # Workspaces
   bind = $mainMod, 1, workspace, 1
   bind = $mainMod, 2, workspace, 2
   bind = $mainMod, 3, workspace, 3
@@ -74,8 +79,6 @@ in
   bind = $mainMod, 8, workspace, 8
   bind = $mainMod, 9, workspace, 9
   bind = $mainMod, 0, workspace, 10
-
-  # Move window to workspace
   bind = $mainMod SHIFT, 1, movetoworkspace, 1
   bind = $mainMod SHIFT, 2, movetoworkspace, 2
   bind = $mainMod SHIFT, 3, movetoworkspace, 3
@@ -86,36 +89,19 @@ in
   bind = $mainMod SHIFT, 8, movetoworkspace, 8
   bind = $mainMod SHIFT, 9, movetoworkspace, 9
   bind = $mainMod SHIFT, 0, movetoworkspace, 10
-
-  # Scroll through workspaces
   bind = $mainMod, mouse_down, workspace, e+1
   bind = $mainMod, mouse_up, workspace, e-1
 
-  # Screenshot bindings (wayfreeze + satty with auto-close)
+  # Screenshots
   bind = $mainMod, grave, exec, ~/.local/bin/screenshot region
   bind = , Print, exec, ~/.local/bin/screenshot region
   bind = SHIFT, Print, exec, ~/.local/bin/screenshot fullscreen
 
-  # App launchers
-  bind = $mainMod, M, exec, spotify
-  bind = $mainMod SHIFT, SLASH, exec, 1password
-  bind = $mainMod, D, exec, $terminal -e lazydocker
-  bind = $mainMod SHIFT, T, exec, $terminal -e btop
-
-  # Web apps
-  bind = $mainMod, W, exec, $browser --app=https://web.whatsapp.com/
-  bind = $mainMod, Y, exec, $browser --app=https://youtube.com/
-  bind = $mainMod SHIFT, A, exec, $browser --app=https://chatgpt.com/
-  bind = $mainMod SHIFT, P, exec, $browser --app=https://photos.google.com/
-  bind = $mainMod SHIFT, X, exec, $browser --app=https://x.com/
-
-  # Media key bindings (repeat on hold)
+  # Media
   bindel = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
   bindel = , XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
   bindel = , XF86MonBrightnessUp, exec, brightnessctl set 5%+
   bindel = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
-
-  # Media key bindings (no repeat)
   bindl = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
   bindl = , XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
   bindl = , XF86AudioPlay, exec, playerctl play-pause
@@ -124,7 +110,7 @@ in
   bindl = , XF86AudioPrev, exec, playerctl previous
   bindl = , XF86Calculator, exec, gnome-calculator
 
-  # Mouse bindings
+  # Mouse
   bindm = $mainMod, mouse:272, movewindow
   bindm = $mainMod, mouse:273, resizewindow
 ''
