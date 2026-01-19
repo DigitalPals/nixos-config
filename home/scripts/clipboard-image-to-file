@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Convert clipboard image to file path and auto-paste
 set -euo pipefail
 
 cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/clipboard-images"
@@ -6,7 +7,7 @@ mkdir -p "$cache_dir"
 
 mime="$(wl-paste --list-types | grep -E '^image/' | head -n 1 || true)"
 if [[ -z "$mime" ]]; then
-  echo "No image in clipboard." >&2
+  notify-send "Clipboard" "No image in clipboard"
   exit 1
 fi
 
@@ -31,4 +32,7 @@ echo "$outfile" > "${cache_dir}/latest"
 
 # Copy plain file path to clipboard (for terminal apps like Claude Code)
 printf '%s' "$outfile" | wl-copy
-echo "Copied file path to clipboard: $outfile"
+
+# Auto-paste into the focused window
+sleep 0.05
+hyprctl dispatch sendshortcut "SHIFT, Insert,"
