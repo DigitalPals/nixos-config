@@ -171,6 +171,10 @@
 
   # Programs and packages
   services.printing.enable = true;
+
+  # Enable dconf (required for GTK apps to read dark mode preference)
+  programs.dconf.enable = true;
+
   programs.firefox = {
     enable = true;
     policies = {
