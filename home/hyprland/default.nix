@@ -13,8 +13,8 @@ let
   bindingsNoctalia = import ./bindings.nix { shell = "noctalia"; };
   bindingsIllogical = import ./bindings.nix { shell = "illogical"; };
   # Generate autostart for all shells (each specialisation sources its own)
-  autostartNoctalia = import ./autostart.nix { shell = "noctalia"; };
-  autostartIllogical = import ./autostart.nix { shell = "illogical"; };
+  autostartNoctalia = import ./autostart.nix { shell = "noctalia"; inherit pkgs; };
+  autostartIllogical = import ./autostart.nix { shell = "illogical"; inherit pkgs; };
 
   # Shell-specific Hyprland configuration
   # CLEAN APPROACH: Use our ENTIRE Hyprland config for both shells

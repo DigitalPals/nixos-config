@@ -1,8 +1,10 @@
 # Autostart configuration
 # Programs to run at Hyprland startup (shell-aware)
-{ shell ? "noctalia" }:
+{ shell ? "noctalia", pkgs }:
 
 let
+  # GTK portal executable path (provides Settings interface for dark mode)
+  gtkPortal = "${pkgs.xdg-desktop-portal-gtk}/libexec/xdg-desktop-portal-gtk";
   # Shell-specific autostart commands
   illogicalAutostart = ''
     # Systemd integration - export environment for user services
@@ -13,7 +15,7 @@ let
 
     # Restart portal services to pick up new environment (fixes restart via greetd)
     # GTK portal provides Settings interface (dark mode) - start it explicitly as systemd activation is unreliable
-    exec-once = sleep 1 && xdg-desktop-portal-gtk & systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
+    exec-once = sleep 1 && ${gtkPortal} & systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
     # Core components
     exec-once = gnome-keyring-daemon --start --components=secrets
@@ -38,7 +40,7 @@ let
 
     # Restart portal services to pick up new environment (fixes restart via greetd)
     # GTK portal provides Settings interface (dark mode) - start it explicitly as systemd activation is unreliable
-    exec-once = sleep 1 && xdg-desktop-portal-gtk & systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
+    exec-once = sleep 1 && ${gtkPortal} & systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
     # Start desktop shell
     exec-once = noctalia-shell
