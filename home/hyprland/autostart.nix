@@ -12,7 +12,8 @@ let
     exec-once = dbus-update-activation-environment --all
 
     # Restart portal services to pick up new environment (fixes restart via greetd)
-    exec-once = sleep 1 && systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
+    # GTK portal provides Settings interface (dark mode) - start it explicitly as systemd activation is unreliable
+    exec-once = sleep 1 && xdg-desktop-portal-gtk & systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
     # Core components
     exec-once = gnome-keyring-daemon --start --components=secrets
@@ -36,7 +37,8 @@ let
     exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE
 
     # Restart portal services to pick up new environment (fixes restart via greetd)
-    exec-once = sleep 1 && systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
+    # GTK portal provides Settings interface (dark mode) - start it explicitly as systemd activation is unreliable
+    exec-once = sleep 1 && xdg-desktop-portal-gtk & systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
     # Start desktop shell
     exec-once = noctalia-shell

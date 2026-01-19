@@ -86,7 +86,10 @@
       nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit inputs plymouth-cybex forge username; };
-        modules = []
+        modules = [
+          # Apply overlays to NixOS (for patched xdg-desktop-portal-gtk)
+          { nixpkgs.overlays = [ gtkPortalOverlay ]; }
+        ]
         # Disko for declarative disk partitioning (optional)
         ++ (if useDisko then [
           disko.nixosModules.disko
