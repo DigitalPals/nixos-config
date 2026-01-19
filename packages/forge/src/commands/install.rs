@@ -76,6 +76,18 @@ static AMD_BUS_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("AMD bus ID regex pattern is statically validated")
 });
 
+/// Regex to detect LVM configuration in disko files.
+static LVM_PV_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"type\s*=\s*"lvm_pv""#)
+        .expect("LVM PV regex pattern is statically validated")
+});
+
+/// Regex to detect existing boot.resumeDevice in host config.
+static RESUME_DEVICE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"boot\.resumeDevice\s*="#)
+        .expect("resumeDevice regex pattern is statically validated")
+});
+
 /// Regex to match NVIDIA GPU bus ID in PRIME configuration.
 static NVIDIA_BUS_ID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"nvidiaBusId = "PCI:[^"]*""#)
@@ -345,28 +357,36 @@ async fn step_configure_disk(
 
     // Configure swap mode - modify disko default.nix for hibernate support
     if *swap_mode == SwapMode::HibernateSupport {
-        let ram_gb = get_ram_size_gb();
-        let swap_size_gb = ram_gb + 2; // RAM + 2GB for hibernate
-        runner.out(&format!("Configuring hibernate swap ({}GB swapfile)...", swap_size_gb)).await;
+        // Check if host uses LVM (hibernate swap is pre-configured in disko)
+        let uses_lvm = LVM_PV_RE.is_match(&disko_content);
 
-        let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
-        let disko_default_content = std::fs::read_to_string(&disko_default_file)
-            .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
-
-        // Inject @swap subvolume
-        let updated_disko = inject_swap_subvolume(&disko_default_content, swap_size_gb);
-
-        // Add fileSystems."/swap".neededForBoot
-        let updated_disko = inject_swap_filesystem_config(&updated_disko);
-
-        std::fs::write(&disko_default_file, &updated_disko)
-            .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
-
-        // Verify injection
-        if updated_disko.contains("@swap") {
-            runner.out("  Swap subvolume configured successfully").await;
+        if uses_lvm {
+            runner.out("Detected LVM configuration - hibernate swap is pre-configured").await;
+            runner.out("  Skipping swapfile injection (using LVM swap partition)").await;
         } else {
-            runner.err("  WARNING: Swap subvolume injection may have failed").await;
+            let ram_gb = get_ram_size_gb();
+            let swap_size_gb = ram_gb + 2; // RAM + 2GB for hibernate
+            runner.out(&format!("Configuring hibernate swap ({}GB swapfile)...", swap_size_gb)).await;
+
+            let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
+            let disko_default_content = std::fs::read_to_string(&disko_default_file)
+                .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
+
+            // Inject @swap subvolume
+            let updated_disko = inject_swap_subvolume(&disko_default_content, swap_size_gb);
+
+            // Add fileSystems."/swap".neededForBoot
+            let updated_disko = inject_swap_filesystem_config(&updated_disko);
+
+            std::fs::write(&disko_default_file, &updated_disko)
+                .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
+
+            // Verify injection
+            if updated_disko.contains("@swap") {
+                runner.out("  Swap subvolume configured successfully").await;
+            } else {
+                runner.err("  WARNING: Swap subvolume injection may have failed").await;
+            }
         }
     } else {
         runner.out("Using zram-only swap (no hibernate)").await;
@@ -625,6 +645,7 @@ async fn step_run_disko(
 
 /// Step 5b: Configure hibernate boot settings (after disko, before nixos-install)
 /// Detects resume_offset from swapfile and injects boot settings into host config
+/// For LVM configs, hibernate is pre-configured in the host's default.nix
 async fn step_configure_hibernate(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
@@ -636,6 +657,24 @@ async fn step_configure_hibernate(
     }
 
     runner.out("Configuring hibernate boot settings...").await;
+
+    // Check if hibernate is already configured in host config (e.g., LVM setup)
+    let host_config_file = format!(
+        "{}/hosts/{}/default.nix",
+        temp_config.to_string_lossy(),
+        hostname
+    );
+
+    if std::path::Path::new(&host_config_file).exists() {
+        let host_content = std::fs::read_to_string(&host_config_file)
+            .with_context(|| format!("Failed to read host config: {}", host_config_file))?;
+
+        if RESUME_DEVICE_RE.is_match(&host_content) {
+            runner.out("  Hibernate already configured in host config (LVM or manual)").await;
+            runner.out("  Skipping automatic hibernate configuration").await;
+            return Ok(true);
+        }
+    }
 
     // The swapfile should be at /mnt/swap/swapfile after disko
     let swapfile_path = "/mnt/swap/swapfile";

@@ -60,4 +60,10 @@
     # Allow users to control mic mute LED (for WirePlumber sync service)
     SUBSYSTEM=="leds", KERNEL=="hda::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
   '';
+
+  # === Hibernate Support ===
+  # Using LVM swap partition inside LUKS for reliable hibernate
+  # Disko config: LUKS → LVM → 66GB swap LV + btrfs root LV
+  boot.resumeDevice = "/dev/vg/swap";
+  zramSwap.enable = lib.mkForce false;  # Disable zram, using real swap for hibernate
 }

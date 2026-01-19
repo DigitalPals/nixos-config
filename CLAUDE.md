@@ -9,7 +9,8 @@ Configuration details and solutions to issues in this NixOS setup.
 ├── flake.nix                       # Main flake with host definitions
 ├── hosts/
 │   ├── kraken/                     # Desktop with NVIDIA RTX 5090
-│   └── G1a/                        # HP ZBook Ultra G1a (AMD Strix Halo)
+│   ├── G1a/                        # HP ZBook Ultra G1a (AMD Strix Halo)
+│   └── proart/                     # ASUS ProArt P16 OLED (AMD + NVIDIA, LVM hibernate)
 ├── modules/
 │   ├── boot/limine-plymouth.nix    # Bootloader + Plymouth config
 │   ├── common.nix                  # Shared system config
@@ -287,7 +288,7 @@ boot.kernelPackages = lib.mkForce pkgs.linuxPackages_6_12;
 
 **What doesn't work:**
 - `mem_sleep_default=deep` - S3 not supported; only s2idle available (ACPI: S0 S4 S5)
-- Hibernate - Requires disk-based swap ≥ RAM size; system uses zram only
+- Hibernate - Requires LVM swap partition (see "ProArt P16 Hibernate" section for setup)
 - `amdgpu.ip_block_mask=0xfffff7ff` - Disables VPE; breaks hardware video processing
 - `amdgpu.pg_mask=0` - Disables all power gating; high power consumption
 
@@ -340,6 +341,61 @@ networking.networkmanager.wifi.powersave = false;
 - [Ubuntu Bug #2118755](https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2118755) - 6GHz instability
 - [linux-mediatek regression report](https://lists.infradead.org/pipermail/linux-mediatek/2025-August/096746.html) - Bisected to specific commit
 - [Framework Community thread](https://community.frame.work/t/issues-with-mediatek-mt7925-rz717-wi-fi-card/75815)
+
+## ProArt P16 Hibernate (LVM)
+
+**Host:** ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090, 64GB RAM)
+
+**Problem:** Btrfs swapfile hibernate has ~70% reliability with systemd initrd due to known NixOS issues ([#213122](https://github.com/NixOS/nixpkgs/issues/213122)).
+
+**Solution:** Use LVM inside LUKS for a dedicated swap partition instead of btrfs swapfile.
+
+**Disk layout** (`modules/disko/proart.nix`):
+```
+ESP (2GB, FAT32, /boot)
+└── LUKS2 (remaining)
+    └── LVM volume group "vg"
+        ├── swap (66GB) → hibernate
+        └── root (remaining) → btrfs with subvolumes
+```
+
+**Configuration:**
+- Disko: `modules/disko/proart.nix` (standalone, doesn't import default.nix)
+- Host: `hosts/proart/default.nix` with `boot.resumeDevice = "/dev/vg/swap"`
+- zramSwap disabled for hibernate
+
+**Why LVM?**
+- Dedicated swap partition doesn't need `resume_offset` calculation
+- No btrfs swapfile edge cases with systemd initrd
+- Single LUKS unlock, then LVM provides both swap and root
+- More reliable hibernate (~95%+ vs ~70% with btrfs swapfile)
+
+**Installation:**
+1. Boot Forge ISO or NixOS minimal ISO
+2. Select `proart` host in Forge
+3. Select "Hibernate Support" - Forge detects LVM and skips swapfile injection
+4. Hibernate is pre-configured in the host config
+
+**Hibernate commands:**
+```bash
+# Hibernate
+systemctl hibernate
+
+# Suspend-then-hibernate (suspend first, hibernate after timeout)
+systemctl suspend-then-hibernate
+```
+
+**Troubleshooting:**
+```bash
+# Verify swap is active
+swapon --show
+
+# Check resume device
+cat /sys/power/resume
+
+# Check last hibernate attempt
+journalctl -b -1 | grep -iE "(hibernate|resume|PM:)"
+```
 
 ## Key NVIDIA Settings
 

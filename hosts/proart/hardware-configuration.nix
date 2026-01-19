@@ -13,7 +13,7 @@
   boot.extraModulePackages = [ ];
 
   # Filesystem declarations removed - handled by disko (modules/disko/proart.nix)
-  # Swap handled by disko @swap subvolume when hibernate support is selected
+  # Swap: 66GB LVM logical volume inside LUKS for hibernate support
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
