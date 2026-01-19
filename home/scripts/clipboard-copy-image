@@ -11,9 +11,8 @@ temp_file="$cache_dir/clipboard-${ts}.png"
 # Save image to temp file (unique per screenshot)
 cat > "$temp_file"
 
-# Copy image to clipboard for GUI apps
+# Copy image to clipboard (for GUI apps like WhatsApp)
 wl-copy --type image/png < "$temp_file"
 
-# Then copy file path for CLI tools (Claude Code, Codex)
-printf '%s' "$temp_file" | wl-copy
+# Keep latest file for scripts that need it
 echo "$temp_file" > "$cache_dir/latest"
