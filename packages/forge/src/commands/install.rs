@@ -516,16 +516,51 @@ async fn step_run_disko(
     std::fs::set_permissions(LUKS_PASSWORD_FILE, std::fs::Permissions::from_mode(0o600))
         .with_context(|| format!("Failed to set permissions on {}", LUKS_PASSWORD_FILE))?;
 
-    // Inject passwordFile into disko default.nix
+    // Inject passwordFile into host-specific disko (if present) and default fallback
+    let host_disko_file = format!("{}/modules/disko/{}.nix", temp_config_str, hostname);
+    let mut injected_any = false;
+
+    if std::path::Path::new(&host_disko_file).exists() {
+        match std::fs::read_to_string(&host_disko_file) {
+            Ok(content) => {
+                let updated = inject_luks_password_file(&content);
+                if let Err(e) = std::fs::write(&host_disko_file, &updated) {
+                    runner.err(&format!("Failed to write host disko file: {}", e)).await;
+                } else {
+                    injected_any |= updated.contains("passwordFile");
+                    runner
+                        .out(&format!(
+                            "LUKS passwordFile injected into host disko: modules/disko/{}.nix",
+                            hostname
+                        ))
+                        .await;
+                }
+            }
+            Err(e) => {
+                runner
+                    .err(&format!(
+                        "Failed to read host disko file (continuing with default): {}",
+                        e
+                    ))
+                    .await;
+            }
+        }
+    } else {
+        runner
+            .out("Host-specific disko file not found, using default disko for injection")
+            .await;
+    }
+
     let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
     let disko_default_content = std::fs::read_to_string(&disko_default_file)
         .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
     let updated_disko = inject_luks_password_file(&disko_default_content);
     std::fs::write(&disko_default_file, &updated_disko)
         .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
+    injected_any |= updated_disko.contains("passwordFile");
 
     // Verify passwordFile injection
-    if updated_disko.contains("passwordFile") {
+    if injected_any {
         runner.out("LUKS passwordFile configured successfully").await;
         tracing::info!("passwordFile injection confirmed in disko config");
     } else {
