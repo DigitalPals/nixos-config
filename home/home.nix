@@ -2,9 +2,6 @@
 { config, pkgs, inputs, lib, osConfig, username, hostname, portal, ... }:
 
 let
-  # Get shell from NixOS config (set by specialisations)
-  shell = osConfig.desktop.shell;
-
   # Dynamically load all wallpapers from ../wallpapers directory
   wallpapersDir = ../wallpapers;
   wallpaperFiles = builtins.readDir wallpapersDir;
@@ -21,16 +18,10 @@ in
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers)
     ./forge-notify.nix  # Background update checker
-    # Always deploy Illogical Impulse dotfiles (Quickshell config)
-    # Required because Home Manager evaluates with default shell at build time,
-    # but specialisations need these files at boot time. See CLAUDE.md.
-    ./shells/illogical/dotfiles-only.nix
-  ] ++ (if shell == "illogical" then [
-    ./shells/illogical
-  ] else [
+    # Noctalia Desktop Shell
     inputs.noctalia.homeModules.default
     ./shells/noctalia
-  ]);
+  ];
 
   home.username = username;
   home.homeDirectory = "/home/${username}";

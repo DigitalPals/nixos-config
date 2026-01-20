@@ -2,30 +2,16 @@
 { config, pkgs, lib, username, ... }:
 
 let
-  # Get shell from config option (set by specialisations)
-  shell = config.desktop.shell;
   # Import Hyprland session packages
   hyprlandSessions = pkgs.callPackage ../packages/hyprland-sessions { };
-
-  # Select session script based on shell
-  sessionScript =
-    if shell == "illogical" then "${hyprlandSessions.illogicalScript}/bin/hyprland-illogical"
-    else if shell == "noctalia" then "${hyprlandSessions.noctaliaScript}/bin/hyprland-noctalia"
-    else throw "Unknown desktop shell: '${shell}'. Valid options: noctalia, illogical";
-
-  # Select wrapper script for PATH based on shell
-  wrapperScript =
-    if shell == "illogical" then hyprlandSessions.illogicalScript
-    else if shell == "noctalia" then hyprlandSessions.noctaliaScript
-    else throw "Unknown desktop shell: '${shell}'. Valid options: noctalia, illogical";
 in
 {
-  # Auto-login directly to Hyprland with selected shell (no session selector)
+  # Auto-login directly to Hyprland with Noctalia shell (no session selector)
   services.greetd = {
     enable = true;
     settings = {
       default_session = {
-        command = sessionScript;
+        command = "${hyprlandSessions.script}/bin/hyprland-noctalia";
         user = username;
       };
     };
@@ -66,8 +52,8 @@ in
   };
 
   # Register Hyprland session with display manager (for fallback/GNOME login)
-  services.displayManager.sessionPackages = hyprlandSessions.sessions;
+  services.displayManager.sessionPackages = [ hyprlandSessions.noctalia ];
 
-  # Hyprland wrapper script in PATH (shell-specific)
-  environment.systemPackages = [ wrapperScript ];
+  # Hyprland wrapper script in PATH
+  environment.systemPackages = [ hyprlandSessions.script ];
 }

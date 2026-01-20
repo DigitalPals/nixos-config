@@ -1,5 +1,5 @@
 {
-  description = "NixOS configuration with Home Manager, Hyprland, and multi-shell support";
+  description = "NixOS configuration with Home Manager, Hyprland, and Noctalia Desktop Shell";
 
   inputs = {
     # Use nixpkgs-unstable for compatibility
@@ -17,24 +17,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Illogical Impulse dotfiles (direct from upstream)
-    dots-hyprland = {
-      url = "github:end-4/dots-hyprland";
-      flake = false;
-    };
-
-    # Rounded polygon shapes submodule for dots-hyprland
-    rounded-polygon-qmljs = {
-      url = "github:end-4/rounded-polygon-qmljs";
-      flake = false;
-    };
-
-    # Quickshell (latest git for IdleInhibitor support)
-    quickshell = {
-      url = "github:quickshell-mirror/quickshell";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # Disko for declarative disk partitioning
     disko = {
       url = "github:nix-community/disko";
@@ -47,7 +29,7 @@
 
   };
 
-  outputs = { self, nixpkgs, home-manager, noctalia, dots-hyprland, rounded-polygon-qmljs, disko, quickshell, portal, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, noctalia, disko, portal, ... }@inputs:
   let
     system = "x86_64-linux";
 
@@ -70,17 +52,16 @@
     plymouth-cybex = pkgs.callPackage ./packages/plymouth-cybex { };
     forge = pkgs.callPackage ./packages/forge { };
 
-    # Home Manager configuration (shell-agnostic - shell comes from osConfig)
+    # Home Manager configuration
     mkHomeManagerConfig = { hostname, username }: {
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
-      home-manager.extraSpecialArgs = { inherit inputs hostname username dots-hyprland rounded-polygon-qmljs quickshell forge portal; };
+      home-manager.extraSpecialArgs = { inherit inputs hostname username forge portal; };
       home-manager.users.${username} = import ./home/home.nix;
-      # sharedModules removed - external modules now imported conditionally in home.nix
     };
 
-    # Helper to create NixOS configurations with shell specialisations
+    # Helper to create NixOS configurations
     # Set useDisko = false for hosts with manual partition setup (e.g., hibernate swap)
     mkNixosSystem = { hostname, username ? "john", extraModules ? [], useDisko ? true }:
       nixpkgs.lib.nixosSystem {
@@ -104,13 +85,6 @@
           # Home Manager
           home-manager.nixosModules.home-manager
           (mkHomeManagerConfig { inherit hostname username; })
-
-          # Shell specialisations (boot menu entries)
-          {
-            specialisation = {
-              illogical.configuration.desktop.shell = "illogical";
-            };
-          }
         ] ++ extraModules;
       };
   in
@@ -132,20 +106,17 @@
 
     nixosConfigurations = {
       # Desktop with NVIDIA RTX 5090
-      # Default: Noctalia | Specialisations: illogical
       kraken = mkNixosSystem {
         hostname = "kraken";
         extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
       # HP ZBook Ultra G1a (AMD Strix Halo)
-      # Default: Noctalia | Specialisations: illogical
       G1a = mkNixosSystem {
         hostname = "G1a";
       };
 
       # ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090)
-      # Default: Noctalia | Specialisations: illogical
       proart = mkNixosSystem {
         hostname = "proart";
         extraModules = [ ./modules/hardware/nvidia.nix ];

@@ -1,6 +1,6 @@
 # NixOS Configuration
 
-A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring multi-shell support with three different Hyprland desktop environments.
+A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring Hyprland with Noctalia Desktop Shell.
 
 ## Features
 
@@ -8,30 +8,8 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 - **Full disk encryption** with LUKS2 (interactive passphrase at boot)
 - **Btrfs filesystem** with subvolumes and zstd compression
 - **Passwordless auto-login** via greetd (password set after first boot)
-- **Hyprland** window manager with choice of desktop shells
+- **Hyprland** window manager with [Noctalia Desktop Shell](https://github.com/noctalia-dev/noctalia-shell)
 - **Home Manager** integration for user configuration
-- **Multi-shell support** - switch between 3 desktop environments
-
-## Desktop Shells
-
-This configuration supports two different Hyprland desktop shells. Each provides a complete desktop experience with its own theming, panels, and widgets.
-
-| Shell | Description | Source |
-|-------|-------------|--------|
-| **Noctalia** (default) | Modern Qt6/QML desktop shell | [noctalia-dev/noctalia-shell](https://github.com/noctalia-dev/noctalia-shell) |
-| **Illogical Impulse** | Material Design 3 Quickshell-based shell | [end-4/dots-hyprland](https://github.com/end-4/dots-hyprland) |
-
-### Switching Shells
-
-Desktop shells are switched via the **boot menu** (NixOS specialisations):
-
-1. Reboot your system
-2. In the Limine boot menu, select your generation
-3. Choose from the sub-menu:
-   - **Default** - Noctalia
-   - **illogical** - Illogical Impulse
-
-The selected shell persists for that boot session. To switch shells, reboot and select a different option.
 
 ## Hosts
 
@@ -39,20 +17,7 @@ The selected shell persists for that boot session. To switch shells, reboot and 
 |------|-------------|-----|
 | `kraken` | Desktop PC | NVIDIA RTX 5090 |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
-
-## Flake Configurations
-
-Each host has one configuration with shell variants as specialisations:
-
-| Configuration | Host | Specialisations |
-|---------------|------|-----------------|
-| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical |
-| `G1a` | G1a (AMD) | Default (Noctalia), illogical |
-
-Rebuilding includes all shell specialisations:
-```bash
-sudo nixos-rebuild switch --flake .#kraken
-```
+| `proart` | ASUS ProArt P16 OLED | AMD + NVIDIA RTX 5090 |
 
 ## Partition Layout
 
@@ -107,7 +72,7 @@ nix run github:DigitalPals/nixos-config#forge
 ```
 
 The interactive TUI will guide you through:
-1. Select your host (kraken or G1a)
+1. Select your host (kraken, G1a, or proart)
 2. Select the target disk
 3. Confirm the installation (type 'yes')
 4. Set your LUKS encryption passphrase when prompted
@@ -190,13 +155,16 @@ This will:
 
 ```
 nixos-config/
-├── flake.nix                 # Main flake with host+shell configurations
+├── flake.nix                 # Main flake with host configurations
 ├── flake.lock                # Locked dependencies
 ├── hosts/
 │   ├── kraken/               # Desktop configuration (NVIDIA)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
-│   └── G1a/                  # HP ZBook Ultra G1a (AMD)
+│   ├── G1a/                  # HP ZBook Ultra G1a (AMD)
+│   │   ├── default.nix
+│   │   └── hardware-configuration.nix
+│   └── proart/               # ASUS ProArt P16 OLED
 │       ├── default.nix
 │       └── hardware-configuration.nix
 ├── modules/
@@ -205,33 +173,24 @@ nixos-config/
 │   ├── disko/                # Disk partitioning
 │   │   ├── default.nix       # Common disko config
 │   │   ├── kraken.nix        # Kraken disk device
-│   │   └── G1a.nix           # G1a disk device
+│   │   ├── G1a.nix           # G1a disk device
+│   │   └── proart.nix        # ProArt disk device (LVM for hibernate)
 │   ├── boot/
 │   │   └── limine-plymouth.nix
 │   └── hardware/
 │       └── nvidia.nix
 ├── home/                     # Home Manager configuration
-│   ├── home.nix              # Main config (imports shell based on flake)
+│   ├── home.nix              # Main config
 │   ├── ghostty.nix           # Terminal configuration
 │   ├── hyprland/             # Hyprland window manager config
-│   │   ├── autostart.nix     # Shell-aware autostart
-│   │   └── bindings.nix      # Shell-aware keybindings
-│   └── shells/               # Desktop shell configurations
-│       ├── noctalia/         # Noctalia Desktop Shell
-│       │   ├── default.nix
-│       │   ├── shell.nix     # Shell + JSON configs
-│       │   ├── fish.nix      # Fish + Starship + Zoxide
-│       │   └── theming.nix   # GTK, cursor, icons
-│       ├── illogical/        # Illogical Impulse
-│       │   ├── default.nix
-│       │   ├── dotfiles.nix  # Fetch upstream configs
-│       │   ├── packages.nix  # Qt, Quickshell, tools
-│       │   ├── fish.nix      # Fish shell config
-│       │   └── theming.nix   # Cursor, GTK, icons
+│   │   ├── autostart.nix
+│   │   └── bindings.nix
+│   └── shells/
+│       └── noctalia/         # Noctalia Desktop Shell config
 └── packages/
     ├── forge/                # TUI installer and system management tool
     ├── plymouth-cybex/       # Custom Plymouth theme
-    └── hyprland-sessions/    # Session .desktop files for each shell
+    └── hyprland-sessions/    # Session .desktop files
 ```
 
 ## Troubleshooting
@@ -247,9 +206,6 @@ There is no recovery option. You'll need to reinstall.
 
 ### Change disk device after installation
 Edit `modules/disko/<hostname>.nix` and update the device path, then reinstall.
-
-### Shell switch not taking effect
-Shell switching is done via the boot menu (specialisations). You must reboot and select the desired shell from the Limine boot menu. Do not use `hyprctl reload` as it will break keybindings.
 
 ## License
 

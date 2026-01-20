@@ -5,23 +5,13 @@
 # the shell package has changed and restarts the shell via hyprctl.
 #
 # See CLAUDE.md for details on the store path persistence issue.
-{ config, pkgs, lib, osConfig, quickshell, ... }:
+{ config, pkgs, lib, ... }:
 
 let
-  shell = osConfig.desktop.shell;
-
-  # Hash the relevant package path to detect changes
-  # For Noctalia: use the noctalia-shell package
-  # For Illogical: use the quickshell package from flake input
+  # Hash the noctalia-shell package path to detect changes
   shellPackageHash = builtins.hashString "sha256" (
-    if shell == "noctalia"
-    then toString config.programs.noctalia-shell.package
-    else toString quickshell.packages.x86_64-linux.default
+    toString config.programs.noctalia-shell.package
   );
-
-  restartCommand = if shell == "noctalia"
-    then "noctalia-shell"
-    else "quickshell -c ~/.config/quickshell/ii";
 in
 {
   home.activation.restartShellOnStorePathChange = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -37,14 +27,14 @@ in
       # Check if quickshell is running and Hyprland is available
       if ${pkgs.procps}/bin/pgrep -x quickshell >/dev/null 2>&1; then
         if command -v hyprctl >/dev/null 2>&1 && hyprctl version >/dev/null 2>&1; then
-          echo "Shell store path changed, restarting ${shell}..."
+          echo "Shell store path changed, restarting Noctalia..."
 
           # Kill old processes
           $DRY_RUN_CMD ${pkgs.procps}/bin/pkill -x quickshell || true
           sleep 0.5
 
           # Restart via hyprctl for proper Wayland integration
-          $DRY_RUN_CMD hyprctl dispatch exec "${restartCommand}"
+          $DRY_RUN_CMD hyprctl dispatch exec "noctalia-shell"
         fi
       fi
     fi

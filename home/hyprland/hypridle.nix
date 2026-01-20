@@ -1,17 +1,13 @@
 # Hypridle configuration
-# Screen locking and power management (shell-aware)
-{ shell ? "noctalia" }:
-
+# Screen locking and power management
 { config, pkgs, lib, hostname, ... }:
 
 let
   # Enable auto-suspend for known hosts
   shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname;
 
-  # Shell-specific lock command (no pidof check - process runs as "quickshell")
-  lockCmd = if shell == "illogical"
-    then "hyprlock"
-    else "noctalia-shell ipc call lockScreen lock";
+  # Lock command using Noctalia
+  lockCmd = "noctalia-shell ipc call lockScreen lock";
 
   # Auto-suspend listener
   suspendListener = if shouldAutoSuspend then ''

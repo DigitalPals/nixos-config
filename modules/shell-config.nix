@@ -1,11 +1,11 @@
 # Desktop shell configuration option
-# Used by specialisations to switch between shells
+# Kept for compatibility with modules that reference desktop.shell
 { lib, ... }:
 
 {
   options.desktop.shell = lib.mkOption {
-    type = lib.types.enum [ "noctalia" "illogical" ];
+    type = lib.types.enum [ "noctalia" ];
     default = "noctalia";
-    description = "Active desktop shell environment";
+    description = "Active desktop shell environment (Noctalia only)";
   };
 }

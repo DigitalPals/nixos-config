@@ -20,22 +20,6 @@
         "type": "github"
       }
     },
-    "dots-hyprland": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1768435836,
-        "narHash": "sha256-01PPtScjayao3ERfe941WEMNeWLCXS0HJ+yae/Vzdvc=",
-        "owner": "end-4",
-        "repo": "dots-hyprland",
-        "rev": "20ec7717a4c67bcc074dec0cd28638f4f22516f0",
-        "type": "github"
-      },
-      "original": {
-        "owner": "end-4",
-        "repo": "dots-hyprland",
-        "type": "github"
-      }
-    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -146,52 +130,13 @@
         "type": "github"
       }
     },
-    "quickshell": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1768689040,
-        "narHash": "sha256-Tlnr5BulJcMers/cb+YvmBQW4nKHjdKo9loInJkyO2k=",
-        "owner": "quickshell-mirror",
-        "repo": "quickshell",
-        "rev": "7a427ce1979ce7447e885c4f30129b40f3d466f5",
-        "type": "github"
-      },
-      "original": {
-        "owner": "quickshell-mirror",
-        "repo": "quickshell",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "disko": "disko",
-        "dots-hyprland": "dots-hyprland",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
         "noctalia": "noctalia",
-        "portal": "portal",
-        "quickshell": "quickshell",
-        "rounded-polygon-qmljs": "rounded-polygon-qmljs"
-      }
-    },
-    "rounded-polygon-qmljs": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1767651746,
-        "narHash": "sha256-WVkjTpFtJt6TFCi7tTBjsTUjRCFmYoQAlfqRwSCT2lY=",
-        "owner": "end-4",
-        "repo": "rounded-polygon-qmljs",
-        "rev": "b62e4482af56722840dd4b86c4dab41d5c9f2dda",
-        "type": "github"
-      },
-      "original": {
-        "owner": "end-4",
-        "repo": "rounded-polygon-qmljs",
-        "type": "github"
+        "portal": "portal"
       }
     },
     "systems": {

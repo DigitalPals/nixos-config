@@ -1,29 +1,7 @@
 # Key bindings configuration
-# All keyboard shortcuts (shell-aware)
-{ shell ? "noctalia" }:
+# All keyboard shortcuts
+{}:
 
-let
-  # Shell-specific launcher command
-  launcherCmd = if shell == "illogical"
-    then "fuzzel"
-    else "noctalia-shell ipc call launcher toggle";
-
-  # Shell-specific lock command
-  lockCmd = if shell == "illogical"
-    then "hyprlock"
-    else "noctalia-shell ipc call lockScreen lock";
-
-  # Standard launcher bind for shells
-  standardLauncherBind = ''
-    bind = $mainMod, SPACE, exec, ${launcherCmd}
-  '';
-
-  # Illogical Impulse wallpaper selector (Quickshell global shortcut)
-  illogicalWallpaperBind = ''
-    # Wallpaper selector - Super + Ctrl + T
-    bindd = Ctrl+Super, T, Toggle wallpaper selector, global, quickshell:wallpaperSelectorToggle
-  '';
-in
 ''
   # Variables
   $mainMod = SUPER
@@ -32,8 +10,7 @@ in
 
   # Applications
   bind = $mainMod, Return, exec, $terminal
-  ${standardLauncherBind}
-  ${if shell == "illogical" then illogicalWallpaperBind else ""}
+  bind = $mainMod, SPACE, exec, noctalia-shell ipc call launcher toggle
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
@@ -60,7 +37,7 @@ in
   bind = $mainMod, J, togglesplit,
   bind = $mainMod, BACKSPACE, exec, hyprctl dispatch setprop address:$(hyprctl activewindow -j | jq -r '.address') alpha 0.85 toggle
   bind = $mainMod SHIFT, M, exit,
-  bind = $mainMod, L, exec, ${lockCmd}
+  bind = $mainMod, L, exec, noctalia-shell ipc call lockScreen lock
 
   # Navigation
   bind = $mainMod, left, movefocus, l

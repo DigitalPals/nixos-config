@@ -14,7 +14,7 @@ Configuration details and solutions to issues in this NixOS setup.
 ├── modules/
 │   ├── boot/limine-plymouth.nix    # Bootloader + Plymouth config
 │   ├── common.nix                  # Shared system config
-│   ├── shell-config.nix            # Desktop shell option (specialisations)
+│   ├── shell-config.nix            # Desktop shell option
 │   ├── desktop-environments.nix
 │   ├── gaming.nix
 │   ├── disko/                      # Disk partitioning configs
@@ -34,9 +34,8 @@ Configuration details and solutions to issues in this NixOS setup.
 │   │   ├── bindings.nix
 │   │   ├── monitors.nix
 │   │   └── ...
-│   └── shells/                     # Desktop shell options
-│       ├── noctalia/               # AGS-based shell
-│       └── illogical/              # Illogical Impulse shell
+│   └── shells/
+│       └── noctalia/               # Noctalia Desktop Shell config
 └── packages/
     ├── forge/                      # Rust TUI configuration tool
     ├── plymouth-cybex/             # Custom Plymouth theme
@@ -81,7 +80,7 @@ Note: `forge browser` is still supported as an alias for `forge apps`.
 3. Run Forge: `nix run github:DigitalPals/nixos-config`
 4. Select "Install NixOS", choose host and disk
 5. Enter LUKS passphrase when prompted
-6. Reboot and select a shell from the boot menu
+6. Reboot
 
 ### Building the Forge ISO
 
@@ -105,58 +104,13 @@ The ISO automatically:
 
 ## Rebuilding the System
 
-Each host has one configuration with shell variants as specialisations:
-
-| Config | Host | Specialisations |
-|--------|------|-----------------|
-| `kraken` | kraken (NVIDIA) | Default (Noctalia), illogical |
-| `G1a` | G1a (AMD) | Default (Noctalia), illogical |
-
 ```bash
-# Rebuild (includes all shell specialisations)
+# Rebuild with explicit host
 sudo nixos-rebuild switch --flake .#kraken
 
 # Or use hostname (auto-detected)
 sudo nixos-rebuild switch --flake .
 ```
-
-### Rebuilding with Active Specialisation
-
-**IMPORTANT:** When rebuilding, always check which specialisation is currently active and re-activate it after the rebuild. A plain `nixos-rebuild switch` activates the **default** configuration, which will switch you out of any active specialisation.
-
-```bash
-# Check which specialisation is active (if any)
-# Look at DESKTOP_SHELL environment variable or check the runtime file
-cat /run/user/$(id -u)/desktop-shell 2>/dev/null || echo "default"
-
-# Standard rebuild (activates default configuration)
-sudo nixos-rebuild switch --flake .
-
-# If you were in a specialisation, re-activate it:
-sudo /run/current-system/specialisation/illogical/bin/switch-to-configuration switch
-```
-
-**For Claude:** Before running `nixos-rebuild switch`, always:
-1. Check the active shell: `cat /run/user/$(id -u)/desktop-shell 2>/dev/null`
-2. If it returns "illogical" (or another specialisation name), re-activate after rebuild:
-   ```bash
-   sudo nixos-rebuild switch --flake . && \
-   sudo /run/current-system/specialisation/illogical/bin/switch-to-configuration switch
-   ```
-
-## Switching Desktop Shells
-
-Desktop shells are switched via the **boot menu** (Limine):
-
-1. Reboot your system
-2. In Limine, select your generation
-3. Choose from the sub-menu:
-   - **Default** - Noctalia (AGS-based shell)
-   - **illogical** - Illogical Impulse (Material Design 3)
-
-The selected shell persists for that boot session. To change shells, reboot and select a different specialisation.
-
-**Note:** Each rebuild builds both shell variants. The boot menu shows all options for each generation.
 
 ## Hyprland 0.53+ Changes
 
@@ -446,31 +400,9 @@ All NVIDIA config is in `modules/hardware/nvidia.nix`:
 
 Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
 
-## Shell Module Import Architecture
-
-**Problem:** Conditional Home Manager imports (`if shell == "illogical" then ...`) don't work correctly with NixOS specialisations. Home Manager is evaluated at build time with the default configuration, so the non-default shell's dotfiles are never deployed.
-
-**Symptom:** Settings menu (and other UI elements) don't work in the non-default shell because critical files like `settings.qml` are missing from `~/.config/quickshell/ii/`.
-
-**Solution:** Separate shell modules into two parts:
-1. **Dotfiles module** (`dotfiles-only.nix`) - Always imported, deploys config files
-2. **Programs module** (main shell module) - Conditionally imported, sets fish/starship/theming
-
-**Files:**
-- `home/shells/illogical/dotfiles-only.nix` - Always imported (xdg.configFile, activation script)
-- `home/shells/illogical/` - Conditionally imported (packages, fish, theming)
-- `home/shells/noctalia/` - Conditionally imported (works with Noctalia Home Manager module)
-
-**Implementation:** `home/home.nix` imports `./shells/illogical/dotfiles-only.nix` unconditionally, ensuring Quickshell files exist regardless of which shell is selected at boot.
-
-**Important:** When adding new shell configurations:
-1. Create a `dotfiles-only.nix` that only handles file deployment (xdg.configFile, activation)
-2. Import it unconditionally in `home/home.nix`
-3. Keep program configs (fish, starship, theming) in the conditionally-imported module to avoid conflicts
-
 ## Shell Restart on Store Path Change
 
-**Problem:** After `nixos-rebuild switch`, the running quickshell process has old `/nix/store/...` paths baked in, while IPC commands (like `qs -c noctalia-shell ipc call launcher toggle`) reference the new path. This causes IPC failures with "No running instances" errors.
+**Problem:** After `nixos-rebuild switch`, the running quickshell process has old `/nix/store/...` paths baked in, while IPC commands (like `noctalia-shell ipc call launcher toggle`) reference the new path. This causes IPC failures with "No running instances" errors.
 
 **Root cause:** Quickshell processes embed their store path at startup. When the package updates, the symlink at `~/.config/quickshell/noctalia-shell` points to the new path, but the running process still has the old path.
 
@@ -479,7 +411,7 @@ Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kra
 **Implementation:** `home/shells/restart-on-change.nix`
 
 The hook:
-1. Hashes the current shell package path (noctalia-shell or quickshell)
+1. Hashes the noctalia-shell package path
 2. Compares to previously stored hash in `~/.local/state/shell-store-hash`
 3. If changed and quickshell is running, kills old process and restarts via `hyprctl dispatch exec`
 4. Records new hash for next comparison
@@ -496,15 +428,12 @@ The hook:
 - Dry-run mode (respects `$DRY_RUN_CMD`)
 
 **Files:**
-- `home/shells/restart-on-change.nix` - Shared activation hook
+- `home/shells/restart-on-change.nix` - Activation hook
 - `home/shells/noctalia/default.nix` - Imports restart module
-- `home/shells/illogical/default.nix` - Imports restart module
 
 **Manual restart** (if needed):
 ```bash
 pkill -x quickshell && hyprctl dispatch exec noctalia-shell
-# Or for Illogical:
-pkill -x quickshell && hyprctl dispatch exec "quickshell -c ~/.config/quickshell/ii"
 ```
 
 ## Noctalia Settings (Hybrid Management)
