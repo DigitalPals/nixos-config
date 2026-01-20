@@ -32,6 +32,9 @@
     amdgpuBusId = "PCI:101:0:0";  # 0x65 = 101
   };
 
+  # Allow NVIDIA dGPU to enter deeper runtime power states when idle
+  hardware.nvidia.powerManagement.finegrained = true;
+
   # Override the forced NVIDIA env vars from nvidia.nix - let apps use iGPU by default
   environment.sessionVariables = {
     GBM_BACKEND = lib.mkForce "";
@@ -59,11 +62,61 @@
   services.udev.extraRules = ''
     # Allow users to control mic mute LED (for WirePlumber sync service)
     SUBSYSTEM=="leds", KERNEL=="hda::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
+    # Enable PCI runtime PM for NVIDIA dGPU (RTD3) when unused
+    ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
+    ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
   '';
+
+  # === Fix s2idle suspend wake ===
+  # GPIO 16 causes immediate wake from s2idle - ignore it via kernel parameter.
+  # See: https://wiki.archlinux.org/title/Power_management/Wakeup_triggers
+  boot.kernelParams = lib.mkAfter [
+    "gpiolib_acpi.ignore_interrupt=AMDI0030:00@16"
+  ];
+
+  systemd.services.disable-wakeup-sources = {
+    description = "Disable wakeup sources for suspend";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      # Disable ACPI wakeup sources (keep only power button PWRB)
+      for dev in XHC0 XHC1 XHC3 XHC4 GPP0 GPP3 GPP4 GPP9 NHI0; do
+        if grep -q "^$dev.*enabled" /proc/acpi/wakeup; then
+          echo "$dev" > /proc/acpi/wakeup
+        fi
+      done
+
+      # Disable sysfs wakeup sources
+      for path in \
+        /sys/bus/thunderbolt/devices/*/power/wakeup \
+        /sys/devices/pnp0/00:00/power/wakeup \
+        /sys/devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:00/power/wakeup \
+        /sys/devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0D:00/power/wakeup \
+        /sys/devices/LNXSYSTM:00/LNXSYBUS:00/USBC000:00/*/power/wakeup \
+        /sys/devices/platform/AMDI0010:*/i2c-*/i2c-*/power/wakeup \
+        /sys/devices/platform/ACPI0003:00/power_supply/*/power/wakeup \
+        /sys/devices/platform/USBC000:00/power_supply/*/power/wakeup
+      do
+        for f in $path; do
+          [ -f "$f" ] && echo disabled > "$f" 2>/dev/null || true
+        done
+      done
+    '';
+  };
 
   # === Hibernate Support ===
   # Using LVM swap partition inside LUKS for reliable hibernate
   # Disko config: LUKS → LVM → 66GB swap LV + btrfs root LV
   boot.resumeDevice = "/dev/vg/swap";
   zramSwap.enable = lib.mkForce false;  # Disable zram, using real swap for hibernate
+
+  # Lid close behavior (suspend should work with GPIO 16 fix)
+  services.logind.settings.Login = {
+    HandleLidSwitch = "suspend";
+    HandleLidSwitchExternalPower = "suspend";
+    HandleLidSwitchDocked = "ignore";  # Don't suspend when docked with external monitor
+  };
 }
