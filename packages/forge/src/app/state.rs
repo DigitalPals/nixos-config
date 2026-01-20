@@ -285,6 +285,8 @@ pub enum UpdateState {
         output: VecDeque<String>,
         /// Whether we stashed changes that need to be restored
         stashed: bool,
+        /// Skip NVIDIA driver compatibility check
+        skip_nvidia_check: bool,
     },
     Complete {
         #[allow(dead_code)]
@@ -298,10 +300,14 @@ pub enum UpdateState {
 
 impl UpdateState {
     pub fn new() -> Self {
-        Self::new_with_stash(false)
+        Self::new_with_options(false, false)
     }
 
     pub fn new_with_stash(stashed: bool) -> Self {
+        Self::new_with_options(stashed, false)
+    }
+
+    pub fn new_with_options(stashed: bool, skip_nvidia_check: bool) -> Self {
         UpdateState::Running {
             step: 0,
             steps: vec![
@@ -315,6 +321,7 @@ impl UpdateState {
             ],
             output: VecDeque::new(),
             stashed,
+            skip_nvidia_check,
         }
     }
 }
@@ -503,6 +510,8 @@ pub struct UpdateSummary {
     pub rebuild_skipped: bool,
     pub rebuild_failed: bool,
     pub reboot_reasons: Vec<String>,
+    /// Reason if NVIDIA compatibility check failed and kernel update was skipped
+    pub nvidia_skipped: Option<String>,
 }
 
 /// Information about a pending commit

@@ -172,10 +172,18 @@ pub async fn parse_flake_changes(dir: &Path) -> Result<Vec<FlakeInputChange>> {
     // Fetch commit messages from GitHub API
     fetch_commits_for_changes(&mut changes).await;
 
-    // Clean up backup file
-    let _ = tokio::fs::remove_file(backup_path).await;
+    // Note: Backup cleanup is handled separately by delete_flake_lock_backup()
+    // to allow NVIDIA compatibility check to restore it if needed
 
     Ok(changes)
+}
+
+/// Delete the flake.lock backup file
+pub async fn delete_flake_lock_backup() {
+    let backup_path = std::path::Path::new("/tmp/forge-flake.lock.old");
+    if backup_path.exists() {
+        let _ = tokio::fs::remove_file(backup_path).await;
+    }
 }
 
 /// Fetch commit messages from GitHub API for each changed input
