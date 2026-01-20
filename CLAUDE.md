@@ -288,7 +288,7 @@ Also in `modules/common.nix`:
 networking.networkmanager.wifi.powersave = false;
 ```
 
-**When fixed:** Kernel 6.19 (expected January 2026) includes a revert that should fix MT792x WiFi issues. Once `linuxPackages_latest` points to 6.19+, the `disable_clc=1` workaround can likely be removed.
+**When fixed:** Kernel 6.19+ may include fixes for MT792x WiFi issues. Check current kernel version with `nix eval nixpkgs#linuxPackages_latest.kernel.version`. Once on kernel 6.19+, test without `disable_clc=1` to see if the workaround is still needed.
 
 **References:**
 - [Ubuntu Bug #2118937](https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2118937) - Intermittent connection loss

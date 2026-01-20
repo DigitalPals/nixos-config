@@ -16,5 +16,4 @@
   # Swap: 66GB LVM logical volume inside LUKS for hibernate support
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-  hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
 }

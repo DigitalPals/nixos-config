@@ -82,6 +82,9 @@
     allowedUDPPorts = [ 53317 ]; # LocalSend
   };
 
+  # SSH server intentionally disabled - use Portal SSH client for outbound connections
+  # If SSH access is needed, enable: services.openssh.enable = true;
+
   # Disable NetworkManager-wait-online to speed up boot
   systemd.services.NetworkManager-wait-online.enable = lib.mkForce false;
 

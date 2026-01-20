@@ -7,7 +7,9 @@
 # - ASPM power management interferes with driver operation
 # - WiFi power save causes disconnects
 #
-# These workarounds should be removable once kernel 6.19+ is available.
+# These workarounds may be removable with kernel 6.19+.
+# Check: nix eval nixpkgs#linuxPackages_latest.kernel.version
+# Test without disable_clc=1 after upgrading if kernel >= 6.19.
 # See CLAUDE.md "MT7925 WiFi Stability" section for details.
 { config, pkgs, lib, ... }:
 

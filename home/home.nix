@@ -180,6 +180,8 @@ in
   # Web browsers
   programs.google-chrome = {
     enable = true;
+    # ProArt P16: Disable Vulkan for hybrid AMD/NVIDIA graphics stability
+    # Vulkan causes rendering issues with NVIDIA dGPU + AMD iGPU setup
     commandLineArgs = lib.optionals (hostname == "proart") [
       "--disable-features=Vulkan"
       "--use-gl=egl"

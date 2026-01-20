@@ -17,21 +17,20 @@ in
     };
   };
 
-  # Prevent greetd from cluttering TTY with logs
-  systemd.services.greetd.serviceConfig = {
-    Type = "idle";
-    StandardInput = "tty";
-    StandardOutput = "tty";
-    StandardError = "journal";
-    TTYReset = true;
-    TTYVHangup = true;
-    TTYVTDisallocate = true;
-  };
-
-  # Ensure Home Manager has populated Hyprland config before greetd autologin.
   systemd.services.greetd = {
+    # Ensure Home Manager has populated Hyprland config before greetd autologin
     after = [ "home-manager-${username}.service" ];
     wants = [ "home-manager-${username}.service" ];
+    # Prevent greetd from cluttering TTY with logs
+    serviceConfig = {
+      Type = "idle";
+      StandardInput = "tty";
+      StandardOutput = "tty";
+      StandardError = "journal";
+      TTYReset = true;
+      TTYVHangup = true;
+      TTYVTDisallocate = true;
+    };
   };
 
   # Hyprland at system level (for session registration)
