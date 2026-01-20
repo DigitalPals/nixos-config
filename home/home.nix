@@ -1,5 +1,5 @@
 # Home Manager configuration
-{ config, pkgs, inputs, lib, osConfig, username, portal, ... }:
+{ config, pkgs, inputs, lib, osConfig, username, hostname, portal, ... }:
 
 let
   # Get shell from NixOS config (set by specialisations)
@@ -187,7 +187,13 @@ in
   ];
 
   # Web browsers
-  programs.google-chrome.enable = true;
+  programs.google-chrome = {
+    enable = true;
+    commandLineArgs = lib.optionals (hostname == "proart") [
+      "--disable-features=Vulkan"
+      "--use-gl=egl"
+    ];
+  };
 
   programs.firefox.enable = true;
 
