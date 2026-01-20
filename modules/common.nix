@@ -238,6 +238,8 @@
     "kernel.perf_event_paranoid" = 3;
     # Prevent null pointer dereference exploits
     "vm.mmap_min_addr" = 65536;
+    # Memory optimization - prefer RAM over swap with 61GB+ RAM
+    "vm.swappiness" = 10;
     # Restrict ptrace scope
     "kernel.yama.ptrace_scope" = 1;
     # Network hardening
@@ -257,6 +259,9 @@
     # SATA SSDs - use mq-deadline
     ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
   '';
+
+  # CPU frequency scaling - schedutil adapts to scheduler load
+  boot.kernelParams = [ "cpufreq.default_governor=schedutil" ];
 
   # System state version
   system.stateVersion = "24.11";
