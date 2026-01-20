@@ -397,14 +397,52 @@ cat /sys/power/resume
 journalctl -b -1 | grep -iE "(hibernate|resume|PM:)"
 ```
 
+## ProArt P16 Suspend Fix (GPIO Wake)
+
+**Host:** ASUS ProArt P16 OLED (H7606WX)
+
+**Problem:** Closing the laptop lid triggers suspend, but the laptop wakes up immediately (within 5 seconds) due to a spurious GPIO interrupt. This creates a rapid suspend/wake cycle.
+
+**Root cause:** GPIO pin 16 on the AMD GPIO controller (AMDI0030:00) triggers a wake interrupt during s2idle suspend. This is a known issue on AMD Ryzen 7000+ laptops with s2idle.
+
+**Solution:** Add kernel parameter to ignore the problematic GPIO pin (`hosts/proart/default.nix`):
+```nix
+boot.kernelParams = lib.mkAfter [
+  "gpiolib_acpi.ignore_interrupt=AMDI0030:00@16"
+];
+```
+
+**How to identify GPIO pins on other systems:**
+```bash
+# Enable PM debug messages
+echo 1 | sudo tee /sys/power/pm_debug_messages
+
+# Trigger suspend (will wake immediately if affected)
+sudo systemctl suspend
+
+# Check dmesg for the active GPIO
+sudo dmesg | grep "GPIO.*is active"
+# Example output: GPIO 16 is active: 0x30047c00
+```
+
+**Additional configuration:** The host also disables various ACPI wakeup sources at boot via a systemd service to prevent other potential wake triggers.
+
+**References:**
+- [Arch Wiki - Power management/Wakeup triggers](https://wiki.archlinux.org/title/Power_management/Wakeup_triggers)
+- [EndeavourOS Forum - ProArt P16 wakeup issue](https://forum.endeavouros.com/t/asus-proart-p16-h7606wv-wakeup-few-secons-after-suspend/63863)
+
+**Note:** The ProArt P16 also has working hibernate support via LVM swap (see "ProArt P16 Hibernate" section). Hibernate requires proprietary NVIDIA modules.
+
 ## Key NVIDIA Settings
 
 All NVIDIA config is in `modules/hardware/nvidia.nix`:
-- Open kernel modules enabled
+- **Proprietary kernel modules** (`open = false`) - Required for hibernate support
 - Modesetting + power management
 - Initrd modules: `nvidia`, `nvidia_modeset`, `nvidia_uvm`, `nvidia_drm`
 - Kernel params: `nvidia-drm.modeset=1`, `nvidia-drm.fbdev=1`
 - Wayland env vars: `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`, `NIXOS_OZONE_WL`
+
+**Hibernate requirement:** The open-source NVIDIA kernel modules fail to restore GPU state during hibernate resume (error -5 in `nv_pmops_freeze`). Proprietary modules with `NVreg_PreserveVideoMemoryAllocations=1` are required.
 
 Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
 
