@@ -5,6 +5,9 @@ let
   nvidia-sleep = config.hardware.nvidia.package + "/bin/nvidia-sleep.sh";
 in
 {
+  # Enable NVIDIA driver - this adds nvidia kernel modules to boot.extraModulePackages
+  services.xserver.videoDrivers = [ "nvidia" ];
+
   hardware.nvidia = {
     open = true;                    # Use open-source kernel modules
     modesetting.enable = true;      # Required for Wayland

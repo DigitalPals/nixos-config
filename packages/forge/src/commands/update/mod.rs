@@ -8,7 +8,6 @@
 //! - Browser profile status check
 
 pub mod flake;
-mod nvidia;
 mod packages;
 mod shell;
 mod tools;
@@ -24,7 +23,7 @@ use crate::commands::errors::{ErrorContext, ParsedError};
 use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable, run_command_cancellable_transformed, CommandResult};
 use crate::commands::CommandMessage;
 
-use flake::{delete_flake_lock_backup, get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
+use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
 use packages::{parse_package_changes_from_history, PackageCompareResult};
 use tools::{check_browser_status, clean_version, get_npm_package_version};
 
@@ -191,9 +190,9 @@ fn transform_nix_output(line: &str) -> Option<String> {
 }
 
 /// Start the update process
-pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: CancellationToken, skip_nvidia_check: bool) -> Result<()> {
+pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: CancellationToken) -> Result<()> {
     tokio::spawn(async move {
-        if let Err(e) = run_update(&tx, cancel, skip_nvidia_check).await {
+        if let Err(e) = run_update(&tx, cancel).await {
             tracing::error!("Update failed: {}", e);
             let _ = tx
                 .send(CommandMessage::StepFailed {
@@ -212,7 +211,7 @@ pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: Cancellation
     Ok(())
 }
 
-async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken, skip_nvidia_check: bool) -> Result<()> {
+async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken) -> Result<()> {
     let mut summary = UpdateSummary::default();
 
     // Find the flake directory
@@ -290,33 +289,10 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
 
     // Check if flake.lock changed
     let lock_after = get_flake_lock_hash(&flake_dir).await;
-    let mut needs_rebuild = lock_before != lock_after;
+    let needs_rebuild = lock_before != lock_after;
 
     if needs_rebuild {
         summary.flake_changes = parse_flake_changes(&flake_dir).await.unwrap_or_default();
-    }
-
-    // Check NVIDIA compatibility before rebuild
-    if needs_rebuild {
-        if let Some(skip_reason) = nvidia::check_nvidia_compatibility(
-            tx,
-            &flake_dir,
-            &hostname,
-            &summary.flake_changes,
-            skip_nvidia_check,
-        )
-        .await?
-        {
-            out(tx, &format!("  ! {}", skip_reason)).await;
-            out(tx, "  Reverting kernel update...").await;
-            if nvidia::restore_flake_lock(&flake_dir).await {
-                out(tx, "  ✓ Flake.lock restored").await;
-            } else {
-                out(tx, "  ✗ Failed to restore flake.lock").await;
-            }
-            summary.nvidia_skipped = Some(skip_reason);
-            needs_rebuild = false;
-        }
     }
 
     // Step 3: Rebuild (only if needed)
@@ -369,20 +345,13 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
         }
     } else {
         out(tx, "").await;
-        if summary.nvidia_skipped.is_some() {
-            out(tx, "  - Skipping rebuild (NVIDIA incompatible)").await;
-        } else {
-            out(tx, "  - Skipping rebuild (no changes)").await;
-        }
+        out(tx, "  - Skipping rebuild (no changes)").await;
         summary.rebuild_skipped = true;
         tx.send(CommandMessage::StepSkipped {
             step: "Rebuild".to_string(),
         })
         .await?;
     }
-
-    // Clean up flake.lock backup
-    delete_flake_lock_backup().await;
 
     // Step 3: Compare packages
     out(tx, "").await;
@@ -732,15 +701,6 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     // Browser status
     if !summary.browser_status.is_empty() {
         out(tx, &format!("  Browser:     {}", summary.browser_status)).await;
-    }
-
-    // NVIDIA compatibility issue
-    if let Some(ref reason) = summary.nvidia_skipped {
-        out(tx, "").await;
-        out(tx, "  NVIDIA compatibility issue:").await;
-        out(tx, &format!("    {}", reason)).await;
-        out(tx, "    Kernel update was reverted. Other updates applied.").await;
-        out(tx, "    Use --skip-nvidia-check to force the update.").await;
     }
 
     out(tx, "").await;

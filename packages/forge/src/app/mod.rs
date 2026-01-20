@@ -130,14 +130,14 @@ impl App {
     /// Start initial command if mode requires it
     pub async fn start_initial_command(&mut self) -> Result<()> {
         match &mut self.mode {
-            AppMode::Update(UpdateState::Running { steps, skip_nvidia_check, .. }) => {
+            AppMode::Update(UpdateState::Running { steps, .. }) => {
                 if !steps.is_empty() {
                     steps[0].status = StepState::Running;
                 }
                 let tx = self.cmd_tx.clone();
                 if let Some(tx) = tx {
                     let cancel = self.new_cancel_token();
-                    commands::update::start_update(tx, cancel, *skip_nvidia_check).await?;
+                    commands::update::start_update(tx, cancel).await?;
                 }
             }
             AppMode::Apps(AppProfileState::Running {
