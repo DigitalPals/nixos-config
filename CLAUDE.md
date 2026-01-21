@@ -8,9 +8,9 @@ Configuration details and solutions to issues in this NixOS setup.
 ~/nixos-config/                     # Symlinked from /etc/nixos
 ├── flake.nix                       # Main flake with host definitions
 ├── hosts/
-│   ├── kraken/                     # Desktop with NVIDIA RTX 5090
-│   ├── G1a/                        # HP ZBook Ultra G1a (AMD Strix Halo)
-│   └── proart/                     # ASUS ProArt P16 OLED (AMD + NVIDIA, LVM hibernate)
+│   ├── kraken/                     # Desktop: AMD Ryzen 9 9950X3D, NVIDIA RTX 5090, 96GB RAM
+│   ├── G1a/                        # HP ZBook Ultra G1a: AMD Ryzen AI MAX+ PRO 395, Radeon 8060S, 64GB RAM
+│   └── proart/                     # ASUS ProArt P16 OLED: AMD Ryzen AI 9 HX 370, Radeon 890M + RTX 5090, 64GB RAM
 ├── modules/
 │   ├── boot/limine-plymouth.nix    # Bootloader + Plymouth config
 │   ├── common.nix                  # Shared system config

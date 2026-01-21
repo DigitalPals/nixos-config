@@ -1,0 +1,13 @@
+{
+  "cpu": {
+    "vendor": "AMD",
+    "model": "AMD Ryzen AI 9 HX 370 (Strix Point)"
+  },
+  "gpu": {
+    "vendor": "AMD + NVIDIA",
+    "model": "Radeon 890M (RDNA 3.5) + GeForce RTX 5090"
+  },
+  "form_factor": "Laptop",
+  "ram": "64 GB",
+  "product": "ASUS ProArt P16 OLED H7606WX"
+}
