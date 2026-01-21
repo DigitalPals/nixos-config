@@ -387,6 +387,64 @@ sudo dmesg | grep "GPIO.*is active"
 
 **Note:** The ProArt P16 also has working hibernate support via LVM swap (see "ProArt P16 Hibernate" section). Hibernate requires proprietary NVIDIA modules.
 
+## ProArt P16 Fan Control (asusctl)
+
+**Host:** ASUS ProArt P16 OLED (H7606WX)
+
+**Problem:** Fans spin at ~2200 RPM even at idle (33°C) when using the default "Balanced" platform profile.
+
+**Solution:** Use `asusctl` with the "Quiet" profile configured as default for both AC and battery power.
+
+**Configuration** (`hosts/proart/default.nix`):
+```nix
+services.asusd = {
+  enable = true;
+  enableUserService = true;
+  asusdConfig.text = ''
+    (
+      platform_profile_on_battery: Quiet,
+      change_platform_profile_on_battery: true,
+      platform_profile_on_ac: Quiet,
+      change_platform_profile_on_ac: true,
+      # ... other settings
+    )
+  '';
+};
+```
+
+**Profile behavior:**
+
+| Profile | Fans at Idle | Under Load | Use Case |
+|---------|--------------|------------|----------|
+| Quiet | 0 RPM | Spin up gradually | Silent operation, light work |
+| Balanced | ~2000 RPM | Spin up faster | Default, mixed workloads |
+| Performance | Always on | Maximum cooling | Heavy workloads, gaming |
+
+**Commands:**
+```bash
+# Check current profile
+asusctl profile -p
+
+# Switch profiles
+asusctl profile -P Quiet        # Silent operation
+asusctl profile -P Balanced     # Default
+asusctl profile -P Performance  # Maximum cooling
+
+# Cycle through profiles
+asusctl profile -n
+```
+
+**Monitoring:**
+```bash
+# Check fan speeds and temperatures
+sensors | grep -E "(fan|Tctl|edge)"
+
+# Check kernel platform profile
+cat /sys/firmware/acpi/platform_profile
+```
+
+**Note:** The Quiet profile allows fans to spin up automatically when temperatures rise under load. At idle (~45°C), fans remain off for completely silent operation.
+
 ## Key NVIDIA Settings
 
 All NVIDIA config is in `modules/hardware/nvidia.nix`:
