@@ -4,7 +4,7 @@
 
 let
   # Enable auto-suspend for known hosts
-  shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname;
+  shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname || lib.hasPrefix "proart" hostname;
 
   # Lock command using Noctalia
   lockCmd = "noctalia-shell ipc call lockScreen lock";
