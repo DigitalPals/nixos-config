@@ -99,22 +99,27 @@ in
     categories = [ "Office" "Security" ];
   };
 
-  xdg.desktopEntries.onlyoffice-desktopeditors = {
-    name = "OnlyOffice Desktop Editors";
-    exec = "onlyoffice-desktopeditors --enable-features=UseOzonePlatform,WaylandWindowDecorations --ozone-platform=wayland %U";
-    icon = "onlyoffice-desktopeditors";
-    comment = "Office productivity suite";
-    categories = [ "Office" ];
+
+  # Neovim wrapper that launches in Ghostty terminal
+  xdg.desktopEntries.nvim-ghostty = {
+    name = "Neovim";
+    exec = "ghostty -e nvim %F";
+    icon = "nvim";
+    comment = "Edit text files in Neovim";
+    categories = [ "Utility" "TextEditor" ];
     mimeType = [
-      "application/vnd.oasis.opendocument.text"
-      "application/vnd.oasis.opendocument.spreadsheet"
-      "application/vnd.oasis.opendocument.presentation"
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-      "application/msword"
-      "application/vnd.ms-excel"
-      "application/vnd.ms-powerpoint"
+      "text/plain"
+      "text/x-csrc"
+      "text/x-chdr"
+      "text/x-c++src"
+      "text/x-c++hdr"
+      "text/x-java"
+      "text/x-python"
+      "text/x-shellscript"
+      "application/json"
+      "application/x-yaml"
+      "application/xml"
+      "text/markdown"
     ];
   };
 
@@ -167,7 +172,7 @@ in
     # Productivity
     evince           # document/PDF viewer
     localsend        # local file sharing
-    onlyoffice-desktopeditors  # office suite
+    libreoffice  # office suite
 
     # Fonts
     font-awesome
@@ -241,6 +246,15 @@ in
       "video/webm" = "mpv.desktop";
       "video/x-msvideo" = "mpv.desktop";
       "video/quicktime" = "mpv.desktop";
+
+      # Text files (Neovim in Ghostty)
+      "text/plain" = "nvim-ghostty.desktop";
+      "application/json" = "nvim-ghostty.desktop";
+      "application/x-yaml" = "nvim-ghostty.desktop";
+      "application/xml" = "nvim-ghostty.desktop";
+      "text/markdown" = "nvim-ghostty.desktop";
+      "text/x-python" = "nvim-ghostty.desktop";
+      "text/x-shellscript" = "nvim-ghostty.desktop";
     };
   };
 
