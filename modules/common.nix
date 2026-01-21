@@ -219,6 +219,10 @@
     powertop
     nvd # Nix package version diff tool
     forge
+    # Thumbnail generators for Nautilus
+    gnome-desktop
+    ffmpegthumbnailer
+    webp-pixbuf-loader
   ];
 
   # Security - passwordless sudo (account has no password)
