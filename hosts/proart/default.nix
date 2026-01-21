@@ -35,6 +35,9 @@
   # Allow NVIDIA dGPU to enter deeper runtime power states when idle
   hardware.nvidia.powerManagement.finegrained = true;
 
+  # Proprietary modules required for hibernate (open modules fail to restore GPU state)
+  hardware.nvidia.open = lib.mkForce false;
+
   # Override the forced NVIDIA env vars from nvidia.nix - let apps use iGPU by default
   environment.sessionVariables = {
     GBM_BACKEND = lib.mkForce "";

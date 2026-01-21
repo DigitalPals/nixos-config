@@ -9,7 +9,7 @@ in
   services.xserver.videoDrivers = [ "nvidia" ];
 
   hardware.nvidia = {
-    open = false;                   # Use proprietary modules (required for hibernate)
+    open = true;                    # Open kernel modules (override to false for hibernate support)
     modesetting.enable = true;      # Required for Wayland
     nvidiaSettings = true;          # Enable nvidia-settings GUI
     package = config.boot.kernelPackages.nvidiaPackages.stable;

@@ -448,11 +448,15 @@ cat /sys/firmware/acpi/platform_profile
 ## Key NVIDIA Settings
 
 All NVIDIA config is in `modules/hardware/nvidia.nix`:
-- **Proprietary kernel modules** (`open = false`) - Required for hibernate support
+- **Open kernel modules** (`open = true`) - Default for better compatibility with newer cards
 - Modesetting + power management
 - Initrd modules: `nvidia`, `nvidia_modeset`, `nvidia_uvm`, `nvidia_drm`
 - Kernel params: `nvidia-drm.modeset=1`, `nvidia-drm.fbdev=1`
 - Wayland env vars: `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`, `NIXOS_OZONE_WL`
+
+**Host-specific driver selection:**
+- **kraken**: Uses open drivers (default) - desktop without hibernate needs
+- **proart**: Overrides to proprietary (`hardware.nvidia.open = lib.mkForce false`) - required for hibernate
 
 **Hibernate requirement:** The open-source NVIDIA kernel modules fail to restore GPU state during hibernate resume (error -5 in `nv_pmops_freeze`). Proprietary modules with `NVreg_PreserveVideoMemoryAllocations=1` are required.
 
