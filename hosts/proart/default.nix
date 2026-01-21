@@ -56,6 +56,34 @@
     "usbhid"           # Input: USB HID for external keyboards
   ];
 
+  # === ASUS Fan/Thermal Control ===
+  # asusctl provides fan curve control and platform profile management
+  services.asusd = {
+    enable = true;
+    enableUserService = true;  # Enables user-level notifications and control
+    # Default to Quiet profile on both AC and battery for silent operation
+    asusdConfig.text = ''
+      (
+        charge_control_end_threshold: 100,
+        disable_nvidia_powerd_on_battery: true,
+        ac_command: "",
+        bat_command: "",
+        platform_profile_linked_epp: true,
+        platform_profile_on_battery: Quiet,
+        change_platform_profile_on_battery: true,
+        platform_profile_on_ac: Quiet,
+        change_platform_profile_on_ac: true,
+        profile_quiet_epp: Power,
+        profile_balanced_epp: BalancePower,
+        profile_custom_epp: Performance,
+        profile_performance_epp: Performance,
+        ac_profile_tunings: {},
+        dc_profile_tunings: {},
+        armoury_settings: {},
+      )
+    '';
+  };
+
   # === Mic mute LED fix ===
   # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
   # This udev rule allows the user service to control the LED.
