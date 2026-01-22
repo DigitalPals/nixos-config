@@ -188,11 +188,6 @@ in
     commandLineArgs = [
       # Enable trackpad swipe gestures for back/forward navigation
       "--enable-features=TouchpadOverscrollHistoryNavigation"
-    ] ++ lib.optionals (hostname == "proart") [
-      # ProArt P16: Disable Vulkan for hybrid AMD/NVIDIA graphics stability
-      # Vulkan causes rendering issues with NVIDIA dGPU + AMD iGPU setup
-      "--disable-features=Vulkan"
-      "--use-gl=egl"
     ];
   };
 

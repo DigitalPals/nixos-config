@@ -39,6 +39,12 @@ in
     layout = ${layoutType}
   }
 
+  # Cursor settings
+  # https://wiki.hypr.land/Nvidia/ - software cursors prevent lag spikes on NVIDIA/hybrid
+  cursor {
+    no_hardware_cursors = true
+  }
+
   # Decorations
   # https://wiki.hyprland.org/Configuring/Variables/#decoration
   decoration {

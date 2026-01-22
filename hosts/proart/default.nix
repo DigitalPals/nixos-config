@@ -19,9 +19,9 @@
   # Enable AMD integrated GPU for early KMS and Plymouth
   hardware.amdgpu.initrd.enable = true;
 
-  # === PRIME Hybrid Graphics ===
-  # AMD iGPU renders by default (better battery), NVIDIA powers down when idle
-  # Use 'nvidia-offload <app>' or 'prime-run <app>' to run on NVIDIA
+  # === PRIME Offload Graphics ===
+  # AMD iGPU renders by default (fast startup, better battery)
+  # Use 'nvidia-offload <app>' for GPU-intensive apps
   hardware.nvidia.prime = {
     offload = {
       enable = true;
@@ -32,16 +32,25 @@
     amdgpuBusId = "PCI:101:0:0";  # 0x65 = 101
   };
 
-  # Allow NVIDIA dGPU to enter deeper runtime power states when idle
+  # RTX 5090 (Blackwell) requires open kernel modules - proprietary modules won't load
+  hardware.nvidia.open = true;
+
+  # Allow NVIDIA dGPU to power down when idle (RTD3)
   hardware.nvidia.powerManagement.finegrained = true;
 
-  # Proprietary modules required for hibernate (open modules fail to restore GPU state)
-  hardware.nvidia.open = lib.mkForce false;
-
-  # Override the forced NVIDIA env vars from nvidia.nix - let apps use iGPU by default
+  # Prevent NVIDIA driver probe delays on app startup
+  # Issue: NVIDIA EGL/Vulkan libs wake the dGPU even for apps using iGPU
+  # Solution: Force Mesa/AMD as default, use nvidia-offload when dGPU needed
+  # See: https://bbs.archlinux.org/viewtopic.php?id=284426
   environment.sessionVariables = {
-    GBM_BACKEND = lib.mkForce "";
-    __GLX_VENDOR_LIBRARY_NAME = lib.mkForce "";
+    # EGL: Only load Mesa, skip NVIDIA EGL probe entirely
+    __EGL_VENDOR_LIBRARY_FILENAMES = lib.mkForce "/run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json";
+    # GLX: Use Mesa for GLX (overrides nvidia.nix)
+    __GLX_VENDOR_LIBRARY_NAME = lib.mkForce "mesa";
+    # GBM: Use Mesa (overrides nvidia.nix)
+    GBM_BACKEND = lib.mkForce "mesa";
+    # Vulkan: Only load AMD RADV driver, skip NVIDIA Vulkan probe
+    VK_DRIVER_FILES = lib.mkForce "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json";
   };
 
   # Early boot kernel modules (order matters for hybrid GPU systems)
