@@ -734,15 +734,23 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
         return Ok(());
     }
 
-    // Check if there are unpulled commits
+    // Check if flake.lock has local modifications
+    let (diff_ok, diff_output, _) = run_capture(
+        "git",
+        &["-C", config_path, "diff", "--name-only", "flake.lock"],
+    )
+    .await?;
+    let flake_lock_modified = diff_ok && !diff_output.trim().is_empty();
+
+    // Check if there are unpulled commits (and track which branch)
     let (count_ok, count_str, _) = run_capture(
         "git",
         &["-C", config_path, "rev-list", "HEAD..origin/main", "--count"],
     )
     .await?;
 
-    let count: usize = if count_ok {
-        count_str.trim().parse().unwrap_or(0)
+    let (count, branch): (usize, &str) = if count_ok {
+        (count_str.trim().parse().unwrap_or(0), "main")
     } else {
         // Try origin/master as fallback
         let (master_ok, master_count, _) = run_capture(
@@ -758,9 +766,9 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
         .await?;
 
         if master_ok {
-            master_count.trim().parse().unwrap_or(0)
+            (master_count.trim().parse().unwrap_or(0), "master")
         } else {
-            0
+            (0, "main")
         }
     };
 
@@ -771,6 +779,23 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
         })
         .await?;
         return Ok(());
+    }
+
+    // Reset flake.lock to remote version if it has local modifications
+    // This is safe because nix flake update will regenerate it anyway
+    if flake_lock_modified {
+        out(tx, "  - Resetting flake.lock to remote version").await;
+        let remote_ref = format!("origin/{}", branch);
+        let (reset_ok, _, _) = run_capture(
+            "git",
+            &["-C", config_path, "checkout", &remote_ref, "--", "flake.lock"],
+        )
+        .await?;
+
+        if !reset_ok {
+            out(tx, "  ✗ Failed to reset flake.lock").await;
+            // Non-fatal, continue and let pull fail naturally if needed
+        }
     }
 
     // Pull the updates
