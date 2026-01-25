@@ -139,6 +139,9 @@
   # SSD TRIM
   services.fstrim.enable = true;
 
+  # Firmware updates via fwupd (LVFS)
+  services.fwupd.enable = true;
+
   # Btrfs scrub (use mkDefault so laptops can disable to save battery)
   services.btrfs.autoScrub.enable = lib.mkDefault true;
 

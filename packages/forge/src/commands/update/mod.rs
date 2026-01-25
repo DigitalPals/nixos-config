@@ -389,6 +389,9 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
     // Step 6: Check app profiles
     check_app_profiles(tx, &mut summary).await?;
 
+    // Step 7: Check firmware updates
+    check_firmware_updates(tx, &mut summary).await?;
+
     // Output summary
     output_summary(tx, &summary).await?;
 
@@ -513,6 +516,54 @@ async fn check_app_profiles(
     }
 
     Ok(())
+}
+
+async fn check_firmware_updates(
+    tx: &mpsc::Sender<CommandMessage>,
+    summary: &mut UpdateSummary,
+) -> Result<()> {
+    // Check if fwupdmgr exists
+    if !command_exists("fwupdmgr").await {
+        out(tx, "  - fwupd not installed").await;
+        tx.send(CommandMessage::StepSkipped {
+            step: "firmware".to_string(),
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // Refresh metadata from LVFS
+    out(tx, "  Refreshing firmware metadata...").await;
+    let _ = run_capture("fwupdmgr", &["refresh"]).await;
+
+    // Check for available updates (exit code 2 = no updates)
+    let (has_updates, stdout, _) = run_capture("fwupdmgr", &["get-updates"]).await?;
+
+    if !has_updates {
+        out(tx, "  ✓ Firmware is up to date").await;
+        summary.firmware_status = "up to date".to_string();
+    } else {
+        // Count updates by looking for device entries
+        let count = count_firmware_updates(&stdout);
+        out(tx, &format!("  ! {} firmware update(s) available", count)).await;
+        out(tx, "    Run 'fwupdmgr update' to apply").await;
+        summary.firmware_status = format!("{} update(s) available", count);
+    }
+
+    tx.send(CommandMessage::StepComplete {
+        step: "firmware".to_string(),
+    })
+    .await?;
+    Ok(())
+}
+
+fn count_firmware_updates(output: &str) -> usize {
+    // Count device headers (lines ending with ":" that aren't indented)
+    output
+        .lines()
+        .filter(|l| !l.starts_with(' ') && l.trim().ends_with(':'))
+        .count()
+        .max(1) // At least 1 if we got here
 }
 
 async fn detect_reboot_reasons(
@@ -701,6 +752,11 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     // Browser status
     if !summary.browser_status.is_empty() {
         out(tx, &format!("  Browser:     {}", summary.browser_status)).await;
+    }
+
+    // Firmware status
+    if !summary.firmware_status.is_empty() {
+        out(tx, &format!("  Firmware:    {}", summary.firmware_status)).await;
     }
 
     out(tx, "").await;
