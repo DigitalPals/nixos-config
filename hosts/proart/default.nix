@@ -147,11 +147,13 @@
     '';
   };
 
-  # === Hibernate Support ===
-  # Using LVM swap partition inside LUKS for reliable hibernate
-  # Disko config: LUKS → LVM → 66GB swap LV + btrfs root LV
+  # === Hibernate Support (Currently Non-Functional) ===
+  # LVM swap partition inside LUKS is configured but hibernate does NOT work
+  # because RTX 5090 (Blackwell) requires open NVIDIA modules which fail during resume.
+  # This configuration is retained for potential future driver support.
+  # For now, use suspend (s2idle) instead of hibernate.
   boot.resumeDevice = "/dev/vg/swap";
-  zramSwap.enable = lib.mkForce false;  # Disable zram, using real swap for hibernate
+  zramSwap.enable = lib.mkForce false;  # Real swap still useful for memory pressure
 
   # Lid close behavior (suspend should work with GPIO 16 fix)
   services.logind.settings.Login = {

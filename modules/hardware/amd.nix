@@ -9,11 +9,13 @@
   # CPU microcode updates (use mkDefault so host can override)
   hardware.cpu.amd.updateMicrocode = lib.mkDefault true;
 
-  # AMD GPU kernel parameters (use mkDefault so hosts can override/extend)
+  # AMD GPU and CPU kernel parameters (use mkDefault so hosts can override/extend)
+  # - amd_pstate=active: Enable AMD P-State driver with autonomous mode for best efficiency
   # - ppfeaturemask: Enable all power management features for better efficiency
   # - dcdebugmask=0x200: Disable PSR2-SU to prevent stuttering/freezing on Strix Point/Halo
   #   See: https://wiki.archlinux.org/title/ASUS_Zenbook_UM5606
   boot.kernelParams = lib.mkDefault [
+    "amd_pstate=active"
     "amdgpu.ppfeaturemask=0xffffffff"
     "amdgpu.dcdebugmask=0x200"
   ];

@@ -296,59 +296,44 @@ networking.networkmanager.wifi.powersave = false;
 - [linux-mediatek regression report](https://lists.infradead.org/pipermail/linux-mediatek/2025-August/096746.html) - Bisected to specific commit
 - [Framework Community thread](https://community.frame.work/t/issues-with-mediatek-mt7925-rz717-wi-fi-card/75815)
 
-## ProArt P16 Hibernate (LVM)
+## ProArt P16 Hibernate (LVM) - Currently Non-Functional
 
 **Host:** ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090, 64GB RAM)
 
-**Problem:** Btrfs swapfile hibernate has ~70% reliability with systemd initrd due to known NixOS issues ([#213122](https://github.com/NixOS/nixpkgs/issues/213122)).
+**Status:** Hibernate does NOT work on ProArt P16 due to RTX 5090 (Blackwell) requiring open NVIDIA kernel modules, which fail during hibernate resume. Use suspend (s2idle) instead.
 
-**Solution:** Use LVM inside LUKS for a dedicated swap partition instead of btrfs swapfile.
+**Why it doesn't work:**
+- RTX 5090 (Blackwell architecture) REQUIRES open NVIDIA kernel modules - proprietary modules fail to load
+- Open NVIDIA modules fail during hibernate resume with error -5 in `nv_pmops_freeze`
+- This is a hardware/driver limitation with no current workaround
 
-**Disk layout** (`modules/disko/proart.nix`):
+**Disk layout** (`modules/disko/proart.nix`) - retained for future driver support:
 ```
 ESP (2GB, FAT32, /boot)
 └── LUKS2 (remaining)
     └── LVM volume group "vg"
-        ├── swap (66GB) → hibernate
+        ├── swap (66GB) → hibernate (currently unused)
         └── root (remaining) → btrfs with subvolumes
 ```
 
 **Configuration:**
 - Disko: `modules/disko/proart.nix` (standalone, doesn't import default.nix)
 - Host: `hosts/proart/default.nix` with `boot.resumeDevice = "/dev/vg/swap"`
-- zramSwap disabled for hibernate
+- zramSwap disabled (swap partition still useful for memory pressure)
 
-**Why LVM?**
+**Why LVM was chosen:**
 - Dedicated swap partition doesn't need `resume_offset` calculation
 - No btrfs swapfile edge cases with systemd initrd
 - Single LUKS unlock, then LVM provides both swap and root
-- More reliable hibernate (~95%+ vs ~70% with btrfs swapfile)
+- Configuration retained for potential future NVIDIA driver support
 
-**Installation:**
-1. Boot Forge ISO or NixOS minimal ISO
-2. Select `proart` host in Forge
-3. Select "Hibernate Support" - Forge detects LVM and skips swapfile injection
-4. Hibernate is pre-configured in the host config
-
-**Hibernate commands:**
+**Available power management:**
 ```bash
-# Hibernate
-systemctl hibernate
+# Suspend (works)
+systemctl suspend
 
-# Suspend-then-hibernate (suspend first, hibernate after timeout)
-systemctl suspend-then-hibernate
-```
-
-**Troubleshooting:**
-```bash
-# Verify swap is active
-swapon --show
-
-# Check resume device
-cat /sys/power/resume
-
-# Check last hibernate attempt
-journalctl -b -1 | grep -iE "(hibernate|resume|PM:)"
+# Hibernate (does NOT work - will fail on resume)
+# systemctl hibernate
 ```
 
 ## ProArt P16 Suspend Fix (GPIO Wake)
@@ -385,7 +370,7 @@ sudo dmesg | grep "GPIO.*is active"
 - [Arch Wiki - Power management/Wakeup triggers](https://wiki.archlinux.org/title/Power_management/Wakeup_triggers)
 - [EndeavourOS Forum - ProArt P16 wakeup issue](https://forum.endeavouros.com/t/asus-proart-p16-h7606wv-wakeup-few-secons-after-suspend/63863)
 
-**Note:** The ProArt P16 also has working hibernate support via LVM swap (see "ProArt P16 Hibernate" section). Hibernate requires proprietary NVIDIA modules.
+**Note:** Hibernate does NOT work on ProArt P16 - the RTX 5090 requires open NVIDIA modules which fail during hibernate resume. Use suspend instead.
 
 ## ProArt P16 Fan Control (asusctl)
 
@@ -445,6 +430,53 @@ cat /sys/firmware/acpi/platform_profile
 
 **Note:** The Quiet profile allows fans to spin up automatically when temperatures rise under load. At idle (~45°C), fans remain off for completely silent operation.
 
+## AMD NPU (XDNA) Support Status
+
+**Host:** ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370)
+
+**Hardware:** 50 TOPS NPU (XDNA architecture)
+
+**Kernel support:** The `amdxdna` driver is included in kernel 6.14+ and loads automatically. Firmware is included in `linux-firmware`.
+
+**Verification:**
+```bash
+lspci | grep -i "Processing accelerator"  # Check NPU detected
+lsmod | grep amdxdna                       # Check driver loaded
+```
+
+**User-space limitations:** AMD Ryzen AI SDK is Windows-only as of January 2026. For AI inference, use the NVIDIA RTX 5090 with CUDA/TensorRT.
+
+## ProArt P16 Function Keys (Known Limitation)
+
+**Host:** ASUS ProArt P16 OLED (H7606WX)
+
+**Problem:** Hardware Fn keys for brightness (F3/F4) and volume (F7/F8/F9) do not generate key events. The kernel's `asus-wmi` driver does not yet support this model.
+
+**Status:** Waiting for upstream kernel support (expected kernel 6.20+).
+
+**Workaround:** The keybinds in `home/hyprland/bindings.nix` handle XF86 keys when they work. For models where Fn keys don't generate events, use alternative bindings or external keyboard.
+
+## ProArt P16 Monitoring Commands
+
+### Temperature and Power
+```bash
+sensors | grep -E "(Tctl|edge|fan)"        # CPU/GPU temps and fans
+cat /sys/bus/pci/devices/0000:64:00.0/power/runtime_status  # NVIDIA dGPU state
+```
+
+### Power Management
+```bash
+asusctl profile -p                          # Current platform profile
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver     # CPU driver
+cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference  # EPP
+```
+
+### Suspend Debug
+```bash
+journalctl -b | grep -iE "(suspend|resume|s2idle)"  # Last suspend
+cat /proc/acpi/wakeup | grep enabled                 # Wakeup sources
+```
+
 ## Key NVIDIA Settings
 
 All NVIDIA config is in `modules/hardware/nvidia.nix`:
@@ -456,9 +488,16 @@ All NVIDIA config is in `modules/hardware/nvidia.nix`:
 
 **Host-specific driver selection:**
 - **kraken**: Uses open drivers (default) - desktop without hibernate needs
-- **proart**: Overrides to proprietary (`hardware.nvidia.open = lib.mkForce false`) - required for hibernate
+- **proart**: Uses open drivers (REQUIRED for RTX 5090 Blackwell) - hibernate does NOT work
 
-**Hibernate requirement:** The open-source NVIDIA kernel modules fail to restore GPU state during hibernate resume (error -5 in `nv_pmops_freeze`). Proprietary modules with `NVreg_PreserveVideoMemoryAllocations=1` are required.
+**RTX 5090 (Blackwell) Hibernate Limitation:**
+The RTX 5090 (GB202) REQUIRES open NVIDIA kernel modules - proprietary modules fail to load on Blackwell architecture. However, open modules fail during hibernate resume with error -5 in `nv_pmops_freeze`. This is a hardware/driver limitation with no current workaround.
+
+**Available power states on ProArt P16:**
+- **Suspend (s2idle)**: Works correctly with GPIO 16 fix
+- **Hibernate**: Does NOT work - use suspend instead
+
+The LVM swap configuration is retained for potential future driver support.
 
 Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
 
