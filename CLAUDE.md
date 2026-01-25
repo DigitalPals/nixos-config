@@ -468,7 +468,7 @@ Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kra
 
 **Root cause:** Quickshell processes embed their store path at startup. When the package updates, the symlink at `~/.config/quickshell/noctalia-shell` points to the new path, but the running process still has the old path.
 
-**Solution:** Home Manager activation hook that automatically restarts the shell when store paths change.
+**Solution:** Home Manager activation hook that automatically restarts the shell when store paths change. This runs during the `nixos-rebuild switch` activation phase, ensuring a single restart regardless of how the rebuild was triggered (Forge, AI agents, or manual `nixos-rebuild`).
 
 **Implementation:** `home/shells/restart-on-change.nix`
 
