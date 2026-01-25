@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, StepStatus};
+use crate::app::{App, StepStatus, UpdateSummary};
 use crate::ui::layout::progress_layout;
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, ProgressSteps};
@@ -200,4 +200,259 @@ pub fn draw_local_changes_prompt(frame: &mut Frame, changed_files: &[String], se
     ]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[3]);
+}
+
+/// Draw the ShowingSummary state - shows the log with a summary modal overlay
+pub fn draw_showing_summary(
+    frame: &mut Frame,
+    steps: &[StepStatus],
+    output: &[String],
+    summary: &UpdateSummary,
+    scroll_offset: Option<usize>,
+    app: &App,
+) {
+    // Draw the log view in the background
+    draw_running(frame, steps, output, true, scroll_offset, app);
+
+    // Draw the summary modal on top
+    draw_summary_modal(frame, summary);
+}
+
+/// Draw the summary modal overlay
+fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary) {
+    let area = frame.area();
+
+    // Calculate modal dimensions (60% width, auto height based on content)
+    let modal_width = ((area.width as u32 * 3) / 5).min(70).max(50) as u16;
+
+    // Calculate content height
+    let mut content_lines = 0u16;
+    content_lines += 2; // Header padding
+
+    // Flake changes section
+    if !summary.flake_changes.is_empty() {
+        content_lines += 2; // Section header + blank
+        content_lines += summary.flake_changes.len().min(5) as u16;
+        if summary.flake_changes.len() > 5 {
+            content_lines += 1; // "... and N more"
+        }
+        content_lines += 1; // Trailing blank
+    }
+
+    // Package changes section
+    if !summary.package_changes.is_empty() {
+        content_lines += 2; // Section header + blank
+        content_lines += summary.package_changes.len().min(8) as u16;
+        if summary.package_changes.len() > 8 {
+            content_lines += 1; // "... and N more"
+        }
+        content_lines += 1; // Trailing blank
+    }
+
+    // CLI tools section
+    let claude_changed = summary.claude_old.is_some()
+        && summary.claude_new.is_some()
+        && summary.claude_old != summary.claude_new;
+    let codex_changed = summary.codex_old.is_some()
+        && summary.codex_new.is_some()
+        && summary.codex_old != summary.codex_new;
+    if claude_changed || codex_changed {
+        content_lines += 2; // Section header + blank
+        if claude_changed {
+            content_lines += 1;
+        }
+        if codex_changed {
+            content_lines += 1;
+        }
+        content_lines += 1; // Trailing blank
+    }
+
+    // Reboot warning
+    if !summary.reboot_reasons.is_empty() {
+        content_lines += 2; // Warning + blank
+    }
+
+    // Status line for rebuild skipped/failed
+    if summary.rebuild_skipped || summary.rebuild_failed {
+        content_lines += 1;
+    }
+
+    // Footer
+    content_lines += 3; // Separator + key hints
+
+    // Minimum height for "nothing changed" case
+    content_lines = content_lines.max(10);
+
+    let modal_height = (content_lines + 2).min(area.height.saturating_sub(4)); // +2 for borders
+    let modal_x = area.x + (area.width.saturating_sub(modal_width)) / 2;
+    let modal_y = area.y + (area.height.saturating_sub(modal_height)) / 2;
+    let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
+
+    // Clear area behind modal
+    frame.render_widget(Clear, modal_area);
+
+    // Build content lines
+    let mut lines = vec![Line::from("")];
+
+    // Flake changes section
+    if !summary.flake_changes.is_empty() {
+        lines.push(Line::from(Span::styled("Flake Inputs:", theme::title())));
+        for (i, change) in summary.flake_changes.iter().enumerate() {
+            if i >= 5 {
+                lines.push(Line::from(Span::styled(
+                    format!("  ... and {} more", summary.flake_changes.len() - 5),
+                    theme::dim(),
+                )));
+                break;
+            }
+            let commit_text = if change.total_commits == 1 {
+                "commit".to_string()
+            } else {
+                "commits".to_string()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:20}", change.name), theme::text()),
+                Span::styled(format!("+{} {}", change.total_commits, commit_text), theme::success()),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // Package changes section
+    if !summary.package_changes.is_empty() {
+        let pkg_count = summary.package_changes.len();
+        lines.push(Line::from(Span::styled(
+            format!("Packages ({} changed):", pkg_count),
+            theme::title(),
+        )));
+        for (i, (name, old, new)) in summary.package_changes.iter().enumerate() {
+            if i >= 8 {
+                lines.push(Line::from(Span::styled(
+                    format!("  ... and {} more", pkg_count - 8),
+                    theme::dim(),
+                )));
+                break;
+            }
+            // Truncate package name if too long
+            let display_name = if name.len() > 25 {
+                format!("{}...", &name[..22])
+            } else {
+                name.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:25}", display_name), theme::text()),
+                Span::styled(format!("{} → {}", old, new), theme::info()),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // CLI tools section
+    if claude_changed || codex_changed {
+        lines.push(Line::from(Span::styled("CLI Tools:", theme::title())));
+        if claude_changed {
+            lines.push(Line::from(vec![
+                Span::styled("  Claude Code       ", theme::text()),
+                Span::styled(
+                    format!(
+                        "{} → {}",
+                        summary.claude_old.as_deref().unwrap_or(""),
+                        summary.claude_new.as_deref().unwrap_or("")
+                    ),
+                    theme::info(),
+                ),
+            ]));
+        }
+        if codex_changed {
+            lines.push(Line::from(vec![
+                Span::styled("  Codex CLI         ", theme::text()),
+                Span::styled(
+                    format!(
+                        "{} → {}",
+                        summary.codex_old.as_deref().unwrap_or(""),
+                        summary.codex_new.as_deref().unwrap_or("")
+                    ),
+                    theme::info(),
+                ),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // Status for rebuild skipped/failed
+    if summary.rebuild_skipped {
+        lines.push(Line::from(Span::styled(
+            "  System already up to date",
+            theme::dim(),
+        )));
+    } else if summary.rebuild_failed {
+        lines.push(Line::from(Span::styled(
+            "  ✗ System rebuild failed",
+            theme::error(),
+        )));
+    }
+
+    // Reboot warning
+    if !summary.reboot_reasons.is_empty() {
+        lines.push(Line::from(""));
+        let reasons = summary.reboot_reasons.join(", ");
+        lines.push(Line::from(Span::styled(
+            format!("⚠ Reboot recommended ({})", reasons),
+            theme::warning(),
+        )));
+    }
+
+    // "Nothing changed" case
+    if summary.flake_changes.is_empty()
+        && summary.package_changes.is_empty()
+        && !claude_changed
+        && !codex_changed
+        && !summary.rebuild_failed
+    {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  System is up to date - no changes",
+            theme::success(),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // Add padding before footer
+    while lines.len() < (modal_height.saturating_sub(5)) as usize {
+        lines.push(Line::from(""));
+    }
+
+    // Footer with key hints
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "─".repeat((modal_width - 4) as usize),
+        theme::dim(),
+    )));
+
+    // Build key hints based on available actions
+    let mut key_hints = vec![
+        Span::styled("[", theme::dim()),
+        Span::styled("Enter", theme::key_hint()),
+        Span::styled("] Done  [", theme::dim()),
+        Span::styled("v", theme::key_hint()),
+        Span::styled("] View log", theme::dim()),
+    ];
+
+    if !summary.reboot_reasons.is_empty() {
+        key_hints.extend(vec![
+            Span::styled("  [", theme::dim()),
+            Span::styled("r", theme::key_hint()),
+            Span::styled("] Reboot", theme::dim()),
+        ]);
+    }
+
+    lines.push(Line::from(key_hints));
+
+    let block = Block::default()
+        .title(Span::styled(" Update Summary ", theme::title()))
+        .borders(Borders::ALL)
+        .border_style(theme::border_active());
+
+    let content = Paragraph::new(lines).block(block);
+    frame.render_widget(content, modal_area);
 }

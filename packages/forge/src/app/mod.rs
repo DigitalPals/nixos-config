@@ -50,6 +50,8 @@ pub struct App {
     pub(crate) cancel_token: Option<CancellationToken>,
     screen_log: Option<File>,
     pub screen_log_path: PathBuf,
+    /// Update summary data (received before Done, used for ShowingSummary)
+    pub(crate) update_summary: Option<UpdateSummary>,
 }
 
 impl App {
@@ -90,6 +92,7 @@ impl App {
             cancel_token: None,
             screen_log,
             screen_log_path,
+            update_summary: None,
         }
     }
 

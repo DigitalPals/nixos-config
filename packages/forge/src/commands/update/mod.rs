@@ -8,6 +8,7 @@
 //! - Browser profile status check
 
 pub mod flake;
+pub mod history;
 mod packages;
 mod tools;
 
@@ -390,12 +391,16 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
     // Output summary
     output_summary(tx, &summary).await?;
 
-    if !summary.reboot_reasons.is_empty() {
-        tx.send(CommandMessage::RebootRecommended {
-            reasons: summary.reboot_reasons.clone(),
-        })
-        .await?;
+    // Save to history
+    if let Err(e) = history::save_record(&summary, !summary.rebuild_failed) {
+        tracing::warn!("Failed to save update history: {}", e);
     }
+
+    // Send summary data to App for ShowingSummary modal
+    tx.send(CommandMessage::UpdateSummaryData {
+        summary: summary.clone(),
+    })
+    .await?;
 
     tx.send(CommandMessage::Done {
         success: !summary.rebuild_failed,

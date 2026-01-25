@@ -138,6 +138,38 @@ impl App {
             return Ok(());
         }
 
+        // Handle ShowingSummary modal keys
+        if let AppMode::Update(UpdateState::ShowingSummary {
+            success,
+            steps,
+            output,
+            summary,
+            scroll_offset,
+        }) = &self.mode
+        {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('v') | KeyCode::Char('V') => {
+                    // Dismiss modal, go to Complete state (log view)
+                    self.mode = AppMode::Update(UpdateState::Complete {
+                        success: *success,
+                        steps: steps.clone(),
+                        output: output.clone(),
+                        scroll_offset: *scroll_offset,
+                    });
+                }
+                KeyCode::Char('r') | KeyCode::Char('R') if !summary.reboot_reasons.is_empty() => {
+                    // Show reboot confirmation
+                    self.show_reboot_confirm = true;
+                    self.reboot_reasons = summary.reboot_reasons.clone();
+                }
+                KeyCode::Char('q') | KeyCode::Char('Q') => {
+                    self.show_exit_confirm = true;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         // Global quit
         if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
             && matches!(

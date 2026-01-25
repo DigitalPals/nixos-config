@@ -286,6 +286,15 @@ pub enum UpdateState {
         /// Whether we stashed changes that need to be restored
         stashed: bool,
     },
+    /// Show summary modal after completion
+    ShowingSummary {
+        success: bool,
+        steps: Vec<StepStatus>,
+        output: VecDeque<String>,
+        summary: UpdateSummary,
+        /// None = auto-scroll, Some(n) = manual scroll at position n
+        scroll_offset: Option<usize>,
+    },
     Complete {
         #[allow(dead_code)]
         success: bool,

@@ -51,7 +51,10 @@ enum Commands {
         hostname: Option<String>,
     },
     /// Update flake inputs, rebuild system, and update CLI tools
-    Update,
+    Update {
+        #[command(subcommand)]
+        action: Option<UpdateAction>,
+    },
     /// App profile management (browsers, Portal, etc.)
     #[command(alias = "browser")]
     Apps {
@@ -62,6 +65,16 @@ enum Commands {
     Keys {
         #[command(subcommand)]
         action: KeysAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum UpdateAction {
+    /// View update history
+    History {
+        /// Show details for specific update (by timestamp prefix)
+        #[arg(long)]
+        details: Option<String>,
     },
 }
 
@@ -125,7 +138,14 @@ async fn main() -> Result<()> {
             // Hostname is now entered at the end of the wizard, so we always start with hardware detection
             run_tui(AppMode::CreateHost(app::CreateHostState::new())).await
         }
-        Some(Commands::Update) => run_tui(AppMode::Update(app::UpdateState::new())).await,
+        Some(Commands::Update { action }) => match action {
+            Some(UpdateAction::History { details }) => {
+                // Run history command directly (no TUI)
+                commands::update::history::print_history(details.as_deref())?;
+                Ok(())
+            }
+            None => run_tui(AppMode::Update(app::UpdateState::new())).await,
+        },
         Some(Commands::Apps { action }) => match action {
             Some(AppsAction::Backup { force }) => {
                 run_tui(AppMode::Apps(app::AppProfileState::new_backup(force))).await

@@ -70,6 +70,10 @@ impl App {
             CommandMessage::CloneComplete { success } => {
                 self.handle_clone_complete(success);
             }
+            CommandMessage::UpdateSummaryData { summary } => {
+                // Store the summary for use when Done arrives
+                self.update_summary = Some(summary);
+            }
         }
         Ok(())
     }
@@ -323,12 +327,23 @@ impl App {
                     }
                 }
 
-                self.mode = AppMode::Update(UpdateState::Complete {
-                    success,
-                    steps: steps.clone(),
-                    output: final_output,
-                    scroll_offset: None, // None = auto-scroll continues
-                });
+                // Transition to ShowingSummary if we have a summary, otherwise go to Complete
+                if let Some(summary) = self.update_summary.take() {
+                    self.mode = AppMode::Update(UpdateState::ShowingSummary {
+                        success,
+                        steps: steps.clone(),
+                        output: final_output,
+                        summary,
+                        scroll_offset: None,
+                    });
+                } else {
+                    self.mode = AppMode::Update(UpdateState::Complete {
+                        success,
+                        steps: steps.clone(),
+                        output: final_output,
+                        scroll_offset: None,
+                    });
+                }
             }
             AppMode::CreateHost(CreateHostState::Generating { config, .. }) => {
                 self.mode = AppMode::CreateHost(CreateHostState::Complete {

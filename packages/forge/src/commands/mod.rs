@@ -44,6 +44,8 @@ pub mod steps {
     pub const FLAKE_NIX: &str = "flake";
 }
 
+use crate::app::UpdateSummary;
+
 /// Messages sent from command execution to UI
 #[derive(Debug, Clone)]
 pub enum CommandMessage {
@@ -72,4 +74,6 @@ pub enum CommandMessage {
     RebootRecommended { reasons: Vec<String> },
     /// Repository clone completed (for install host discovery)
     CloneComplete { success: bool },
+    /// Update summary data (sent before Done for update command)
+    UpdateSummaryData { summary: UpdateSummary },
 }

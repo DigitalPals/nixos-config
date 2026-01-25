@@ -91,6 +91,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
                 screens::update::draw_running(frame, steps, &output_vec, false, None, app);
             }
+            UpdateState::ShowingSummary {
+                steps,
+                output,
+                summary,
+                scroll_offset,
+                ..
+            } => {
+                let output_vec: Vec<String> = output.iter().cloned().collect();
+                screens::update::draw_showing_summary(frame, steps, &output_vec, summary, *scroll_offset, app);
+            }
             UpdateState::Complete {
                 steps,
                 output,
