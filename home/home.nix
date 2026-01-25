@@ -163,6 +163,22 @@ in
 
     # CLI enhancements
     bat              # cat with syntax highlighting
+    eza              # modern ls with tree view
+    tree             # directory structure
+    yq-go            # jq for YAML/TOML
+    delta            # better git diffs
+
+    # Development
+    python3          # scripting, AI agent helpers
+
+    # System diagnostics (helps AI agents)
+    pciutils         # lspci - PCI devices
+    usbutils         # lsusb - USB devices
+    file             # determine file types
+    duf              # modern df (disk usage)
+    strace           # trace syscalls
+    nix-tree         # visualize nix derivations
+    net-tools        # ifconfig, netstat, etc.
 
     # Media
     mpv              # video player
