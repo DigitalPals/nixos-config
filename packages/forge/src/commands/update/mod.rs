@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::UpdateSummary;
 use crate::commands::errors::{ErrorContext, ParsedError};
-use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable, run_command_cancellable_transformed, CommandResult};
+use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable, run_command_cancellable_transformed, run_command_cancellable_with_timeout, CommandResult};
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
@@ -305,8 +305,9 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
 
         let config_name = hostname.clone();
         let flake_ref = format!("{}#{}", flake_path, config_name);
+        // Use 30 minute timeout for rebuild (can take a while with many packages)
         let result =
-            run_command_cancellable(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], cancel.clone()).await?;
+            run_command_cancellable_with_timeout(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], Some(1800), cancel.clone()).await?;
 
         out(tx, "").await;
         match result {
