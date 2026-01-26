@@ -75,11 +75,17 @@
     wifi.powersave = false;  # Disable WiFi power save to prevent random disconnects
   };
 
+  # Tailscale VPN
+  services.tailscale.enable = true;
+
   # Firewall
   networking.firewall = {
     enable = true;
     allowedTCPPorts = [ 53317 ]; # LocalSend
     allowedUDPPorts = [ 53317 ]; # LocalSend
+    # Allow Tailscale traffic (UDP hole punching requires loose reverse path filtering)
+    checkReversePath = "loose";
+    trustedInterfaces = [ "tailscale0" ];
   };
 
   # SSH server intentionally disabled - use Portal SSH client for outbound connections
