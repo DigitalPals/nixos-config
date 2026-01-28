@@ -18,6 +18,9 @@
 
       # VISUAL for programs that distinguish from EDITOR
       set -gx VISUAL nvim
+
+      # Initialize oh-my-posh prompt
+      ${pkgs.oh-my-posh}/bin/oh-my-posh init fish --config ~/.config/oh-my-posh/EDM115-newline2.omp.json | source
     '';
 
     # Shell aliases
@@ -94,109 +97,12 @@
     ];
   };
 
-  # Starship prompt - Noctalia custom theme
-  programs.starship = {
-    enable = true;
-    enableFishIntegration = true;
-    settings = {
-      add_newline = true;
-      command_timeout = 200;
+  # Disable Starship (using oh-my-posh instead)
+  programs.starship.enable = false;
 
-      format = ''
-        ╭─$sudo$os$directory$fill$git_branch$git_status$nodejs$package$python$java$php
-        ╰─ ❯❯ '';
-
-      fill.symbol = " ";
-
-      username = {
-        show_always = true;
-        format = "[$user]($style)";
-        style_user = "bold cyan";
-        style_root = "bold red";
-      };
-
-      sudo = {
-        disabled = false;
-        format = "[󱐋]($style)";
-        style = "bold red";
-      };
-
-      os = {
-        disabled = false;
-        format = "[$symbol ]($style)";
-        style = "bold cyan";
-      };
-
-      os.symbols = {
-        Arch = "󰣇";
-        NixOS = "";
-        Linux = "";
-        Macos = "";
-        Windows = "󰍲";
-      };
-
-      directory = {
-        format = "[ 󰉖 $path]($style)";
-        style = "bold cyan";
-        truncation_length = 5;
-        truncate_to_repo = false;
-      };
-
-      git_branch = {
-        format = "[ ($symbol$branch)]($style)";
-        symbol = "";
-        style = "bold yellow";
-      };
-
-      git_status = {
-        format = "([  $all_status$ahead_behind]($style))";
-        style = "bold yellow";
-        ahead = " +\${count}";
-        behind = " -\${count}";
-        diverged = " +\${ahead_count} -\${behind_count}";
-        up_to_date = "";
-        untracked = "?\${count}";
-        stashed = "󰏖\${count}";
-        modified = "!\${count}";
-        staged = "+\${count}";
-        renamed = "»\${count}";
-        deleted = "✘\${count}";
-        conflicted = "=\${count}";
-      };
-
-      nodejs = {
-        format = "[ $version]($style)";
-        style = "bold green";
-        detect_files = ["package.json" ".node-version" ".nvmrc"];
-      };
-
-      package = {
-        format = "[ $version]($style)";
-        symbol = "";
-        style = "bold red";
-        display_private = false;
-      };
-
-      python = {
-        format = "[ $version]($style)";
-        style = "bold green";
-        detect_files = [".python-version" "requirements.txt" "pyproject.toml" "Pipfile"];
-      };
-
-      java = {
-        format = "[ $version]($style)";
-        style = "bold magenta";
-        detect_files = ["pom.xml" "build.gradle" "build.gradle.kts"];
-      };
-
-      php = {
-        format = "[ $version]($style)";
-        style = "bold blue";
-        detect_files = ["composer.json"];
-      };
-
-      character.disabled = true;
-    };
+  # oh-my-posh theme file
+  xdg.configFile."oh-my-posh/EDM115-newline2.omp.json" = {
+    source = ./EDM115-newline2.omp.json;
   };
 
   # Zoxide (smart cd)
@@ -214,5 +120,6 @@
   # Required CLI tools
   home.packages = with pkgs; [
     eza
+    oh-my-posh
   ];
 }
