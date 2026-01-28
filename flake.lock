@@ -116,11 +116,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1769605449,
-        "narHash": "sha256-jGZpwfpnTeDawUrmgKQx/4wFv/3yYWoikn8XcS3YpI0=",
+        "lastModified": 1769615228,
+        "narHash": "sha256-/KJ2fa4Jxgfkp6XF2NN93ZFuYgq2GcJQ1glt26crDlQ=",
         "owner": "DigitalPals",
         "repo": "portal",
-        "rev": "e86876bbe7e46185693ac2e8352f50f51120d5ea",
+        "rev": "cda724dfff9a671abbbdb3d12531024b59d27721",
         "type": "github"
       },
       "original": {

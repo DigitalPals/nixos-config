@@ -45,7 +45,7 @@ in
       gtk-toolbar-style = "flat";
 
       # Cursor styling
-      cursor-style = "block";
+      cursor-style = "underline";
       cursor-style-blink = false;
 
       # Shell integration

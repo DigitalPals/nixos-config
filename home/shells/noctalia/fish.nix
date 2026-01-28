@@ -11,6 +11,12 @@
       # Disable greeting
       set -g fish_greeting
 
+      # Set cursor to underscore
+      set -g fish_cursor_default underscore
+      set -g fish_cursor_insert underscore
+      set -g fish_cursor_replace_one underscore
+      set -g fish_cursor_visual underscore
+
       # Add ~/.local/bin to PATH if not already present
       if not contains ~/.local/bin $PATH
         set -gx PATH ~/.local/bin $PATH
