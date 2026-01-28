@@ -16,8 +16,8 @@ let
     dwindle {
       pseudotile = true
       preserve_split = true
-      # Avoid overly wide single-window layouts on wide screens
-      single_window_aspect_ratio = 1 1
+      # No aspect ratio constraint - single window fills workspace
+      single_window_aspect_ratio = 0 0
     }
   '' else "";
 
