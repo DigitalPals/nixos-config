@@ -163,13 +163,12 @@ windowrule = match:class 1[pP]assword, no_screen_share on
 - `opacity X Y` - Set active/inactive opacity (0.0-1.0)
 - `suppress_event maximize/fullscreen/activate` - Ignore window events
 - `no_screen_share on` - Hide window from screen sharing
+- `scroll_mouse X` - Set mouse scroll factor for window (e.g., `scroll_mouse 0.2`)
+- `scroll_touchpad X` - Set touchpad scroll factor for window
 
-**Properties without new syntax equivalent:**
-- `scrollInput` - No equivalent in `windowrule`; must use legacy `windowrulev2` format
-
-**Implementation:** Window rules are split across files:
-- `home/hyprland/looknfeel.nix` - Most window rules (using new syntax)
-- `home/hyprland/input.nix` - `scrollInput` rule (must use legacy `windowrulev2`)
+**Implementation:** Window rules are in:
+- `home/hyprland/looknfeel.nix` - Most window rules
+- `home/hyprland/input.nix` - Scroll input rule for Ghostty
 
 **Documentation:** https://wiki.hypr.land/Configuring/Window-Rules/
 
