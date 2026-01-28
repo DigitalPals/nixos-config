@@ -57,6 +57,8 @@
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
+      # Avoid rebuild failures when a .backup file already exists.
+      home-manager.overwriteBackup = true;
       home-manager.extraSpecialArgs = { inherit inputs hostname username forge portal; };
       home-manager.users.${username} = import ./home/home.nix;
     };
