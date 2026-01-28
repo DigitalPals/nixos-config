@@ -39,6 +39,11 @@ in
     NIXOS_OZONE_WL = "1";
   };
 
+  # NVIDIA monitoring tools
+  environment.systemPackages = with pkgs; [
+    nvitop
+  ];
+
   # Fix NVIDIA suspend/resume: Add system-sleep hook (like Arch has)
   # This ensures nvidia-sleep.sh resume is called after waking from sleep
   # Note: nvidia-sleep.sh requires chvt/fgconsole from kbd package in PATH
