@@ -37,6 +37,6 @@
     }
   }
 
-  # Scroll nicely in the terminal
-  windowrulev2 = scrollInput 0.2, class:^(com\.mitchellh\.ghostty)$
+  # Scroll nicely in the terminal (use scroll_mouse for mouse scroll factor)
+  windowrule = match:class com\.mitchellh\.ghostty, scroll_mouse 0.2
 ''
