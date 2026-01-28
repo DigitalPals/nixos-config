@@ -10,14 +10,18 @@ let
   # Dwindle layout for desktop and proart - wide monitors benefit from aspect ratio control
   useDwindle = isKraken || isProart;
   layoutType = if useDwindle then "dwindle" else "master";
+
+  # Aspect ratio for single windows: kraken uses 4:3 (large screen), proart uses none
+  aspectRatio = if isKraken then "4 3" else "0 0";
+
   dwindleConfig = if useDwindle then ''
     # Layout
     # https://wiki.hyprland.org/Configuring/Dwindle-Layout/
     dwindle {
       pseudotile = true
       preserve_split = true
-      # No aspect ratio constraint - single window fills workspace
-      single_window_aspect_ratio = 0 0
+      # Aspect ratio constraint for single windows (0 0 = no constraint)
+      single_window_aspect_ratio = ${aspectRatio}
     }
   '' else "";
 
