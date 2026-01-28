@@ -35,7 +35,7 @@ in
       # Font
       font-family = "JetBrainsMono Nerd Font";
       font-style = "Regular";
-      font-size = 14;
+      font-size = 12;
 
       # Window
       window-padding-x = 14;
