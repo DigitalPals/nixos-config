@@ -18,17 +18,6 @@
           "properties": {
             "cache_duration": "none"
           },
-          "leading_diamond": "\ue0b6",
-          "template": "{{ .UserName }}",
-          "foreground": "#f8f8f2",
-          "background": "#282a36",
-          "type": "session",
-          "style": "diamond"
-        },
-        {
-          "properties": {
-            "cache_duration": "none"
-          },
           "template": "\udb85\udc0b",
           "foreground": "#ff5555",
           "powerline_symbol": "\ue0b0",
