@@ -219,6 +219,7 @@
     git
     gh
     gcc
+    cmake
     rustup
     bun
     wl-clipboard
