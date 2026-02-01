@@ -7,6 +7,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::ui::layout::footer_hints;
 use crate::ui::theme;
 
 /// Draw a centered header with title
@@ -22,28 +23,7 @@ pub fn draw_header(frame: &mut Frame, area: Rect, title: &str) {
 }
 
 /// Draw a footer with key hints
-pub fn draw_footer(frame: &mut Frame, area: Rect, hints: &[&str]) {
-    let spans: Vec<Span> = hints
-        .iter()
-        .enumerate()
-        .flat_map(|(i, hint)| {
-            let mut v = vec![];
-            if i > 0 {
-                v.push(Span::styled("  ", theme::dim()));
-            }
-            v.push(Span::styled("[", theme::dim()));
-            let parts: Vec<&str> = hint.splitn(2, ' ').collect();
-            if parts.len() == 2 {
-                v.push(Span::styled(parts[0], theme::key_hint()));
-                v.push(Span::styled(format!("] {}", parts[1]), theme::dim()));
-            } else {
-                v.push(Span::styled(*hint, theme::key_hint()));
-                v.push(Span::styled("]", theme::dim()));
-            }
-            v
-        })
-        .collect();
-
-    let footer = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
+pub fn draw_footer(frame: &mut Frame, area: Rect, hints: &[(&str, &str)]) {
+    let footer = Paragraph::new(footer_hints(hints)).alignment(Alignment::Center);
     frame.render_widget(footer, area);
 }

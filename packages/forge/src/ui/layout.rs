@@ -3,6 +3,26 @@
 #![allow(dead_code)]
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::text::{Line, Span};
+
+use crate::ui::theme;
+
+/// Build a consistently styled footer hint line from key-action pairs.
+///
+/// Each tuple is `(key, action)`, e.g. `("↑↓/jk", "Navigate")`.
+/// Renders as `[↑↓/jk] Navigate  [Enter] Select  ...`
+pub fn footer_hints(hints: &[(&str, &str)]) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (i, (key, action)) in hints.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ", theme::dim()));
+        }
+        spans.push(Span::styled("[", theme::dim()));
+        spans.push(Span::styled(key.to_string(), theme::key_hint()));
+        spans.push(Span::styled(format!("] {}", action), theme::dim()));
+    }
+    Line::from(spans)
+}
 
 /// Create a centered box with specified percentage width and height
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

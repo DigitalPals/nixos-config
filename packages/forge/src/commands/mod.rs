@@ -59,6 +59,8 @@ pub enum CommandMessage {
     StepFailed { step: String, error: ParsedError },
     /// Step was skipped
     StepSkipped { step: String },
+    /// Sub-step detail update (e.g. "Downloading nixpkgs (2/5)")
+    StepDetail { step: String, detail: String },
     /// Command fully completed
     Done { success: bool },
     /// Operation was cancelled by user

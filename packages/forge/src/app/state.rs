@@ -294,6 +294,8 @@ pub enum UpdateState {
         summary: UpdateSummary,
         /// None = auto-scroll, Some(n) = manual scroll at position n
         scroll_offset: Option<usize>,
+        /// Scroll position within the summary modal content
+        summary_scroll: usize,
     },
     Complete {
         #[allow(dead_code)]
@@ -479,6 +481,8 @@ pub enum KeybindingsState {
 pub struct StepStatus {
     pub name: String,
     pub status: StepState,
+    /// Optional sub-step detail shown below the step name (e.g. "Downloading nixpkgs (2/5)")
+    pub detail: Option<String>,
 }
 
 impl StepStatus {
@@ -486,6 +490,7 @@ impl StepStatus {
         Self {
             name: name.to_string(),
             status: StepState::Pending,
+            detail: None,
         }
     }
 }

@@ -103,7 +103,7 @@ pub fn draw_review(frame: &mut Frame, config: &NewHostConfig, _app: &App) {
     );
     frame.render_widget(files, chunks[2]);
 
-    draw_footer(frame, chunks[3], &["Enter Create", "Esc Back"]);
+    draw_footer(frame, chunks[3], &[("Enter", "Create"), ("Esc", "Back")]);
 }
 
 /// Draw generating screen
@@ -216,7 +216,7 @@ pub fn draw_complete(
                 .border_style(theme::border()),
         );
         frame.render_widget(message, chunks[1]);
-        draw_footer(frame, chunks[2], &["Any key Continue", "q Quit"]);
+        draw_footer(frame, chunks[2], &[("Any key", "Continue"), ("q", "Quit")]);
     } else {
         // Failure message
         let message = Paragraph::new(vec![
@@ -239,6 +239,6 @@ pub fn draw_complete(
                 .border_style(theme::error()),
         );
         frame.render_widget(message, chunks[1]);
-        draw_footer(frame, chunks[2], &["Enter Menu", "q Quit"]);
+        draw_footer(frame, chunks[2], &[("Enter", "Menu"), ("q", "Quit")]);
     }
 }

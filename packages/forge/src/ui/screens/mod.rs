@@ -2,6 +2,7 @@
 
 pub mod apps;
 pub mod create_host;
+pub mod help;
 pub mod install;
 pub mod keybindings;
 pub mod keys;

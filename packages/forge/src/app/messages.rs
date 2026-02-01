@@ -39,6 +39,9 @@ impl App {
             CommandMessage::StepSkipped { step } => {
                 self.mark_step_skipped(&step);
             }
+            CommandMessage::StepDetail { step, detail } => {
+                self.set_step_detail(&step, &detail);
+            }
             CommandMessage::Done { success } => {
                 self.handle_command_done(success).await;
             }
@@ -241,6 +244,19 @@ impl App {
         }
     }
 
+    fn set_step_detail(&mut self, step_name: &str, detail: &str) {
+        match &mut self.mode {
+            AppMode::Update(UpdateState::Running { steps, .. })
+            | AppMode::Install(InstallState::Running { steps, .. })
+            | AppMode::CreateHost(CreateHostState::Generating { steps, .. }) => {
+                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                    s.detail = Some(detail.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn mark_step_skipped(&mut self, step_name: &str) {
         self.log_to_screen(&format!("[-] Step skipped: {}", step_name));
 
@@ -335,6 +351,7 @@ impl App {
                         output: final_output,
                         summary,
                         scroll_offset: None,
+                        summary_scroll: 0,
                     });
                 } else {
                     self.mode = AppMode::Update(UpdateState::Complete {

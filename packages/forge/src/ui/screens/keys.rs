@@ -8,6 +8,7 @@ use ratatui::{
 };
 
 use crate::app::{App, KeysOp};
+use crate::ui::layout::footer_hints;
 use crate::ui::theme;
 use crate::ui::widgets::LogView;
 
@@ -47,12 +48,8 @@ pub fn draw_running(frame: &mut Frame, operation: &KeysOp, output: &[String], ap
     frame.render_widget(log, chunks[1]);
 
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("Ctrl+C", theme::key_hint()),
-        Span::styled("] Cancel", theme::dim()),
-    ]))
-    .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
+        .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -97,15 +94,7 @@ pub fn draw_complete(
     frame.render_widget(log, chunks[1]);
 
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("↑↓", theme::key_hint()),
-        Span::styled("] Scroll  [", theme::dim()),
-        Span::styled("Enter", theme::key_hint()),
-        Span::styled("] Done  [", theme::dim()),
-        Span::styled("q", theme::key_hint()),
-        Span::styled("] Quit", theme::dim()),
-    ]))
-    .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("Enter", "Menu"), ("Esc", "Back"), ("q", "Quit")]))
+        .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }

@@ -24,6 +24,12 @@ pub const COMMAND_CHANNEL_SIZE: usize = 100;
 /// Maximum length for user text input (prevents memory exhaustion)
 pub const MAX_INPUT_LENGTH: usize = 100;
 
+/// Minimum terminal width for proper rendering
+pub const MIN_TERMINAL_WIDTH: u16 = 80;
+
+/// Minimum terminal height for proper rendering
+pub const MIN_TERMINAL_HEIGHT: u16 = 24;
+
 // =============================================================================
 // User Constants
 // =============================================================================

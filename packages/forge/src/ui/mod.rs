@@ -13,9 +13,27 @@ use ratatui::{
 };
 
 use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState, PendingUpdates, UpdateState};
+use crate::constants::{MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT};
 
 /// Main draw function - dispatches to appropriate screen
 pub fn draw(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+    if area.width < MIN_TERMINAL_WIDTH || area.height < MIN_TERMINAL_HEIGHT {
+        let msg = format!(
+            "Terminal too small (min {}x{}, current {}x{})",
+            MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT, area.width, area.height
+        );
+        let x = area.width.saturating_sub(msg.len() as u16) / 2;
+        let y = area.height / 2;
+        let text = Paragraph::new(Line::from(Span::styled(msg, theme::warning())))
+            .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(
+            text,
+            Rect::new(0, y, area.width, 1),
+        );
+        return;
+    }
+
     match &app.mode {
         AppMode::MainMenu { selected } => {
             screens::main_menu::draw(frame, *selected, app);
@@ -96,10 +114,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 output,
                 summary,
                 scroll_offset,
+                summary_scroll,
                 ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_showing_summary(frame, steps, &output_vec, summary, *scroll_offset, app);
+                screens::update::draw_showing_summary(frame, steps, &output_vec, summary, *scroll_offset, *summary_scroll, app);
             }
             UpdateState::Complete {
                 steps,
@@ -261,6 +280,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     if app.show_reboot_confirm {
         draw_reboot_confirm(frame, &app.reboot_reasons);
+    }
+
+    // Render help overlay
+    if app.show_help {
+        screens::help::draw_help(frame, &app.mode);
     }
 
     // Render exit confirmation popup on top of any screen

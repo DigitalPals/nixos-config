@@ -8,9 +8,10 @@ use ratatui::{
 };
 
 use crate::app::{App, CredentialField, InstallCredentials, StepStatus, SwapMode};
+use crate::app::state::validate_username;
 use crate::system::config::HostConfig;
 use crate::system::disk::DiskInfo;
-use crate::ui::layout::{centered_rect, host_selection_layout, progress_layout};
+use crate::ui::layout::{centered_rect, footer_hints, host_selection_layout, progress_layout};
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, MenuList, ProgressSteps};
 
@@ -54,12 +55,8 @@ pub fn draw_clone_repository(frame: &mut Frame, output: &[String], app: &App) {
     frame.render_widget(log, chunks[1]);
 
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("Ctrl+C", theme::key_hint()),
-        Span::styled("] Cancel", theme::dim()),
-    ]))
-    .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
+        .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -93,7 +90,7 @@ pub fn draw_host_selection(frame: &mut Frame, selected: usize, hosts: &[HostConf
     draw_host_preview(frame, preview_area, selected, hosts);
 
     // Footer
-    draw_footer(frame, chunks[2], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+    draw_footer(frame, chunks[2], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back"), ("?", "Help")]);
 }
 
 /// Draw the host preview panel
@@ -234,7 +231,7 @@ pub fn draw_disk_selection(
                 .title(Span::styled(" Available Disks ", theme::title())),
         );
         frame.render_widget(message, chunks[1]);
-        draw_footer(frame, chunks[2], &["Esc Back"]);
+        draw_footer(frame, chunks[2], &[("Esc", "Back")]);
         return;
     }
 
@@ -283,7 +280,7 @@ pub fn draw_disk_selection(
     frame.render_widget(table, chunks[1]);
 
     // Footer
-    draw_footer(frame, chunks[2], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+    draw_footer(frame, chunks[2], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back"), ("?", "Help")]);
 }
 
 /// Draw credentials entry screen
@@ -368,28 +365,69 @@ pub fn draw_enter_credentials(
         confirm_masked
     };
 
+    // Compute inline validation indicators
+    let username_indicator = if credentials.username.is_empty() {
+        Span::styled("", theme::dim())
+    } else if validate_username(&credentials.username).is_none() {
+        Span::styled(" ✓", theme::success())
+    } else {
+        Span::styled(" ✗", theme::error())
+    };
+
+    let password_indicator = if credentials.password.is_empty() {
+        Span::styled("", theme::dim())
+    } else if credentials.password.len() >= 8 {
+        Span::styled(" ✓", theme::success())
+    } else {
+        Span::styled(" ✗", theme::error())
+    };
+
+    let confirm_indicator = if credentials.confirm_password.is_empty() {
+        Span::styled("", theme::dim())
+    } else if !credentials.password.is_empty() && credentials.confirm_password == credentials.password {
+        Span::styled(" ✓", theme::success())
+    } else {
+        Span::styled(" ✗", theme::error())
+    };
+
     let mut lines = vec![
         Line::from(""),
         Line::from(vec![
             Span::styled("  Username:         ", theme::dim()),
             Span::styled(username_display, username_style),
+            username_indicator,
         ]),
         Line::from(""),
         Line::from(vec![
             Span::styled("  Password:         ", theme::dim()),
             Span::styled(password_display, password_style),
+            password_indicator,
         ]),
         Line::from(""),
         Line::from(vec![
             Span::styled("  Confirm Password: ", theme::dim()),
             Span::styled(confirm_display, confirm_style),
+            confirm_indicator,
         ]),
         Line::from(""),
     ];
 
-    // Show error if present
+    // Show error if present, or inline hint for focused field
     if let Some(err) = error {
         lines.push(Line::from(Span::styled(format!("  ⚠ {}", err), theme::error())));
+    } else if *active_field == CredentialField::Username && !credentials.username.is_empty() {
+        if let Some(err) = validate_username(&credentials.username) {
+            lines.push(Line::from(Span::styled(format!("  ⚠ {}", err), theme::warning())));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  Password will be used for login and LUKS encryption",
+                theme::dim(),
+            )));
+        }
+    } else if *active_field == CredentialField::Password && !credentials.password.is_empty() && credentials.password.len() < 8 {
+        lines.push(Line::from(Span::styled("  ⚠ Must be at least 8 characters", theme::warning())));
+    } else if *active_field == CredentialField::ConfirmPassword && !credentials.confirm_password.is_empty() && credentials.confirm_password != credentials.password {
+        lines.push(Line::from(Span::styled("  ⚠ Passwords do not match", theme::warning())));
     } else {
         lines.push(Line::from(Span::styled(
             "  Password will be used for login and LUKS encryption",
@@ -420,7 +458,7 @@ pub fn draw_enter_credentials(
     draw_footer(
         frame,
         chunks[4],
-        &["Tab/↑↓ Switch field", "Enter Continue", "Esc Back"],
+        &[("Tab/↑↓", "Switch field"), ("Enter", "Continue"), ("Esc", "Back")],
     );
 }
 
@@ -522,7 +560,7 @@ pub fn draw_select_swap_mode(
     frame.render_widget(options, chunks[2]);
 
     // Footer
-    draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+    draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
 }
 
 /// Draw overview/confirmation screen
@@ -637,7 +675,7 @@ pub fn draw_overview(
     frame.render_widget(prompt, chunks[2]);
 
     // Footer
-    draw_footer(frame, chunks[3], &["Type 'yes' + Enter", "Esc Cancel"]);
+    draw_footer(frame, chunks[3], &[("Type 'yes' + Enter", "Confirm"), ("Esc", "Cancel")]);
 }
 
 /// Draw running installation screen
@@ -685,12 +723,8 @@ pub fn draw_running(
     frame.render_widget(log, output_area);
 
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("Ctrl+C", theme::key_hint()),
-        Span::styled("] Cancel", theme::dim()),
-    ]))
-    .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
+        .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -736,25 +770,9 @@ pub fn draw_complete(
 
     // Footer - show reboot option on success
     let footer = if success {
-        Paragraph::new(Line::from(vec![
-            Span::styled("[", theme::dim()),
-            Span::styled("↑↓", theme::key_hint()),
-            Span::styled("] Scroll  [", theme::dim()),
-            Span::styled("r", theme::key_hint()),
-            Span::styled("] Reboot  [", theme::dim()),
-            Span::styled("Enter", theme::key_hint()),
-            Span::styled("] Done", theme::dim()),
-        ]))
+        Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("r", "Reboot"), ("Enter", "Menu"), ("q", "Quit")]))
     } else {
-        Paragraph::new(Line::from(vec![
-            Span::styled("[", theme::dim()),
-            Span::styled("↑↓", theme::key_hint()),
-            Span::styled("] Scroll  [", theme::dim()),
-            Span::styled("Enter", theme::key_hint()),
-            Span::styled("] Done  [", theme::dim()),
-            Span::styled("q", theme::key_hint()),
-            Span::styled("] Quit", theme::dim()),
-        ]))
+        Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("Enter", "Menu"), ("Esc", "Back"), ("q", "Quit")]))
     };
     frame.render_widget(footer.alignment(Alignment::Center), chunks[2]);
 }
@@ -770,29 +788,7 @@ fn draw_header(frame: &mut Frame, area: Rect, title: &str) {
     frame.render_widget(header, area);
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, hints: &[&str]) {
-    let spans: Vec<Span> = hints
-        .iter()
-        .enumerate()
-        .flat_map(|(i, hint)| {
-            let mut v = vec![];
-            if i > 0 {
-                v.push(Span::styled("  ", theme::dim()));
-            }
-            v.push(Span::styled("[", theme::dim()));
-            // Split hint into key and action
-            let parts: Vec<&str> = hint.splitn(2, ' ').collect();
-            if parts.len() == 2 {
-                v.push(Span::styled(parts[0], theme::key_hint()));
-                v.push(Span::styled(format!("] {}", parts[1]), theme::dim()));
-            } else {
-                v.push(Span::styled(*hint, theme::key_hint()));
-                v.push(Span::styled("]", theme::dim()));
-            }
-            v
-        })
-        .collect();
-
-    let footer = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
+fn draw_footer(frame: &mut Frame, area: Rect, hints: &[(&str, &str)]) {
+    let footer = Paragraph::new(footer_hints(hints)).alignment(Alignment::Center);
     frame.render_widget(footer, area);
 }

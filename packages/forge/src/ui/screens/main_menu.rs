@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use crate::app::{App, MAIN_MENU_ITEMS};
-use crate::ui::layout::centered_rect;
+use crate::ui::layout::{centered_rect, footer_hints};
 use crate::ui::theme;
 use crate::ui::widgets::{MenuList, Spinner};
 
@@ -111,25 +111,18 @@ fn draw_header(frame: &mut Frame, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let mut spans = vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("↑↓", theme::key_hint()),
-        Span::styled("] Navigate  [", theme::dim()),
-        Span::styled("Enter", theme::key_hint()),
-        Span::styled("] Select  [", theme::dim()),
-        Span::styled("q", theme::key_hint()),
-        Span::styled("] Quit", theme::dim()),
-    ];
+    let mut line = footer_hints(&[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("q", "Quit"), ("?", "Help")]);
 
     // Show checking indicator when startup check is running
     if app.startup_check_running {
         let spinner_char = Spinner::new(app.spinner_state).char();
+        let mut spans = line.spans;
         spans.push(Span::styled("     ", theme::dim()));
         spans.push(Span::styled(format!("{} ", spinner_char), theme::dim()));
         spans.push(Span::styled("Checking for updates...", theme::dim()));
+        line = Line::from(spans);
     }
 
-    let hints = Line::from(spans);
-    let footer = Paragraph::new(hints).alignment(Alignment::Center);
+    let footer = Paragraph::new(line).alignment(Alignment::Center);
     frame.render_widget(footer, area);
 }

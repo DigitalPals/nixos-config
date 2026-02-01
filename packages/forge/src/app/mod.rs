@@ -36,6 +36,7 @@ pub struct App {
     pub should_quit: bool,
     pub show_exit_confirm: bool,
     pub show_reboot_confirm: bool,
+    pub show_help: bool,
     pub reboot_reasons: Vec<String>,
     /// Available updates detected during startup check
     pub pending_updates: PendingUpdates,
@@ -81,6 +82,7 @@ impl App {
             should_quit: false,
             show_exit_confirm: false,
             show_reboot_confirm: false,
+            show_help: false,
             reboot_reasons: Vec::new(),
             pending_updates: PendingUpdates::default(),
             startup_check_running: false,

@@ -10,6 +10,7 @@ use ratatui::{
 
 use crate::app::{App, Keybinding, KeybindingsPanel};
 use crate::commands::keybindings::filter_by_category;
+use crate::ui::layout::footer_hints;
 use crate::ui::theme;
 
 /// Draw the loading screen
@@ -105,16 +106,8 @@ pub fn draw_viewing(
     draw_bindings_table(frame, content_chunks[1], &filtered, selected_binding, scroll_offset, bindings_focused);
 
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("[", theme::dim()),
-        Span::styled("Tab", theme::key_hint()),
-        Span::styled("] Switch panel  [", theme::dim()),
-        Span::styled("↑↓", theme::key_hint()),
-        Span::styled("] Navigate  [", theme::dim()),
-        Span::styled("Esc", theme::key_hint()),
-        Span::styled("] Back", theme::dim()),
-    ]))
-    .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Tab", "Switch panel"), ("↑↓/jk", "Navigate"), ("Esc", "Back"), ("q", "Quit")]))
+        .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 

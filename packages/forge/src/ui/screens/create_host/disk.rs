@@ -104,7 +104,7 @@ pub fn draw_enter_hostname(
     frame.render_widget(hint, chunks[3]);
 
     // Footer
-    draw_footer(frame, chunks[4], &["Enter Continue", "Esc Back"]);
+    draw_footer(frame, chunks[4], &[("Enter", "Continue"), ("Esc", "Back")]);
 }
 
 /// Draw disk selection screen with partition tree view
@@ -165,7 +165,7 @@ pub fn draw_select_disk(
                 .title(Span::styled(" Available Disks ", theme::title())),
         );
         frame.render_widget(message, chunks[2]);
-        draw_footer(frame, chunks[3], &["Esc Back"]);
+        draw_footer(frame, chunks[3], &[("Esc", "Back")]);
         return;
     }
 
@@ -240,5 +240,5 @@ pub fn draw_select_disk(
     );
     frame.render_widget(table, chunks[2]);
 
-    draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+    draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
 }

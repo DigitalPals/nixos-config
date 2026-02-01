@@ -34,32 +34,34 @@ impl<'a> ProgressSteps<'a> {
 
 impl Widget for ProgressSteps<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let lines: Vec<Line> = self
-            .steps
-            .iter()
-            .enumerate()
-            .map(|(_i, step)| {
-                let (icon, style) = match step.status {
-                    StepState::Pending => ("[ ]", theme::dim()),
-                    StepState::Running => {
-                        let spinner = Spinner::new(self.spinner_state);
-                        // We'll handle this specially
-                        return Line::from(vec![
-                            Span::styled(format!(" [{}] ", spinner.char()), theme::info()),
-                            Span::styled(&step.name, theme::text()),
-                            Span::styled("...", theme::dim()),
-                        ]);
+        let mut lines: Vec<Line> = Vec::new();
+        for step in self.steps {
+            let (icon, style) = match step.status {
+                StepState::Pending => ("[ ]", theme::dim()),
+                StepState::Running => {
+                    let spinner = Spinner::new(self.spinner_state);
+                    lines.push(Line::from(vec![
+                        Span::styled(format!(" [{}] ", spinner.char()), theme::info()),
+                        Span::styled(&step.name, theme::text()),
+                        Span::styled("...", theme::dim()),
+                    ]));
+                    if let Some(ref detail) = step.detail {
+                        lines.push(Line::from(vec![
+                            Span::styled("       ", theme::dim()),
+                            Span::styled(detail.clone(), theme::dim()),
+                        ]));
                     }
-                    StepState::Complete => ("[✓]", theme::success()),
-                    StepState::Failed => ("[✗]", theme::error()),
-                    StepState::Skipped => ("[-]", theme::dim()),
-                };
-                Line::from(vec![
-                    Span::styled(format!(" {} ", icon), style),
-                    Span::styled(&step.name, theme::text()),
-                ])
-            })
-            .collect();
+                    continue;
+                }
+                StepState::Complete => ("[✓]", theme::success()),
+                StepState::Failed => ("[✗]", theme::error()),
+                StepState::Skipped => ("[-]", theme::dim()),
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {} ", icon), style),
+                Span::styled(&step.name, theme::text()),
+            ]));
+        }
 
         let mut block = Block::default()
             .borders(Borders::ALL)

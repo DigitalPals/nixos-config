@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::UpdateSummary;
 use crate::commands::errors::{ErrorContext, ParsedError};
-use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable, run_command_cancellable_transformed, run_command_cancellable_with_timeout, CommandResult};
+use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable_transformed, run_command_cancellable_with_timeout, CommandResult};
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
@@ -254,7 +254,25 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
     out(tx, "").await;
 
     // Transform output: filter noise and extract useful info from errors
-    let result = run_command_cancellable_transformed(tx, "nix", &["flake", "update", "--flake", flake_path], cancel.clone(), transform_nix_output).await?;
+    // Also send StepDetail messages for input updates
+    let tx_detail = tx.clone();
+    let result = run_command_cancellable_transformed(tx, "nix", &["flake", "update", "--flake", flake_path], cancel.clone(), move |line: &str| {
+        // Send step detail for "updating input" lines
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("updating input '").or_else(|| trimmed.strip_prefix("• Updated input '")) {
+            if let Some(name) = rest.split('\'').next() {
+                let detail_msg = format!("Updating {}", name);
+                let tx = tx_detail.clone();
+                tokio::spawn(async move {
+                    let _ = tx.send(CommandMessage::StepDetail {
+                        step: "flake".to_string(),
+                        detail: detail_msg,
+                    }).await;
+                });
+            }
+        }
+        transform_nix_output(line)
+    }).await?;
 
     out(tx, "").await;
     match result {
@@ -305,6 +323,13 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
 
         let config_name = hostname.clone();
         let flake_ref = format!("{}#{}", flake_path, config_name);
+
+        // Send detail for rebuild phase
+        let _ = tx.send(CommandMessage::StepDetail {
+            step: "Rebuild".to_string(),
+            detail: format!("nixos-rebuild switch --flake .#{}", config_name),
+        }).await;
+
         // Use 30 minute timeout for rebuild (can take a while with many packages)
         let result =
             run_command_cancellable_with_timeout(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], Some(1800), cancel.clone()).await?;

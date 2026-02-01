@@ -60,6 +60,17 @@ impl App {
             return Ok(());
         }
 
+        // Handle help overlay
+        if self.show_help {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') => {
+                    self.show_help = false;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         // Handle exit confirmation dialog
         if self.show_exit_confirm {
             match key.code {
@@ -145,7 +156,8 @@ impl App {
             output,
             summary,
             scroll_offset,
-        }) = &self.mode
+            summary_scroll,
+        }) = &mut self.mode
         {
             match key.code {
                 KeyCode::Enter | KeyCode::Esc | KeyCode::Char('v') | KeyCode::Char('V') => {
@@ -157,6 +169,12 @@ impl App {
                         scroll_offset: *scroll_offset,
                     });
                 }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *summary_scroll = summary_scroll.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *summary_scroll += 1;
+                }
                 KeyCode::Char('r') | KeyCode::Char('R') if !summary.reboot_reasons.is_empty() => {
                     // Show reboot confirmation
                     self.show_reboot_confirm = true;
@@ -167,6 +185,19 @@ impl App {
                 }
                 _ => {}
             }
+            return Ok(());
+        }
+
+        // Help toggle (? key) - only on non-text-input screens
+        if key.code == KeyCode::Char('?')
+            && !matches!(
+                self.mode,
+                AppMode::Install(InstallState::EnterCredentials { .. })
+                    | AppMode::Install(InstallState::Overview { .. })
+                    | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
+            )
+        {
+            self.show_help = true;
             return Ok(());
         }
 

@@ -98,7 +98,7 @@ pub fn draw_confirm_cpu(
         let items = vec!["AMD", "Intel"];
         let menu = MenuList::new(items, selected).title(" Select CPU Vendor ");
         frame.render_widget(menu, chunks[2]);
-        draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+        draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
     } else {
         // Show confirmation prompt
         let confirm = Paragraph::new(vec![
@@ -123,7 +123,7 @@ pub fn draw_confirm_cpu(
                 .border_style(theme::border()),
         );
         frame.render_widget(confirm, chunks[2]);
-        draw_footer(frame, chunks[3], &["y Confirm", "n/o Override", "Esc Back"]);
+        draw_footer(frame, chunks[3], &[("y", "Confirm"), ("n/o", "Override"), ("Esc", "Back")]);
     }
 }
 
@@ -223,7 +223,7 @@ pub fn draw_confirm_gpu(
             .collect();
         let menu = MenuList::new(items, selected).title(" Select GPU Vendor ");
         frame.render_widget(menu, chunks[2]);
-        draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+        draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
     } else {
         let confirm = Paragraph::new(vec![
             Line::from(""),
@@ -245,7 +245,7 @@ pub fn draw_confirm_gpu(
                 .border_style(theme::border()),
         );
         frame.render_widget(confirm, chunks[2]);
-        draw_footer(frame, chunks[3], &["y Confirm", "n Override", "Esc Back"]);
+        draw_footer(frame, chunks[3], &[("y", "Confirm"), ("n", "Override"), ("Esc", "Back")]);
     }
 }
 
@@ -313,7 +313,7 @@ pub fn draw_confirm_form_factor(
         let items = vec!["Desktop", "Laptop"];
         let menu = MenuList::new(items, selected).title(" Select Form Factor ");
         frame.render_widget(menu, chunks[2]);
-        draw_footer(frame, chunks[3], &["↑↓ Navigate", "Enter Select", "Esc Back"]);
+        draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
     } else {
         let hint = match form_factor {
             FormFactor::Laptop => "Laptops use TLP for battery optimization",
@@ -340,6 +340,6 @@ pub fn draw_confirm_form_factor(
                 .border_style(theme::border()),
         );
         frame.render_widget(confirm, chunks[2]);
-        draw_footer(frame, chunks[3], &["y Confirm", "n Override", "Esc Back"]);
+        draw_footer(frame, chunks[3], &[("y", "Confirm"), ("n", "Override"), ("Esc", "Back")]);
     }
 }
