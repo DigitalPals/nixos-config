@@ -200,19 +200,23 @@ fn detect_linux_os(partition_path: &str) -> Option<OsType> {
         .args(["-o", "ro,noexec,nosuid", partition_path, &mount_point])
         .output();
 
-    let os_type = if mount_result.is_ok() && mount_result.unwrap().status.success() {
-        // Check for NixOS first (has /etc/nixos directory)
-        let nixos_path = Path::new(&mount_point).join("etc/nixos");
-        if nixos_path.exists() {
-            Some(OsType::NixOS)
-        } else {
-            // Check /etc/os-release
-            let os_release_path = Path::new(&mount_point).join("etc/os-release");
-            if let Ok(content) = fs::read_to_string(&os_release_path) {
-                parse_os_release(&content)
+    let os_type = if let Ok(output) = mount_result {
+        if output.status.success() {
+            // Check for NixOS first (has /etc/nixos directory)
+            let nixos_path = Path::new(&mount_point).join("etc/nixos");
+            if nixos_path.exists() {
+                Some(OsType::NixOS)
             } else {
-                None
+                // Check /etc/os-release
+                let os_release_path = Path::new(&mount_point).join("etc/os-release");
+                if let Ok(content) = fs::read_to_string(&os_release_path) {
+                    parse_os_release(&content)
+                } else {
+                    None
+                }
             }
+        } else {
+            None
         }
     } else {
         None

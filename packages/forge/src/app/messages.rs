@@ -4,6 +4,8 @@ use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
 
+use std::time::Instant;
+
 use super::state::{
     AppMode, AppProfileState, CommitInfo, CreateHostState, InstallState, KeysState, StepState,
     StepStatus, UpdateState,
@@ -66,9 +68,11 @@ impl App {
                     self.pending_updates.commit_scroll = 0;
                 }
             }
+            CommandMessage::RollbackAvailable { generation } => {
+                self.push_modal(super::ModalDialog::RollbackPrompt { generation, selected: 0 });
+            }
             CommandMessage::RebootRecommended { reasons } => {
-                self.show_reboot_confirm = true;
-                self.reboot_reasons = reasons;
+                self.push_modal(super::ModalDialog::RebootConfirm { reasons });
             }
             CommandMessage::CloneComplete { success } => {
                 self.handle_clone_complete(success);
@@ -184,7 +188,10 @@ impl App {
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {
                     steps[*step].status = StepState::Running;
+                    steps[*step].started_at = Some(Instant::now());
                 }
+                // Save progress for resume
+                super::resume::save_pending("update", *step, steps.len());
             }
             AppMode::Install(InstallState::Running { steps, step, .. }) => {
                 if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
@@ -193,6 +200,7 @@ impl App {
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {
                     steps[*step].status = StepState::Running;
+                    steps[*step].started_at = Some(Instant::now());
                 }
             }
             AppMode::CreateHost(CreateHostState::Generating { steps, step, .. }) => {
@@ -202,6 +210,7 @@ impl App {
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {
                     steps[*step].status = StepState::Running;
+                    steps[*step].started_at = Some(Instant::now());
                 }
             }
             _ => {}
@@ -268,6 +277,7 @@ impl App {
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {
                     steps[*step].status = StepState::Running;
+                    steps[*step].started_at = Some(Instant::now());
                 }
             }
             _ => {}
@@ -341,6 +351,12 @@ impl App {
                             final_output.push_back("    Run 'git stash pop' manually to restore".to_string());
                         }
                     }
+                }
+
+                // Clear pending operation on completion
+                if success {
+                    super::resume::clear_pending();
+                    self.pending_resume = None;
                 }
 
                 // Transition to ShowingSummary if we have a summary, otherwise go to Complete

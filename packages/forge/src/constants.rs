@@ -24,6 +24,22 @@ pub const COMMAND_CHANNEL_SIZE: usize = 100;
 /// Maximum length for user text input (prevents memory exhaustion)
 pub const MAX_INPUT_LENGTH: usize = 100;
 
+/// Default rebuild timeout in seconds (30 minutes)
+pub const DEFAULT_REBUILD_TIMEOUT_SECS: u64 = 1800;
+
+/// Default retry settings for network operations
+pub const DEFAULT_MAX_RETRIES: u32 = 3;
+pub const DEFAULT_RETRY_BASE_DELAY_SECS: u64 = 2;
+pub const DEFAULT_RETRY_MAX_DELAY_SECS: u64 = 30;
+
+/// Get rebuild timeout from environment or use default
+pub fn rebuild_timeout_secs() -> u64 {
+    std::env::var("FORGE_REBUILD_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_REBUILD_TIMEOUT_SECS)
+}
+
 /// Minimum terminal width for proper rendering
 pub const MIN_TERMINAL_WIDTH: u16 = 80;
 

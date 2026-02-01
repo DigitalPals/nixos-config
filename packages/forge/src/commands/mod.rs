@@ -4,9 +4,11 @@ pub mod apps;
 pub mod create_host;
 pub mod errors;
 pub mod executor;
+pub mod health;
 pub mod install;
 pub mod keybindings;
 pub mod keys;
+pub mod retry;
 pub mod runner;
 pub mod update;
 
@@ -78,4 +80,6 @@ pub enum CommandMessage {
     CloneComplete { success: bool },
     /// Update summary data (sent before Done for update command)
     UpdateSummaryData { summary: UpdateSummary },
+    /// Rollback available after rebuild failure
+    RollbackAvailable { generation: u32 },
 }

@@ -10,6 +10,8 @@ use crate::commands::CommandMessage;
 /// Result of package comparison containing version changes and closure summary
 pub struct PackageCompareResult {
     pub changes: Vec<(String, String, String)>,
+    pub added: Vec<(String, String)>,
+    pub removed: Vec<(String, String)>,
     pub closure_summary: Option<String>,
 }
 
@@ -17,6 +19,8 @@ impl Default for PackageCompareResult {
     fn default() -> Self {
         Self {
             changes: Vec::new(),
+            added: Vec::new(),
+            removed: Vec::new(),
             closure_summary: None,
         }
     }
@@ -121,10 +125,14 @@ async fn parse_nvd_output(
     stdout: &str,
     tx: &mpsc::Sender<CommandMessage>,
 ) -> Result<PackageCompareResult> {
-    // Parse nvd output - extract version changes and closure summary
+    // Parse nvd output - extract version changes, added/removed packages, and closure summary
     // Update format: "[U.]  #015  firefox    146.0 -> 146.0.1"
+    // Added format:  "[A.]  #001  package-name  1.0"
+    // Removed format: "[R.]  #001  package-name  1.0"
     // Closure format: "Closure size: 2478 -> 2478 (8 paths added, 8 paths removed, delta +0, disk usage -2.8KiB)."
     let mut changes = Vec::new();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
     let mut closure_summary = None;
 
     for line in stdout.lines() {
@@ -132,47 +140,65 @@ async fn parse_nvd_output(
 
         // Capture closure size summary
         if line.starts_with("Closure size:") {
-            // Extract the part after "Closure size: "
             let summary = line.strip_prefix("Closure size:").unwrap_or(line).trim();
             closure_summary = Some(summary.trim_end_matches('.').to_string());
             continue;
         }
 
-        // Only process updates [U.] or [U*]
+        // Extract package name and version from "[X.]  #NNN  name  version" format
+        let parse_pkg_line = |line: &str| -> Option<(String, String)> {
+            let hash_pos = line.find('#')?;
+            let after_hash = &line[hash_pos..];
+            let space_pos = after_hash.find(char::is_whitespace)?;
+            let rest = after_hash[space_pos..].trim();
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.is_empty() {
+                return None;
+            }
+            let name = parts[0].to_string();
+            let version = parts.get(1).map(|v| v.trim_end_matches(',').to_string()).unwrap_or_default();
+            Some((name, version))
+        };
+
+        // Added packages [A.] or [A*]
+        if line.starts_with("[A") {
+            if let Some((name, version)) = parse_pkg_line(line) {
+                added.push((name, version));
+            }
+            continue;
+        }
+
+        // Removed packages [R.] or [R*]
+        if line.starts_with("[R") {
+            if let Some((name, version)) = parse_pkg_line(line) {
+                removed.push((name, version));
+            }
+            continue;
+        }
+
+        // Updated packages [U.] or [U*]
         if !line.starts_with("[U") {
             continue;
         }
 
-        // Find the arrow to extract version info
         if let Some(arrow_pos) = line.find(" -> ") {
-            // Skip the "[U.]  #NNN  " prefix to get package name
             if let Some(hash_pos) = line.find('#') {
                 let after_hash = &line[hash_pos..];
-                // Skip "#NNN " to get to package name and version
                 if let Some(space_pos) = after_hash.find(char::is_whitespace) {
                     let rest = after_hash[space_pos..].trim();
-
-                    // Split at arrow
                     let before_arrow = &rest[..rest.find(" -> ").unwrap_or(rest.len())];
                     let after_arrow = &line[arrow_pos + 4..];
 
-                    // Package name is the first token
                     let parts: Vec<&str> = before_arrow.split_whitespace().collect();
                     if parts.is_empty() {
                         continue;
                     }
                     let pkg_name = parts[0];
-
-                    // Old version is the first token after package name (may have comma)
-                    // nvd lists multiple outputs comma-separated: "1.0, 1.0-fish-completions"
-                    // We want just the first (main) version
                     let old_ver = if parts.len() > 1 {
                         parts[1].trim_end_matches(',')
                     } else {
-                        continue; // No version info
+                        continue;
                     };
-
-                    // New version is the first token after arrow
                     let new_ver = after_arrow
                         .split(|c: char| c == ',' || c.is_whitespace())
                         .next()
@@ -194,6 +220,8 @@ async fn parse_nvd_output(
 
     Ok(PackageCompareResult {
         changes,
+        added,
+        removed,
         closure_summary,
     })
 }

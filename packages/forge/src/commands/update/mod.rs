@@ -29,6 +29,14 @@ use tools::{check_browser_status, clean_version, get_npm_package_version};
 
 use crate::constants::nixos_config_dir;
 
+/// Get the current NixOS system generation number
+pub async fn get_current_generation() -> Option<u32> {
+    let output = get_output("readlink", &["/nix/var/nix/profiles/system"]).await.ok()?;
+    let gen_str = output.trim();
+    // Format: system-N-link
+    gen_str.split('-').nth(1)?.parse().ok()
+}
+
 /// Check for local uncommitted changes in the NixOS config directory.
 /// Returns a list of changed files (empty if no changes).
 pub fn check_local_changes() -> Vec<String> {
@@ -190,9 +198,9 @@ fn transform_nix_output(line: &str) -> Option<String> {
 }
 
 /// Start the update process
-pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: CancellationToken) -> Result<()> {
+pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: CancellationToken, options: crate::app::UpdateOptions) -> Result<()> {
     tokio::spawn(async move {
-        if let Err(e) = run_update(&tx, cancel).await {
+        if let Err(e) = run_update(&tx, cancel, &options).await {
             tracing::error!("Update failed: {}", e);
             let _ = tx
                 .send(CommandMessage::StepFailed {
@@ -211,7 +219,7 @@ pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: Cancellation
     Ok(())
 }
 
-async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken) -> Result<()> {
+async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken, options: &crate::app::UpdateOptions) -> Result<()> {
     let mut summary = UpdateSummary::default();
 
     // Find the flake directory
@@ -235,11 +243,15 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
 
     let flake_path = flake_dir.to_str().unwrap_or(".");
 
+    let skip_flake = options.rebuild_only;
+    let skip_rebuild = options.flake_only;
+
     // Step 1: Pull configuration updates
-    let pull_result = pull_config_updates(tx, flake_path).await;
-    if let Err(e) = pull_result {
-        tracing::warn!("Failed to check for config updates: {}", e);
-        // Non-fatal - continue with update even if pull check fails
+    if !skip_flake {
+        let pull_result = pull_config_updates(tx, flake_path).await;
+        if let Err(e) = pull_result {
+            tracing::warn!("Failed to check for config updates: {}", e);
+        }
     }
 
     // Save flake.lock hash and backup before update
@@ -247,16 +259,26 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
     save_flake_lock_backup(&flake_dir).await;
 
     // Step 2: Flake update (with streaming output)
+    let needs_rebuild = if !skip_flake {
     out(tx, "").await;
     out(tx, "══════════════════════════════════════════════").await;
     out(tx, "  Updating Flake Inputs").await;
     out(tx, "══════════════════════════════════════════════").await;
     out(tx, "").await;
 
+    // Build flake update args
+    let mut flake_args: Vec<String> = vec!["flake".into(), "update".into()];
+    for input in &options.inputs {
+        flake_args.push(input.clone());
+    }
+    flake_args.push("--flake".into());
+    flake_args.push(flake_path.to_string());
+    let flake_arg_refs: Vec<&str> = flake_args.iter().map(|s| s.as_str()).collect();
+
     // Transform output: filter noise and extract useful info from errors
     // Also send StepDetail messages for input updates
     let tx_detail = tx.clone();
-    let result = run_command_cancellable_transformed(tx, "nix", &["flake", "update", "--flake", flake_path], cancel.clone(), move |line: &str| {
+    let result = run_command_cancellable_transformed(tx, "nix", &flake_arg_refs, cancel.clone(), move |line: &str| {
         // Send step detail for "updating input" lines
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("updating input '").or_else(|| trimmed.strip_prefix("• Updated input '")) {
@@ -307,14 +329,19 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
 
     // Check if flake.lock changed
     let lock_after = get_flake_lock_hash(&flake_dir).await;
-    let needs_rebuild = lock_before != lock_after;
+    let changed = lock_before != lock_after;
 
-    if needs_rebuild {
+    if changed {
         summary.flake_changes = parse_flake_changes(&flake_dir).await.unwrap_or_default();
     }
+    changed
+    } else {
+        // rebuild_only mode: always rebuild
+        true
+    };
 
     // Step 3: Rebuild (only if needed)
-    if needs_rebuild {
+    if needs_rebuild && !skip_rebuild {
         out(tx, "").await;
         out(tx, "══════════════════════════════════════════════").await;
         out(tx, "  Rebuilding System").await;
@@ -324,15 +351,19 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
         let config_name = hostname.clone();
         let flake_ref = format!("{}#{}", flake_path, config_name);
 
+        // Capture current generation before rebuild for potential rollback
+        let pre_rebuild_gen = get_current_generation().await;
+
         // Send detail for rebuild phase
         let _ = tx.send(CommandMessage::StepDetail {
             step: "Rebuild".to_string(),
             detail: format!("nixos-rebuild switch --flake .#{}", config_name),
         }).await;
 
-        // Use 30 minute timeout for rebuild (can take a while with many packages)
+        // Use configurable timeout for rebuild (default 30 minutes, override with FORGE_REBUILD_TIMEOUT)
+        let timeout = crate::constants::rebuild_timeout_secs();
         let result =
-            run_command_cancellable_with_timeout(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], Some(1800), cancel.clone()).await?;
+            run_command_cancellable_with_timeout(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], Some(timeout), cancel.clone()).await?;
 
         out(tx, "").await;
         match result {
@@ -362,9 +393,15 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
                     error,
                 })
                 .await?;
+
+                // Offer rollback if we captured the pre-rebuild generation
+                if let Some(gen) = pre_rebuild_gen {
+                    tx.send(CommandMessage::RollbackAvailable { generation: gen })
+                        .await?;
+                }
             }
         }
-    } else {
+    } else if !skip_rebuild {
         out(tx, "").await;
         out(tx, "  - Skipping rebuild (no changes)").await;
         summary.rebuild_skipped = true;
@@ -374,44 +411,51 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
         .await?;
     }
 
-    // Step 3: Compare packages
-    out(tx, "").await;
-    out(tx, "  Comparing packages...").await;
-    let pkg_result = parse_package_changes_from_history(tx)
-        .await
-        .unwrap_or_else(|_| PackageCompareResult::default());
-    summary.package_changes = pkg_result.changes;
-    summary.closure_summary = pkg_result.closure_summary;
+    // Step 3: Compare packages (skip if flake-only)
+    if !skip_rebuild {
+        out(tx, "").await;
+        out(tx, "  Comparing packages...").await;
+        let pkg_result = parse_package_changes_from_history(tx)
+            .await
+            .unwrap_or_else(|_| PackageCompareResult::default());
+        summary.package_changes = pkg_result.changes;
+        summary.packages_added = pkg_result.added;
+        summary.packages_removed = pkg_result.removed;
+        summary.closure_summary = pkg_result.closure_summary;
 
-    if summary.package_changes.is_empty() {
-        out(tx, "  - No package version changes").await;
-    } else {
-        out(
-            tx,
-            &format!("  ✓ {} packages updated", summary.package_changes.len()),
-        )
-        .await;
+        if summary.package_changes.is_empty() {
+            out(tx, "  - No package version changes").await;
+        } else {
+            out(
+                tx,
+                &format!("  ✓ {} packages updated", summary.package_changes.len()),
+            )
+            .await;
+        }
+        tx.send(CommandMessage::StepComplete {
+            step: "Packages".to_string(),
+        })
+        .await?;
     }
-    tx.send(CommandMessage::StepComplete {
-        step: "Packages".to_string(),
-    })
-    .await?;
 
     if !summary.rebuild_failed && !summary.rebuild_skipped {
         summary.reboot_reasons = detect_reboot_reasons(&summary.package_changes).await;
     }
 
-    // Step 4: Update Claude Code
-    update_claude_code(tx, &mut summary).await?;
+    // Steps 4-7: Only run in full update mode
+    if !skip_flake && !skip_rebuild {
+        // Step 4: Update Claude Code
+        update_claude_code(tx, &mut summary).await?;
 
-    // Step 5: Update Codex CLI
-    update_codex_cli(tx, &mut summary).await?;
+        // Step 5: Update Codex CLI
+        update_codex_cli(tx, &mut summary).await?;
 
-    // Step 6: Check app profiles
-    check_app_profiles(tx, &mut summary).await?;
+        // Step 6: Check app profiles
+        check_app_profiles(tx, &mut summary).await?;
 
-    // Step 7: Check firmware updates
-    check_firmware_updates(tx, &mut summary).await?;
+        // Step 7: Check firmware updates
+        check_firmware_updates(tx, &mut summary).await?;
+    }
 
     // Output summary
     output_summary(tx, &summary).await?;
@@ -731,6 +775,32 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
         out(tx, "  Packages changed:").await;
         for (pkg, old, new) in &summary.package_changes {
             out(tx, &format!("    {}: {} → {}", pkg, old, new)).await;
+        }
+    }
+
+    // Added packages
+    if !summary.packages_added.is_empty() {
+        out(tx, "").await;
+        out(tx, &format!("  Packages added ({}):", summary.packages_added.len())).await;
+        for (pkg, ver) in &summary.packages_added {
+            if ver.is_empty() {
+                out(tx, &format!("    + {}", pkg)).await;
+            } else {
+                out(tx, &format!("    + {} {}", pkg, ver)).await;
+            }
+        }
+    }
+
+    // Removed packages
+    if !summary.packages_removed.is_empty() {
+        out(tx, "").await;
+        out(tx, &format!("  Packages removed ({}):", summary.packages_removed.len())).await;
+        for (pkg, ver) in &summary.packages_removed {
+            if ver.is_empty() {
+                out(tx, &format!("    - {}", pkg)).await;
+            } else {
+                out(tx, &format!("    - {} {}", pkg, ver)).await;
+            }
         }
     }
 

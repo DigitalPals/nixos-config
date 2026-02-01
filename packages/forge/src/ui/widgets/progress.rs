@@ -40,10 +40,20 @@ impl Widget for ProgressSteps<'_> {
                 StepState::Pending => ("[ ]", theme::dim()),
                 StepState::Running => {
                     let spinner = Spinner::new(self.spinner_state);
+                    let elapsed_str = step.elapsed_secs().map(|s| {
+                        if s >= 60 {
+                            format!(" ({}m{}s)", s / 60, s % 60)
+                        } else if s >= 5 {
+                            format!(" ({}s)", s)
+                        } else {
+                            String::new()
+                        }
+                    }).unwrap_or_default();
                     lines.push(Line::from(vec![
                         Span::styled(format!(" [{}] ", spinner.char()), theme::info()),
                         Span::styled(&step.name, theme::text()),
                         Span::styled("...", theme::dim()),
+                        Span::styled(elapsed_str, theme::dim()),
                     ]));
                     if let Some(ref detail) = step.detail {
                         lines.push(Line::from(vec![

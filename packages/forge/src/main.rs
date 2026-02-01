@@ -54,6 +54,15 @@ enum Commands {
     Update {
         #[command(subcommand)]
         action: Option<UpdateAction>,
+        /// Only rebuild the system (skip flake update)
+        #[arg(long, global = true)]
+        rebuild_only: bool,
+        /// Only update flake inputs (skip rebuild)
+        #[arg(long, global = true)]
+        flake_only: bool,
+        /// Update specific flake inputs only
+        #[arg(long = "input", global = true)]
+        inputs: Vec<String>,
     },
     /// App profile management (browsers, Portal, etc.)
     #[command(alias = "browser")]
@@ -138,13 +147,20 @@ async fn main() -> Result<()> {
             // Hostname is now entered at the end of the wizard, so we always start with hardware detection
             run_tui(AppMode::CreateHost(app::CreateHostState::new())).await
         }
-        Some(Commands::Update { action }) => match action {
+        Some(Commands::Update { action, rebuild_only, flake_only, inputs }) => match action {
             Some(UpdateAction::History { details }) => {
                 // Run history command directly (no TUI)
                 commands::update::history::print_history(details.as_deref())?;
                 Ok(())
             }
-            None => run_tui(AppMode::Update(app::UpdateState::new())).await,
+            None => {
+                let options = app::UpdateOptions {
+                    rebuild_only,
+                    flake_only,
+                    inputs,
+                };
+                run_tui(AppMode::Update(app::UpdateState::new_with_options(options, false))).await
+            }
         },
         Some(Commands::Apps { action }) => match action {
             Some(AppsAction::Backup { force }) => {

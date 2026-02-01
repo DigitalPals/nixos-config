@@ -35,6 +35,12 @@ pub struct UpdateSummaryPersist {
     pub flake_changes: Vec<FlakeChangePersist>,
     /// Package changes (name, old_version, new_version)
     pub package_changes: Vec<(String, String, String)>,
+    /// Packages added (name, version)
+    #[serde(default)]
+    pub packages_added: Vec<(String, String)>,
+    /// Packages removed (name, version)
+    #[serde(default)]
+    pub packages_removed: Vec<(String, String)>,
     /// Claude Code version change (old, new)
     pub claude_version: Option<(String, String)>,
     /// Codex CLI version change (old, new)
@@ -90,6 +96,8 @@ impl From<&UpdateSummary> for UpdateSummaryPersist {
                 })
                 .collect(),
             package_changes: summary.package_changes.clone(),
+            packages_added: summary.packages_added.clone(),
+            packages_removed: summary.packages_removed.clone(),
             claude_version,
             codex_version,
             reboot_reasons: summary.reboot_reasons.clone(),

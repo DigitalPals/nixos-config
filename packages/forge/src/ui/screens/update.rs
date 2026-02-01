@@ -249,6 +249,46 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         all_lines.push(Line::from(""));
     }
 
+    // Added packages section
+    if !summary.packages_added.is_empty() {
+        all_lines.push(Line::from(Span::styled(
+            format!("Added ({}):", summary.packages_added.len()),
+            theme::title(),
+        )));
+        for (name, ver) in &summary.packages_added {
+            let display_name = if name.len() > 25 {
+                format!("{}...", &name[..22])
+            } else {
+                name.clone()
+            };
+            all_lines.push(Line::from(vec![
+                Span::styled(format!("  + {:25}", display_name), theme::success()),
+                Span::styled(ver.to_string(), theme::success()),
+            ]));
+        }
+        all_lines.push(Line::from(""));
+    }
+
+    // Removed packages section
+    if !summary.packages_removed.is_empty() {
+        all_lines.push(Line::from(Span::styled(
+            format!("Removed ({}):", summary.packages_removed.len()),
+            theme::title(),
+        )));
+        for (name, ver) in &summary.packages_removed {
+            let display_name = if name.len() > 25 {
+                format!("{}...", &name[..22])
+            } else {
+                name.clone()
+            };
+            all_lines.push(Line::from(vec![
+                Span::styled(format!("  - {:25}", display_name), theme::error()),
+                Span::styled(ver.to_string(), theme::error()),
+            ]));
+        }
+        all_lines.push(Line::from(""));
+    }
+
     // CLI tools section
     if claude_changed || codex_changed {
         all_lines.push(Line::from(Span::styled("CLI Tools:".to_string(), theme::title())));
@@ -293,6 +333,8 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
     // "Nothing changed" case
     if summary.flake_changes.is_empty()
         && summary.package_changes.is_empty()
+        && summary.packages_added.is_empty()
+        && summary.packages_removed.is_empty()
         && !claude_changed
         && !codex_changed
         && !summary.rebuild_failed

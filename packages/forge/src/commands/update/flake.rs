@@ -210,7 +210,7 @@ async fn fetch_commits_for_changes(changes: &mut Vec<FlakeInputChange>) {
     }
 }
 
-/// Fetch commits between two revisions from GitHub API
+/// Fetch commits between two revisions from GitHub API (with retry)
 async fn fetch_github_commits(
     client: &reqwest::Client,
     change: &FlakeInputChange,
@@ -220,28 +220,44 @@ async fn fetch_github_commits(
         change.owner, change.repo, change.old_rev, change.new_rev
     );
 
-    let response = client
-        .get(&url)
-        .send()
-        .await?;
+    // Retry the HTTP request with backoff for transient failures
+    let max_attempts = 3u32;
+    let mut last_error = None;
 
-    if !response.status().is_success() {
-        anyhow::bail!("GitHub API returned {}", response.status());
+    for attempt in 0..max_attempts {
+        if attempt > 0 {
+            let delay = std::time::Duration::from_secs(2u64.saturating_pow(attempt));
+            tokio::time::sleep(delay).await;
+        }
+
+        match client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let compare: GitHubCompareResponse = response.json().await?;
+                    let commits: Vec<CommitInfo> = compare
+                        .commits
+                        .iter()
+                        .rev()
+                        .take(MAX_COMMITS_TO_FETCH)
+                        .map(|c| CommitInfo {
+                            hash: c.sha[..7.min(c.sha.len())].to_string(),
+                            message: c.commit.message.lines().next().unwrap_or("").to_string(),
+                        })
+                        .collect();
+                    return Ok((commits, compare.total_commits));
+                } else if response.status().is_server_error() || response.status().as_u16() == 429 {
+                    last_error = Some(anyhow::anyhow!("GitHub API returned {}", response.status()));
+                    continue;
+                } else {
+                    anyhow::bail!("GitHub API returned {}", response.status());
+                }
+            }
+            Err(e) => {
+                last_error = Some(e.into());
+                continue;
+            }
+        }
     }
 
-    let compare: GitHubCompareResponse = response.json().await?;
-
-    // Take only the most recent commits (they come in chronological order, oldest first)
-    let commits: Vec<CommitInfo> = compare
-        .commits
-        .iter()
-        .rev() // Reverse to show newest first
-        .take(MAX_COMMITS_TO_FETCH)
-        .map(|c| CommitInfo {
-            hash: c.sha[..7.min(c.sha.len())].to_string(),
-            message: c.commit.message.lines().next().unwrap_or("").to_string(),
-        })
-        .collect();
-
-    Ok((commits, compare.total_commits))
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All retries exhausted")))
 }

@@ -7,6 +7,7 @@
 
 mod handlers;
 mod messages;
+pub mod resume;
 pub mod state;
 
 use anyhow::Result;
@@ -25,19 +26,17 @@ use crate::system::hardware::{CpuVendor, GpuInfo, GpuVendor};
 // Re-export commonly used types
 pub use state::{
     AppMode, AppOp, AppProfileState, CreateHostState, CredentialField, InstallCredentials,
-    InstallState, Keybinding, KeybindingsPanel, KeybindingsState, KeysOp, KeysState, NewHostConfig,
-    PendingUpdates, StepState, StepStatus, SwapMode, UpdateState, UpdateSummary, APP_MENU_ITEMS,
-    MAIN_MENU_ITEMS,
+    InstallState, Keybinding, KeybindingsPanel, KeybindingsState, KeysOp, KeysState, ModalDialog,
+    NewHostConfig, PendingUpdates, StepState, StepStatus, SwapMode, UpdateOptions, UpdateState, UpdateSummary,
+    APP_MENU_ITEMS, MAIN_MENU_ITEMS,
 };
 
 /// Main application state
 pub struct App {
     pub mode: AppMode,
     pub should_quit: bool,
-    pub show_exit_confirm: bool,
-    pub show_reboot_confirm: bool,
-    pub show_help: bool,
-    pub reboot_reasons: Vec<String>,
+    /// Stack of modal dialogs (topmost is last)
+    pub modal_stack: Vec<ModalDialog>,
     /// Available updates detected during startup check
     pub pending_updates: PendingUpdates,
     /// Whether the startup update check is in progress
@@ -53,6 +52,8 @@ pub struct App {
     pub screen_log_path: PathBuf,
     /// Update summary data (received before Done, used for ShowingSummary)
     pub(crate) update_summary: Option<UpdateSummary>,
+    /// Pending operation detected on startup
+    pub pending_resume: Option<resume::PendingOperation>,
 }
 
 impl App {
@@ -77,13 +78,13 @@ impl App {
             let _ = file.flush();
         }
 
-        Self {
+        // Check for pending (incomplete) operations
+        let pending_resume = resume::load_pending();
+
+        let mut app = Self {
             mode: initial_mode,
             should_quit: false,
-            show_exit_confirm: false,
-            show_reboot_confirm: false,
-            show_help: false,
-            reboot_reasons: Vec::new(),
+            modal_stack: Vec::new(),
             pending_updates: PendingUpdates::default(),
             startup_check_running: false,
             spinner_state: 0,
@@ -95,11 +96,64 @@ impl App {
             screen_log,
             screen_log_path,
             update_summary: None,
+            pending_resume: pending_resume.clone(),
+        };
+
+        // Show resume prompt if on main menu and there's a pending operation
+        if pending_resume.is_some() {
+            if let AppMode::MainMenu { .. } = &app.mode {
+                app.push_modal(ModalDialog::ResumePrompt);
+            }
         }
+
+        app
     }
 
     pub fn set_command_sender(&mut self, tx: mpsc::Sender<CommandMessage>) {
         self.cmd_tx = Some(tx);
+    }
+
+    /// Push a modal dialog onto the stack
+    pub fn push_modal(&mut self, modal: ModalDialog) {
+        self.modal_stack.push(modal);
+    }
+
+    /// Pop the topmost modal dialog
+    pub fn pop_modal(&mut self) -> Option<ModalDialog> {
+        self.modal_stack.pop()
+    }
+
+    /// Get a reference to the topmost modal dialog
+    pub fn top_modal(&self) -> Option<&ModalDialog> {
+        self.modal_stack.last()
+    }
+
+    /// Dismiss all modals
+    pub fn dismiss_modals(&mut self) {
+        self.modal_stack.clear();
+    }
+
+    /// Check if a specific modal type is showing (convenience for backward compatibility)
+    pub fn show_exit_confirm(&self) -> bool {
+        self.modal_stack.iter().any(|m| matches!(m, ModalDialog::ExitConfirm))
+    }
+
+    pub fn show_reboot_confirm(&self) -> bool {
+        self.modal_stack.iter().any(|m| matches!(m, ModalDialog::RebootConfirm { .. }))
+    }
+
+    pub fn show_help(&self) -> bool {
+        self.modal_stack.iter().any(|m| matches!(m, ModalDialog::Help))
+    }
+
+    /// Get reboot reasons from the modal stack
+    pub fn reboot_reasons(&self) -> Vec<String> {
+        for modal in self.modal_stack.iter().rev() {
+            if let ModalDialog::RebootConfirm { reasons } = modal {
+                return reasons.clone();
+            }
+        }
+        Vec::new()
     }
 
     /// Write a line to the screen log file
@@ -135,14 +189,16 @@ impl App {
     /// Start initial command if mode requires it
     pub async fn start_initial_command(&mut self) -> Result<()> {
         match &mut self.mode {
-            AppMode::Update(UpdateState::Running { steps, .. }) => {
+            AppMode::Update(UpdateState::Running { steps, options, .. }) => {
                 if !steps.is_empty() {
                     steps[0].status = StepState::Running;
+                    steps[0].started_at = Some(Instant::now());
                 }
+                let opts = options.clone();
                 let tx = self.cmd_tx.clone();
                 if let Some(tx) = tx {
                     let cancel = self.new_cancel_token();
-                    commands::update::start_update(tx, cancel).await?;
+                    commands::update::start_update(tx, cancel, opts).await?;
                 }
             }
             AppMode::Apps(AppProfileState::Running {

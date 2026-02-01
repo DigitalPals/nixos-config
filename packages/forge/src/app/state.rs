@@ -1,6 +1,7 @@
 //! Application state types and enums
 
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use crate::commands::update::flake::FlakeInputChange;
 use crate::system::config::HostConfig;
@@ -285,6 +286,8 @@ pub enum UpdateState {
         output: VecDeque<String>,
         /// Whether we stashed changes that need to be restored
         stashed: bool,
+        /// Selective update options
+        options: UpdateOptions,
     },
     /// Show summary modal after completion
     ShowingSummary {
@@ -307,26 +310,49 @@ pub enum UpdateState {
     },
 }
 
+/// Options for selective updates
+#[derive(Debug, Clone, Default)]
+pub struct UpdateOptions {
+    pub rebuild_only: bool,
+    pub flake_only: bool,
+    pub inputs: Vec<String>,
+}
+
 impl UpdateState {
     pub fn new() -> Self {
-        Self::new_with_stash(false)
+        Self::new_with_options(UpdateOptions::default(), false)
     }
 
     pub fn new_with_stash(stashed: bool) -> Self {
+        Self::new_with_options(UpdateOptions::default(), stashed)
+    }
+
+    pub fn new_with_options(options: UpdateOptions, stashed: bool) -> Self {
+        let mut steps = Vec::new();
+
+        if !options.rebuild_only {
+            steps.push(StepStatus::new("Pulling configuration updates"));
+            steps.push(StepStatus::new("Updating flake inputs"));
+        }
+
+        if !options.flake_only {
+            steps.push(StepStatus::new("Rebuilding system"));
+            steps.push(StepStatus::new("Comparing packages"));
+        }
+
+        if !options.rebuild_only && !options.flake_only {
+            steps.push(StepStatus::new("Updating Claude Code"));
+            steps.push(StepStatus::new("Updating Codex CLI"));
+            steps.push(StepStatus::new("Checking browser profiles"));
+            steps.push(StepStatus::new("Checking firmware updates"));
+        }
+
         UpdateState::Running {
             step: 0,
-            steps: vec![
-                StepStatus::new("Pulling configuration updates"),
-                StepStatus::new("Updating flake inputs"),
-                StepStatus::new("Rebuilding system"),
-                StepStatus::new("Comparing packages"),
-                StepStatus::new("Updating Claude Code"),
-                StepStatus::new("Updating Codex CLI"),
-                StepStatus::new("Checking browser profiles"),
-                StepStatus::new("Checking firmware updates"),
-            ],
+            steps,
             output: VecDeque::new(),
             stashed,
+            options,
         }
     }
 }
@@ -476,6 +502,21 @@ pub enum KeybindingsState {
 }
 
 
+/// Modal dialog types that can be stacked
+#[derive(Debug, Clone)]
+pub enum ModalDialog {
+    /// Confirm exit
+    ExitConfirm,
+    /// Confirm reboot with reasons
+    RebootConfirm { reasons: Vec<String> },
+    /// Help overlay
+    Help,
+    /// Rollback prompt after failed rebuild
+    RollbackPrompt { generation: u32, selected: usize },
+    /// Resume incomplete operation prompt
+    ResumePrompt,
+}
+
 /// Step progress status
 #[derive(Debug, Clone)]
 pub struct StepStatus {
@@ -483,6 +524,8 @@ pub struct StepStatus {
     pub status: StepState,
     /// Optional sub-step detail shown below the step name (e.g. "Downloading nixpkgs (2/5)")
     pub detail: Option<String>,
+    /// When this step started running
+    pub started_at: Option<Instant>,
 }
 
 impl StepStatus {
@@ -491,7 +534,13 @@ impl StepStatus {
             name: name.to_string(),
             status: StepState::Pending,
             detail: None,
+            started_at: None,
         }
+    }
+
+    /// Get elapsed time since step started (if running)
+    pub fn elapsed_secs(&self) -> Option<u64> {
+        self.started_at.map(|t| t.elapsed().as_secs())
     }
 }
 
@@ -509,6 +558,8 @@ pub enum StepState {
 pub struct UpdateSummary {
     pub flake_changes: Vec<FlakeInputChange>,         // Flake input changes with commits
     pub package_changes: Vec<(String, String, String)>, // (pkg, old_ver, new_ver)
+    pub packages_added: Vec<(String, String)>,        // (pkg, version)
+    pub packages_removed: Vec<(String, String)>,      // (pkg, version)
     pub closure_summary: Option<String>,              // nvd closure size summary
     pub claude_old: Option<String>,
     pub claude_new: Option<String>,

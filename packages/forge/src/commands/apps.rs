@@ -1,6 +1,8 @@
 //! App profile management commands (browsers, Portal, etc.)
 
 use anyhow::Result;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -9,10 +11,102 @@ use super::runner::{spawn_with_error_handling, CommandRunner};
 use super::CommandMessage;
 use forge::notify::checks;
 
+/// Path to stored backup hashes
+fn backup_hashes_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".local/share/forge/backup-hashes.json")
+}
+
+/// Compute a hash of profile file metadata (mtime + size) for change detection
+fn compute_profile_hashes() -> BTreeMap<String, String> {
+    let mut hashes = BTreeMap::new();
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home"));
+
+    // Key profile paths to check
+    let profile_dirs = [
+        home.join(".config/google-chrome"),
+        home.join(".mozilla/firefox"),
+        home.join(".config/Portal"),
+    ];
+
+    for dir in &profile_dirs {
+        if !dir.exists() {
+            continue;
+        }
+        // Hash a few key files' metadata rather than full contents
+        let key = dir.to_string_lossy().to_string();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            let mut meta_parts = Vec::new();
+            for entry in entries.flatten().take(50) {
+                if let Ok(meta) = entry.metadata() {
+                    let mtime = meta
+                        .modified()
+                        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+                        .unwrap_or(0);
+                    meta_parts.push(format!("{}:{}:{}", entry.file_name().to_string_lossy(), meta.len(), mtime));
+                }
+            }
+            meta_parts.sort();
+            hashes.insert(key, format!("{:x}", simple_hash(&meta_parts.join("|"))));
+        }
+    }
+    hashes
+}
+
+/// Simple string hash (not cryptographic, just for change detection)
+fn simple_hash(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Load previously saved backup hashes
+fn load_backup_hashes() -> Option<BTreeMap<String, String>> {
+    let path = backup_hashes_path();
+    let content = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Save current backup hashes
+fn save_backup_hashes(hashes: &BTreeMap<String, String>) {
+    let path = backup_hashes_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(hashes) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+/// Check if profiles have changed since last backup
+fn profiles_changed() -> bool {
+    let current = compute_profile_hashes();
+    match load_backup_hashes() {
+        Some(previous) => current != previous,
+        None => true, // No previous hashes, assume changed
+    }
+}
+
 /// Start app backup
 pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
     spawn_with_error_handling(tx, "App backup", "Backup", move |tx| async move {
         let runner = CommandRunner::new(&tx);
+
+        // Check if profiles changed (skip if unchanged unless --force)
+        if !force && !profiles_changed() {
+            runner.out("  App profiles unchanged since last backup - skipping").await;
+            runner.out("  Use --force to backup anyway").await;
+            tx.send(CommandMessage::StepComplete {
+                step: "Backup".to_string(),
+            }).await?;
+            tx.send(CommandMessage::Done { success: true }).await?;
+            return Ok(());
+        }
+
         let args: Vec<&str> = if force {
             vec!["--push", "--force"]
         } else {
@@ -27,6 +121,11 @@ pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Resu
                 "Backup failed",
             )
             .await?;
+
+        // Save hashes after successful backup
+        let hashes = compute_profile_hashes();
+        save_backup_hashes(&hashes);
+
         Ok(())
     })
 }

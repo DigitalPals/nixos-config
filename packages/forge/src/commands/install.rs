@@ -41,6 +41,34 @@ const DEFAULT_USERNAME: &str = "john";
 const NIX_CONFIG_VALUE: &str = "experimental-features = nix-command flakes\nsandbox = false";
 
 // =============================================================================
+// Security Helpers
+// =============================================================================
+
+/// Securely overwrite a file with zeros and 0xFF before removing it.
+/// This prevents password data from lingering on disk.
+fn shred_and_remove(path: &str) {
+    use std::io::Write;
+    let size = match std::fs::metadata(path) {
+        Ok(m) => m.len() as usize,
+        Err(_) => {
+            // File doesn't exist, nothing to shred
+            return;
+        }
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open(path) {
+        // Overwrite with zeros
+        let _ = file.write_all(&vec![0u8; size]);
+        let _ = file.sync_all();
+        // Overwrite with 0xFF
+        let _ = file.write_all(&vec![0xFFu8; size]);
+        let _ = file.sync_all();
+    }
+    if let Err(e) = std::fs::remove_file(path) {
+        tracing::warn!("Failed to remove file {}: {}", path, e);
+    }
+}
+
+// =============================================================================
 // Regex Patterns
 // =============================================================================
 
@@ -509,12 +537,23 @@ async fn step_run_disko(
     runner.out("Running disko to partition and format...").await;
     runner.out("Using provided passphrase for LUKS encryption...").await;
 
-    // Write password to temp file for disko
-    std::fs::write(LUKS_PASSWORD_FILE, password.as_bytes())
-        .with_context(|| format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE))?;
-
-    std::fs::set_permissions(LUKS_PASSWORD_FILE, std::fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("Failed to set permissions on {}", LUKS_PASSWORD_FILE))?;
+    // Write password to temp file for disko with atomic 0600 permissions
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(LUKS_PASSWORD_FILE)
+            .with_context(|| format!("Failed to create LUKS password file: {}", LUKS_PASSWORD_FILE))?;
+        file.write_all(password.as_bytes())
+            .with_context(|| format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE))?;
+        file.sync_all()
+            .with_context(|| "Failed to sync LUKS password file")?;
+    }
 
     // Inject passwordFile into host-specific disko (if present) and default fallback
     let host_disko_file = format!("{}/modules/disko/{}.nix", temp_config_str, hostname);
@@ -576,6 +615,7 @@ async fn step_run_disko(
     ).await?;
 
     if !build_ok || disko_path.trim().is_empty() {
+        shred_and_remove(LUKS_PASSWORD_FILE);
         runner.err(&format!("Failed to build disko: {}", build_err)).await;
         runner.step_failed("disko", "Failed to build disko", "Disko build").await?;
         runner.done(false).await?;
@@ -600,10 +640,8 @@ async fn step_run_disko(
         )
         .await?;
 
-    // Clean up password file immediately (security)
-    if let Err(e) = std::fs::remove_file(LUKS_PASSWORD_FILE) {
-        tracing::warn!("Failed to remove LUKS password file: {}", e);
-    }
+    // Securely clean up password file (overwrite before delete)
+    shred_and_remove(LUKS_PASSWORD_FILE);
 
     if !success {
         runner.step_failed("disko", "Disk partitioning failed", "Disko partitioning").await?;
@@ -912,7 +950,7 @@ async fn step_install_nixos(
                 &flake_ref,
                 "--no-root-passwd",
             ],
-            1800, // 30 minutes
+            crate::constants::rebuild_timeout_secs(),
         )
         .await?;
 

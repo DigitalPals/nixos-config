@@ -47,7 +47,7 @@ pub fn draw(frame: &mut Frame, selected: usize, app: &App) {
     draw_footer(frame, chunks[2], app);
 
     // Exit confirmation popup
-    if app.show_exit_confirm {
+    if app.show_exit_confirm() {
         draw_exit_confirm(frame, area);
     }
 }

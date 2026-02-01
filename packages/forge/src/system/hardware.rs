@@ -101,9 +101,25 @@ pub struct HardwareInfo {
 
 /// Detect all hardware information
 pub fn detect_all() -> Result<HardwareInfo> {
-    let cpu = detect_cpu()?;
-    let gpu = detect_gpu()?;
-    let form_factor = detect_form_factor()?;
+    let cpu = detect_cpu().unwrap_or_else(|e| {
+        tracing::warn!("CPU detection failed, using defaults: {}", e);
+        CpuInfo {
+            vendor: CpuVendor::Unknown,
+            model_name: "Unknown CPU".to_string(),
+        }
+    });
+    let gpu = detect_gpu().unwrap_or_else(|e| {
+        tracing::warn!("GPU detection failed, using defaults: {}", e);
+        GpuInfo {
+            vendor: GpuVendor::None,
+            model: None,
+            hybrid: None,
+        }
+    });
+    let form_factor = detect_form_factor().unwrap_or_else(|e| {
+        tracing::warn!("Form factor detection failed, defaulting to Desktop: {}", e);
+        FormFactor::Desktop
+    });
 
     Ok(HardwareInfo {
         cpu,
@@ -147,10 +163,17 @@ pub fn detect_cpu() -> Result<CpuInfo> {
 /// Detect GPU vendor and model using lspci
 pub fn detect_gpu() -> Result<GpuInfo> {
     // Run lspci to find VGA and 3D controllers
-    let output = Command::new("lspci")
-        .args(["-nn"])
-        .output()
-        .map_err(|e| anyhow::anyhow!("Failed to run lspci: {}", e))?;
+    let output = match Command::new("lspci").args(["-nn"]).output() {
+        Ok(output) => output,
+        Err(e) => {
+            tracing::warn!("lspci not available, cannot detect GPU: {}", e);
+            return Ok(GpuInfo {
+                vendor: GpuVendor::None,
+                model: None,
+                hybrid: None,
+            });
+        }
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 

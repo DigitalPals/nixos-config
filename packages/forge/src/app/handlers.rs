@@ -44,45 +44,107 @@ fn get_ram_size_gb() -> u64 {
 impl App {
     /// Handle keyboard input
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
-        // Handle reboot confirmation dialog
-        if self.show_reboot_confirm {
-            match key.code {
-                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    let _ = crate::commands::executor::run_capture("sudo", &["reboot"]).await;
-                    self.should_quit = true;
+        // Handle topmost modal dialog first
+        if let Some(modal) = self.top_modal().cloned() {
+            match modal {
+                super::ModalDialog::RebootConfirm { .. } => {
+                    match key.code {
+                        KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            let _ = crate::commands::executor::run_capture("sudo", &["reboot"]).await;
+                            self.should_quit = true;
+                        }
+                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                            self.pop_modal();
+                        }
+                        _ => {}
+                    }
+                    return Ok(());
                 }
-                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                    self.show_reboot_confirm = false;
-                    self.reboot_reasons.clear();
+                super::ModalDialog::Help => {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') => {
+                            self.pop_modal();
+                        }
+                        _ => {}
+                    }
+                    return Ok(());
                 }
-                _ => {}
+                super::ModalDialog::ExitConfirm => {
+                    match key.code {
+                        KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            self.should_quit = true;
+                        }
+                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                            self.pop_modal();
+                        }
+                        _ => {}
+                    }
+                    return Ok(());
+                }
+                super::ModalDialog::RollbackPrompt { generation, selected } => {
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if selected > 0 {
+                                if let Some(super::ModalDialog::RollbackPrompt { selected: s, .. }) =
+                                    self.modal_stack.last_mut()
+                                {
+                                    *s = selected - 1;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if selected < 1 {
+                                if let Some(super::ModalDialog::RollbackPrompt { selected: s, .. }) =
+                                    self.modal_stack.last_mut()
+                                {
+                                    *s = selected + 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            self.pop_modal();
+                            if selected == 0 {
+                                // Rollback
+                                self.run_rollback(generation).await;
+                            }
+                            // selected == 1 means Skip, just dismiss
+                        }
+                        KeyCode::Esc => {
+                            self.pop_modal();
+                        }
+                        _ => {}
+                    }
+                    return Ok(());
+                }
+                super::ModalDialog::ResumePrompt => {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                            self.pop_modal();
+                            // Clear the pending operation so we don't ask again
+                            super::resume::clear_pending();
+                            self.pending_resume = None;
+                        }
+                        KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            self.pop_modal();
+                            // Resume the pending operation
+                            if let Some(ref pending) = self.pending_resume {
+                                match pending.operation.as_str() {
+                                    "update" => {
+                                        self.start_update_with_changes_check().await?;
+                                    }
+                                    _ => {
+                                        // Unknown operation, just clear
+                                        super::resume::clear_pending();
+                                        self.pending_resume = None;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    return Ok(());
+                }
             }
-            return Ok(());
-        }
-
-        // Handle help overlay
-        if self.show_help {
-            match key.code {
-                KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') => {
-                    self.show_help = false;
-                }
-                _ => {}
-            }
-            return Ok(());
-        }
-
-        // Handle exit confirmation dialog
-        if self.show_exit_confirm {
-            match key.code {
-                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.should_quit = true;
-                }
-                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                    self.show_exit_confirm = false;
-                }
-                _ => {}
-            }
-            return Ok(());
         }
 
         // Handle commit list view
@@ -150,40 +212,60 @@ impl App {
         }
 
         // Handle ShowingSummary modal keys
-        if let AppMode::Update(UpdateState::ShowingSummary {
-            success,
-            steps,
-            output,
-            summary,
-            scroll_offset,
-            summary_scroll,
-        }) = &mut self.mode
-        {
-            match key.code {
-                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('v') | KeyCode::Char('V') => {
-                    // Dismiss modal, go to Complete state (log view)
-                    self.mode = AppMode::Update(UpdateState::Complete {
-                        success: *success,
-                        steps: steps.clone(),
-                        output: output.clone(),
-                        scroll_offset: *scroll_offset,
-                    });
+        if let AppMode::Update(UpdateState::ShowingSummary { .. }) = &self.mode {
+            // Extract what we need without holding a mutable borrow
+            let modal_to_push = if let AppMode::Update(UpdateState::ShowingSummary {
+                summary,
+                ..
+            }) = &self.mode
+            {
+                match key.code {
+                    KeyCode::Char('r') | KeyCode::Char('R') if !summary.reboot_reasons.is_empty() => {
+                        Some(super::ModalDialog::RebootConfirm {
+                            reasons: summary.reboot_reasons.clone(),
+                        })
+                    }
+                    KeyCode::Char('q') | KeyCode::Char('Q') => {
+                        Some(super::ModalDialog::ExitConfirm)
+                    }
+                    _ => None,
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    *summary_scroll = summary_scroll.saturating_sub(1);
+            } else {
+                None
+            };
+
+            if let Some(modal) = modal_to_push {
+                self.push_modal(modal);
+                return Ok(());
+            }
+
+            // Now handle mutations on self.mode
+            if let AppMode::Update(UpdateState::ShowingSummary {
+                success,
+                steps,
+                output,
+                scroll_offset,
+                summary_scroll,
+                ..
+            }) = &mut self.mode
+            {
+                match key.code {
+                    KeyCode::Enter | KeyCode::Esc | KeyCode::Char('v') | KeyCode::Char('V') => {
+                        self.mode = AppMode::Update(UpdateState::Complete {
+                            success: *success,
+                            steps: steps.clone(),
+                            output: output.clone(),
+                            scroll_offset: *scroll_offset,
+                        });
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        *summary_scroll = summary_scroll.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        *summary_scroll += 1;
+                    }
+                    _ => {}
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    *summary_scroll += 1;
-                }
-                KeyCode::Char('r') | KeyCode::Char('R') if !summary.reboot_reasons.is_empty() => {
-                    // Show reboot confirmation
-                    self.show_reboot_confirm = true;
-                    self.reboot_reasons = summary.reboot_reasons.clone();
-                }
-                KeyCode::Char('q') | KeyCode::Char('Q') => {
-                    self.show_exit_confirm = true;
-                }
-                _ => {}
             }
             return Ok(());
         }
@@ -197,7 +279,7 @@ impl App {
                     | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
             )
         {
-            self.show_help = true;
+            self.push_modal(super::ModalDialog::Help);
             return Ok(());
         }
 
@@ -216,14 +298,14 @@ impl App {
                     | AppMode::CreateHost(CreateHostState::Complete { .. })
             )
         {
-            self.show_exit_confirm = true;
+            self.push_modal(super::ModalDialog::ExitConfirm);
             return Ok(());
         }
 
         // Escape to go back (show confirm if on main menu)
         if key.code == KeyCode::Esc {
             if matches!(self.mode, AppMode::MainMenu { .. }) {
-                self.show_exit_confirm = true;
+                self.push_modal(super::ModalDialog::ExitConfirm);
                 return Ok(());
             }
             self.handle_back().await?;
@@ -502,6 +584,13 @@ impl App {
     /// If local changes exist, shows a prompt dialog
     /// Otherwise, starts the update directly
     async fn start_update_with_changes_check(&mut self) -> Result<()> {
+        // Health check before update
+        let health: commands::health::HealthCheckResult = commands::health::check_health(commands::health::Operation::Update).await;
+        if !health.is_ok() {
+            self.error = Some(health.error_message());
+            return Ok(());
+        }
+
         let changed_files = check_local_changes();
         if changed_files.is_empty() {
             // No local changes, start update directly
@@ -922,6 +1011,7 @@ impl App {
                     StepStatus::new("Setting up user account"),
                 ];
                 steps[0].status = StepState::Running;
+                steps[0].started_at = Some(std::time::Instant::now());
 
                 self.mode = AppMode::Install(InstallState::Running {
                     host: host.to_string(),
@@ -1267,6 +1357,7 @@ impl App {
                     ]
                 };
                 steps[0].status = StepState::Running;
+                steps[0].started_at = Some(std::time::Instant::now());
 
                 let new_mode = AppMode::CreateHost(CreateHostState::Generating {
                     config,
@@ -1529,5 +1620,32 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Run nixos-rebuild switch --rollback for a given generation
+    async fn run_rollback(&mut self, _generation: u32) {
+        // Append rollback status to output
+        if let AppMode::Update(UpdateState::Complete { output, .. }) = &mut self.mode {
+            output.push_back("".to_string());
+            output.push_back("Rolling back to previous generation...".to_string());
+        }
+
+        match run_capture("sudo", &["nixos-rebuild", "switch", "--rollback"]).await {
+            Ok((true, _, _)) => {
+                if let AppMode::Update(UpdateState::Complete { output, .. }) = &mut self.mode {
+                    output.push_back("  ✓ Rollback successful".to_string());
+                }
+            }
+            Ok((false, _, stderr)) => {
+                if let AppMode::Update(UpdateState::Complete { output, .. }) = &mut self.mode {
+                    output.push_back(format!("  ✗ Rollback failed: {}", stderr.trim()));
+                }
+            }
+            Err(e) => {
+                if let AppMode::Update(UpdateState::Complete { output, .. }) = &mut self.mode {
+                    output.push_back(format!("  ✗ Rollback error: {}", e));
+                }
+            }
+        }
     }
 }

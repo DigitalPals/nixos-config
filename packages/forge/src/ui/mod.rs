@@ -269,8 +269,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
         AppMode::Quit => {}
     }
 
-    // Render update dialog or commit list on top of any screen (but below exit confirm)
-    if !app.show_exit_confirm {
+    // Render update dialog or commit list on top of any screen (but below modals)
+    if !app.show_exit_confirm() {
         if app.pending_updates.viewing_commits {
             draw_commit_list(frame, &app.pending_updates);
         } else if app.pending_updates.has_updates() {
@@ -278,19 +278,75 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
     }
 
-    if app.show_reboot_confirm {
-        draw_reboot_confirm(frame, &app.reboot_reasons);
+    // Render modal stack (each modal renders on top of the previous)
+    for modal in &app.modal_stack {
+        match modal {
+            crate::app::ModalDialog::RebootConfirm { reasons } => {
+                draw_reboot_confirm(frame, reasons);
+            }
+            crate::app::ModalDialog::Help => {
+                screens::help::draw_help(frame, &app.mode);
+            }
+            crate::app::ModalDialog::ExitConfirm => {
+                draw_exit_confirm(frame);
+            }
+            crate::app::ModalDialog::RollbackPrompt { generation, selected } => {
+                draw_rollback_prompt(frame, *generation, *selected);
+            }
+            crate::app::ModalDialog::ResumePrompt => {
+                draw_resume_prompt(frame, app);
+            }
+        }
+    }
+}
+
+/// Draw the rollback prompt popup
+fn draw_rollback_prompt(frame: &mut Frame, generation: u32, selected: usize) {
+    let area = frame.area();
+    let popup_width = 50;
+    let popup_height = 10;
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let options = ["Rollback", "Skip"];
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Rebuild failed. Rollback to generation {}?", generation),
+            theme::text(),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, opt) in options.iter().enumerate() {
+        let style = if i == selected { theme::selected() } else { theme::text() };
+        let prefix = if i == selected { "▶ " } else { "  " };
+        lines.push(Line::from(Span::styled(format!("{}{}", prefix, opt), style)));
     }
 
-    // Render help overlay
-    if app.show_help {
-        screens::help::draw_help(frame, &app.mode);
-    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("[", theme::dim()),
+        Span::styled("↑/↓", theme::key_hint()),
+        Span::styled("] Navigate  [", theme::dim()),
+        Span::styled("Enter", theme::key_hint()),
+        Span::styled("] Select  [", theme::dim()),
+        Span::styled("Esc", theme::key_hint()),
+        Span::styled("] Skip", theme::dim()),
+    ]));
 
-    // Render exit confirmation popup on top of any screen
-    if app.show_exit_confirm {
-        draw_exit_confirm(frame);
-    }
+    let content = Paragraph::new(lines)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::warning())
+                .title(Span::styled(" Rollback ", theme::warning())),
+        );
+    frame.render_widget(content, popup_area);
 }
 
 /// Draw the exit confirmation popup centered on screen
@@ -583,6 +639,50 @@ fn draw_commit_list(frame: &mut Frame, updates: &PendingUpdates) {
             .borders(Borders::ALL)
             .border_style(theme::border_active())
             .title(Span::styled(" Pending NixOS Config Updates ", theme::title())),
+    );
+    frame.render_widget(content, popup_area);
+}
+
+/// Draw the resume prompt popup
+fn draw_resume_prompt(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+    let popup_width = 50;
+    let popup_height = 9;
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let detail = if let Some(ref pending) = app.pending_resume {
+        format!(
+            "Incomplete {} detected (step {}/{})",
+            pending.operation, pending.current_step, pending.total_steps
+        )
+    } else {
+        "Incomplete operation detected".to_string()
+    };
+
+    let content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(detail, theme::warning())),
+        Line::from(""),
+        Line::from(Span::styled("Would you like to resume?", theme::text())),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[", theme::dim()),
+            Span::styled("Enter/Y", theme::key_hint()),
+            Span::styled("] Resume  [", theme::dim()),
+            Span::styled("Esc/N", theme::key_hint()),
+            Span::styled("] Dismiss", theme::dim()),
+        ]),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::warning())
+            .title(Span::styled(" Resume Operation ", theme::warning())),
     );
     frame.render_widget(content, popup_area);
 }
