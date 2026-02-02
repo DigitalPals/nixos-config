@@ -56,6 +56,7 @@ in
 
       # Theme
       theme = "noctalia";
+      background-opacity = 0.95;
 
       # Keyboard bindings
       keybind = [
