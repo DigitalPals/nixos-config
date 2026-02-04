@@ -71,7 +71,7 @@
           "background": "#ffb86c",
           "type": "git",
           "style": "diamond",
-          "min_width": 80
+          "min_width": 60
         },
         {
           "leading_diamond": "\ue0b6",
@@ -81,7 +81,7 @@
           "background": "#50fa7b",
           "type": "node",
           "style": "diamond",
-          "min_width": 100
+          "min_width": 90
         },
         {
           "properties": {
@@ -97,7 +97,7 @@
           "background": "#ff5555",
           "type": "npm",
           "style": "diamond",
-          "min_width": 120
+          "min_width": 110
         },
         {
           "properties": {
@@ -113,7 +113,7 @@
           "background": "#ffb86c",
           "type": "pnpm",
           "style": "diamond",
-          "min_width": 120
+          "min_width": 110
         },
         {
           "properties": {
@@ -126,7 +126,7 @@
           "background": "#50fa7b",
           "type": "python",
           "style": "diamond",
-          "min_width": 100
+          "min_width": 90
         },
         {
           "leading_diamond": "\ue0b6",
@@ -136,7 +136,7 @@
           "background": "#ff79c6",
           "type": "java",
           "style": "diamond",
-          "min_width": 120
+          "min_width": 130
         },
         {
           "leading_diamond": "\ue0b6",
@@ -146,7 +146,7 @@
           "background": "#6272a4",
           "type": "php",
           "style": "diamond",
-          "min_width": 120
+          "min_width": 130
         }
       ]
     },
