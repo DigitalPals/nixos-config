@@ -53,6 +53,7 @@
     {
       "type": "prompt",
       "alignment": "right",
+      "overflow": "hide",
       "segments": [
         {
           "properties": {
@@ -69,7 +70,8 @@
           "foreground": "#282a36",
           "background": "#ffb86c",
           "type": "git",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 80
         },
         {
           "leading_diamond": "\ue0b6",
@@ -78,7 +80,8 @@
           "foreground": "#282a36",
           "background": "#50fa7b",
           "type": "node",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 100
         },
         {
           "properties": {
@@ -93,7 +96,8 @@
           "foreground": "#282a36",
           "background": "#ff5555",
           "type": "npm",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 120
         },
         {
           "properties": {
@@ -108,7 +112,8 @@
           "foreground": "#282a36",
           "background": "#ffb86c",
           "type": "pnpm",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 120
         },
         {
           "properties": {
@@ -120,7 +125,8 @@
           "foreground": "#282a36",
           "background": "#50fa7b",
           "type": "python",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 100
         },
         {
           "leading_diamond": "\ue0b6",
@@ -129,7 +135,8 @@
           "foreground": "#282a36",
           "background": "#ff79c6",
           "type": "java",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 120
         },
         {
           "leading_diamond": "\ue0b6",
@@ -138,7 +145,8 @@
           "foreground": "#f8f8f2",
           "background": "#6272a4",
           "type": "php",
-          "style": "diamond"
+          "style": "diamond",
+          "min_width": 120
         }
       ]
     },
