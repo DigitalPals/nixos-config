@@ -222,6 +222,7 @@
     cmake
     rustup
     bun
+    balena-cli
     wl-clipboard
     xdg-utils
     efibootmgr
