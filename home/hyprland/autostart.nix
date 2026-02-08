@@ -5,6 +5,24 @@
 let
   # GTK portal executable path (provides Settings interface for dark mode)
   gtkPortal = "${pkgs.xdg-desktop-portal-gtk}/libexec/xdg-desktop-portal-gtk";
+
+  # Noctalia's Hyprland template processing expects to be able to write this file.
+  # Ensure it's a regular, user-writable file before starting the shell.
+  ensureNoctaliaHyprColorsWritable = pkgs.writeShellScript "ensure-noctalia-hypr-colors-writable" ''
+    set -eu
+    dir="$HOME/.config/hypr/noctalia"
+    file="$dir/noctalia-colors.conf"
+
+    mkdir -p "$dir"
+
+    # If something (e.g. Home Manager) created a symlink here, replace it.
+    if [ -L "$file" ]; then
+      rm -f "$file"
+    fi
+
+    touch "$file"
+    chmod 0644 "$file"
+  '';
 in
 ''
   # Systemd integration - export environment for user services
@@ -18,5 +36,6 @@ in
   exec-once = sleep 2 && systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
   # Start desktop shell
+  exec-once = ${ensureNoctaliaHyprColorsWritable}
   exec-once = noctalia-shell
 ''

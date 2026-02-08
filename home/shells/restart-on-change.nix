@@ -14,7 +14,7 @@ let
   );
 in
 {
-  home.activation.restartShellOnStorePathChange = lib.hm.dag.entryAfter ["writeBoundary"] ''
+  home.activation.restartShellOnStorePathChange = lib.hm.dag.entryAfter ["writeBoundary" "noctaliaHyprColorsWritable"] ''
     HASH_FILE="$HOME/.local/state/shell-store-hash"
     mkdir -p "$(dirname "$HASH_FILE")"
 
