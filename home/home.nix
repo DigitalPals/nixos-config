@@ -204,6 +204,12 @@ in
     commandLineArgs = [
       # Enable trackpad swipe gestures for back/forward navigation
       "--enable-features=TouchpadOverscrollHistoryNavigation"
+
+      # Stability workaround (G1a / Strix Halo + amdgpu):
+      # We've seen GPU hangs/page-faults in the amdgpu gfx ring attributed to Chrome's GPU process,
+      # which then causes Hyprland to crash when its GL context becomes unusable after a GPU reset.
+      # Disabling VA-API (hw video decode/encode) avoids a common trigger path.
+      "--disable-features=VaapiVideoDecodeLinuxGL,VaapiVideoEncoder"
     ];
   };
 

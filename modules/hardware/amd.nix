@@ -18,6 +18,11 @@
     "amd_pstate=active"
     "amdgpu.ppfeaturemask=0xffffffff"
     "amdgpu.dcdebugmask=0x200"
+    # Mitigate intermittent GPU hangs/reset storms seen on some RDNA3/3.5 laptops under heavy
+    # Wayland/Chromium GPU load (Hyprland + Chrome GPU process). Costs some idle power savings.
+    "amdgpu.gfxoff=0"
+    # Ensure GPU recovery is enabled (usually default, but make it explicit).
+    "amdgpu.gpu_recovery=1"
   ];
 
   # Wayland environment variables for AMD systems
