@@ -15,6 +15,7 @@
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
   bind = $mainMod, M, exec, spotify
+  bind = $mainMod, S, exec, slack
   bind = $mainMod SHIFT, SLASH, exec, 1password
   bind = $mainMod, D, exec, $terminal -e lazydocker
   bind = $mainMod SHIFT, T, exec, $terminal -e btop
