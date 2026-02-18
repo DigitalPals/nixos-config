@@ -34,6 +34,11 @@ in
   programs.noctalia-shell = {
     enable = true;
 
+    # Add QtWebSockets for Claw plugin's WebSocket support
+    package = pkgs.noctalia-shell.overrideAttrs (old: {
+      buildInputs = (old.buildInputs or []) ++ [ pkgs.qt6.qtwebsockets ];
+    });
+
     # Disable automatic systemd service - we control startup via Hyprland autostart
     systemd.enable = false;
   };

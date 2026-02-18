@@ -295,6 +295,39 @@ networking.networkmanager.wifi.powersave = false;
 - [linux-mediatek regression report](https://lists.infradead.org/pipermail/linux-mediatek/2025-August/096746.html) - Bisected to specific commit
 - [Framework Community thread](https://community.frame.work/t/issues-with-mediatek-mt7925-rz717-wi-fi-card/75815)
 
+## G1a Fan Cycling Fix
+
+**Host:** HP ZBook Ultra G1a (AMD Strix Halo)
+
+**Problem:** Fans cycle rapidly between 0 and ~1000-2100 RPM every ~30 seconds at idle (~40°C). The EC fan curve has no hysteresis and reacts to brief CPU boost micro-bursts.
+
+**Root cause:** The EC register MFAC (offset 0xD5) controls the minimum fan speed on AC power. Factory default is 255 (0xFF = no minimum enforced), allowing fans to drop to 0 RPM between boost bursts.
+
+**Solution: BIOS/firmware update**
+
+Update to BIOS **01.04.05** (or later) which includes **EC firmware 35.33.00**. The updated EC firmware fixes the fan hysteresis — fans hold steady at ~1800 RPM at idle instead of cycling between 0 and 2100 RPM.
+
+Download from: [HP ZBook Ultra G1a Support](https://support.hp.com/be-nl/drivers/hp-zbook-ultra-g1a-14-inch-mobile-workstation-pc/2102737532)
+
+Previous EC firmware (35.2F / 53.47) had no hysteresis in the fan curve. Updated EC firmware (35.33 / 53.51) maintains stable fan speeds.
+
+Check versions:
+```bash
+cat /sys/class/dmi/id/bios_version          # Should be X89 Ver. 01.04.05+
+cat /sys/class/dmi/id/ec_firmware_release    # Should be 53.51+
+```
+
+**Software mitigation** (`hosts/G1a/default.nix`):
+The `g1a-power-policy` service reduces boost eagerness via EPP tuning (`balance_power` on AC, `power` on battery), which complements the firmware fix by reducing the frequency of temperature spikes.
+
+**What doesn't work (tested on EC 35.2F):**
+- **Direct EC register writes** (`ec_sys` with `write_support=1`): The EC ignores all host writes to MFAC (0xD5) and CFAN (0xD6). Even 8000 writes/sec have no effect — the EC hardware write-protects these registers.
+- **ACPI method calls** (`acpi_call` → `\_SB.PCI0.LPCB.EC0.KFCL`): The method executes but the EC still ignores the register changes.
+- **HP WMI BIOS attributes** (`hp-bioscfg`): All fan-related writes return error 0x4 "Invalid command type". All WMI GUIDs report setable=0.
+- **Continuous EC hammering**: Even writing MFAC in a tight loop for 2 seconds (7800+ writes) has zero effect.
+
+**DSDT reference:** The `KFCL` method (DSDT line 11664) writes Arg0→CFAN(0xD6) and Arg1→MFAC(0xD5). The EC ACPI path is `\_SB.PCI0.LPCB.EC0`.
+
 ## ProArt P16 Hibernate (LVM) - Currently Non-Functional
 
 **Host:** ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090, 64GB RAM)
