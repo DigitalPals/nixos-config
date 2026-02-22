@@ -78,6 +78,12 @@
   # Fingerprint reader (Synaptics FS7606, power button)
   services.fprintd.enable = true;
 
+  # Stop fprintd before suspend so it restarts cleanly on resume
+  # (avoids stale PAM sessions causing fingerprint auth failures)
+  powerManagement.powerDownCommands = ''
+    ${pkgs.systemd}/bin/systemctl stop fprintd.service 2>/dev/null || true
+  '';
+
   # Early boot kernel modules (order matters for proper initialization)
   # - GPU modules first: enables early KMS for high-res Plymouth/console
   # - HID modules: ensures keyboard works for LUKS passphrase entry

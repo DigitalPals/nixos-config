@@ -35,6 +35,9 @@ in
   exec-once = sleep 1 && ${gtkPortal} &
   exec-once = sleep 2 && systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
+  # Polkit agent (needed for 1Password fingerprint unlock, etc.)
+  exec-once = systemctl --user start hyprpolkitagent
+
   # Start desktop shell
   exec-once = ${ensureNoctaliaHyprColorsWritable}
   exec-once = noctalia-shell

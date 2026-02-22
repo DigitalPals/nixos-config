@@ -143,6 +143,9 @@ in
     # Theming
     nwg-look
 
+    # Polkit agent (fingerprint/password auth dialogs)
+    hyprpolkitagent
+
     # Media control
     brightnessctl
     playerctl
