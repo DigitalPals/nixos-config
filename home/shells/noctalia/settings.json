@@ -282,6 +282,8 @@
         "avatarImage": "/home/john/.face",
         "boxRadiusRatio": 1,
         "compactLockScreen": false,
+        "autoStartAuth": true,
+        "allowPasswordWithFprintd": true,
         "dimmerOpacity": 0.2,
         "enableShadows": true,
         "forceBlackScreenCorners": false,

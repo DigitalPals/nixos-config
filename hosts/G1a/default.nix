@@ -75,6 +75,9 @@
   # Enable official amdgpu initrd support for early KMS and Plymouth
   hardware.amdgpu.initrd.enable = true;
 
+  # Fingerprint reader (Synaptics FS7606, power button)
+  services.fprintd.enable = true;
+
   # Early boot kernel modules (order matters for proper initialization)
   # - GPU modules first: enables early KMS for high-res Plymouth/console
   # - HID modules: ensures keyboard works for LUKS passphrase entry
