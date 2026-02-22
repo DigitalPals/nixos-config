@@ -1,7 +1,7 @@
 # 1Password SSH Agent Integration
 #
-# This module configures SSH to use 1Password's SSH agent, making SSH keys
-# stored in 1Password available after a single unlock.
+# SSH tries local key files first (no agent needed). If the local key
+# doesn't authenticate, 1Password's SSH agent is used as a fallback.
 #
 # === MANUAL ONE-TIME SETUP REQUIRED ===
 #
@@ -11,34 +11,33 @@
 # 2. Settings -> Developer -> Enable "Use the SSH agent"
 # 3. Add your SSH key(s) to 1Password (or import existing keys)
 #
-# The SSH agent socket will be available at ~/.1password/agent.sock
-#
 { config, pkgs, lib, ... }:
 
 {
-  # Point SSH_AUTH_SOCK to 1Password's agent socket
-  home.sessionVariables = {
-    SSH_AUTH_SOCK = "$HOME/.1password/agent.sock";
-  };
+  # NOTE: No global SSH_AUTH_SOCK override. This lets SSH read local key
+  # files directly from disk without requiring any agent to be unlocked.
 
-  # SSH client configuration
-  # Note: enableDefaultConfig = false is recommended by Home Manager (defaults are being deprecated)
-  # We explicitly set the defaults we want in matchBlocks and extraConfig
   programs.ssh = {
     enable = true;
     enableDefaultConfig = false;
+
+    # Default: try local key file first (read from disk, no agent needed)
     matchBlocks."*" = {
-      # Try local key first, then fall back to 1Password agent
       identityFile = "~/.ssh/id_ed25519";
-      identityAgent = "~/.1password/agent.sock";
+      extraOptions = {
+        IdentitiesOnly = "yes";
+      };
     };
+
     extraConfig = ''
-      # Security defaults (previously provided by Home Manager)
+      # Security defaults
       StrictHostKeyChecking accept-new
       HashKnownHosts yes
-      # Auto-add keys to agent on first use
-      AddKeysToAgent yes
+
+      # 1Password agent fallback: if the socket exists, make it available
+      # SSH tries identityFile first; if that fails, the agent provides keys
+      Match host * exec "test -S %d/.1password/agent.sock"
+        IdentityAgent ~/.1password/agent.sock
     '';
   };
-
 }
