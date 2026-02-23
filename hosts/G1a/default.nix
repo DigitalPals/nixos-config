@@ -78,11 +78,18 @@
   # Fingerprint reader (Synaptics FS7606, power button)
   services.fprintd.enable = true;
 
-  # Stop fprintd before suspend so it restarts cleanly on resume
-  # (avoids stale PAM sessions causing fingerprint auth failures)
-  powerManagement.powerDownCommands = ''
-    ${pkgs.systemd}/bin/systemctl stop fprintd.service 2>/dev/null || true
-  '';
+  # Fingerprint reader suspend/resume: force USB reset on resume for this device
+  # Without this, the device fails to resume from s2idle (kernel error -107,
+  # endpoint stalled) and fprintd can't communicate with it.
+  # The 'b' flag sets USB_QUIRK_RESET_RESUME for this specific device.
+  boot.kernelParams = lib.mkAfter [
+    "usbcore.quirks=06cb:0106:b"
+  ];
+
+  # Note: fprintd is NOT stopped before suspend. The USB_QUIRK_RESET_RESUME
+  # kernel quirk handles device recovery, and fprintd 1.94+ has built-in
+  # suspend/resume support. Stopping fprintd would break the lock screen's
+  # active PAM session, causing it to fall back to password-only on resume.
 
   # Early boot kernel modules (order matters for proper initialization)
   # - GPU modules first: enables early KMS for high-res Plymouth/console
@@ -112,5 +119,8 @@
   services.udev.extraRules = ''
     # Allow users to control mic mute LED (for WirePlumber sync service)
     SUBSYSTEM=="leds", KERNEL=="hda::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
+
+    # Prevent USB autosuspend for Synaptics fingerprint reader (06cb:0106)
+    ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="0106", ATTR{power/control}="on"
   '';
 }
