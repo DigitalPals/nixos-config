@@ -1,6 +1,6 @@
 # Autostart configuration
 # Programs to run at Hyprland startup
-{ pkgs }:
+{ pkgs, osConfig }:
 
 let
   # GTK portal executable path (provides Settings interface for dark mode)
@@ -35,8 +35,8 @@ in
   exec-once = sleep 1 && ${gtkPortal} &
   exec-once = sleep 2 && systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal
 
-  # Polkit agent (needed for 1Password fingerprint unlock, etc.)
-  exec-once = systemctl --user start hyprpolkitagent
+  # Polkit agent: badged supports fingerprint, hyprpolkitagent is password-only
+  exec-once = ${if osConfig.services.fprintd.enable then "badged" else "systemctl --user start hyprpolkitagent"}
 
   # Start desktop shell
   exec-once = ${ensureNoctaliaHyprColorsWritable}

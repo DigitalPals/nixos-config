@@ -7,7 +7,7 @@ let
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
   bindingsConfig = import ./bindings.nix {};
-  autostartConfig = import ./autostart.nix { inherit pkgs; };
+  autostartConfig = import ./autostart.nix { inherit pkgs osConfig; };
 
   # Hyprland configuration
   hyprlandExtraConfig = ''

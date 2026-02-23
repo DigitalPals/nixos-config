@@ -143,8 +143,10 @@ in
     # Theming
     nwg-look
 
-    # Polkit agent (fingerprint/password auth dialogs)
-    hyprpolkitagent
+    # Polkit agent: badged supports fingerprint, hyprpolkitagent is password-only
+    (if osConfig.services.fprintd.enable
+     then pkgs.callPackage ../packages/badged {}
+     else pkgs.hyprpolkitagent)
 
     # Media control
     brightnessctl
@@ -331,6 +333,9 @@ in
     QT_QPA_PLATFORM = "wayland";
     SDL_VIDEODRIVER = "wayland";
     XDG_SESSION_TYPE = "wayland";
+  } // lib.optionalAttrs osConfig.services.fprintd.enable {
+    # Use clean PAM service for Noctalia lock screen (fingerprint hosts only)
+    NOCTALIA_PAM_SERVICE = "noctalia";
   };
 
   # === Mic mute LED sync service (G1a only) ===
