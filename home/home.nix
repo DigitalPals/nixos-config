@@ -194,7 +194,7 @@ in
     # Productivity
     evince           # document/PDF viewer
     localsend        # local file sharing
-    libreoffice  # office suite
+    libreoffice-fresh  # office suite (using fresh variant to work around nixpkgs#495219)
 
     # Fonts
     font-awesome
