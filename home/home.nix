@@ -155,6 +155,7 @@ in
     # Applications
     slack
     spotify
+    telegram-desktop
     lazydocker
     btop
     gnome-calculator

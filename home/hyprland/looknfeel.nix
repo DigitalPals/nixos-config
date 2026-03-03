@@ -91,6 +91,7 @@ ${masterConfig}
   misc {
     force_default_wallpaper = 0
     disable_hyprland_logo = true
+    focus_on_activate = false
   }
 
   # XWayland scaling - let Hyprland handle scaling for X11 apps
@@ -127,6 +128,9 @@ ${masterConfig}
 
   # Floating windows - Media viewers
   windowrule = match:class (imv|mpv), float on, center on
+
+  # Chrome notification popups - float and prevent focus stealing
+  windowrule = match:class google-chrome, match:title ^Notification.*, float on, no_initial_focus on, pin on
 
   # No transparency on media windows
   windowrule = match:class (vlc|mpv|imv|zoom), opacity 1 1
