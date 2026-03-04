@@ -222,15 +222,23 @@ pub fn draw_select_disk(
         .style(theme::title())
         .bottom_margin(1);
 
-    let table = Table::new(
-        rows,
-        [
+    let widths = if chunks[2].width < 78 {
+        vec![
+            Constraint::Length(2),
+            Constraint::Length(14),
+            Constraint::Length(8),
+            Constraint::Min(12),
+        ]
+    } else {
+        vec![
             Constraint::Length(2),
             Constraint::Length(20),
             Constraint::Length(10),
             Constraint::Min(25),
-        ],
-    )
+        ]
+    };
+
+    let table = Table::new(rows, widths)
     .header(header)
     .block(
         Block::default()

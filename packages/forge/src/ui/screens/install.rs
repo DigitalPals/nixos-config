@@ -75,7 +75,7 @@ pub fn draw_host_selection(frame: &mut Frame, selected: usize, hosts: &[HostConf
     // Header
     draw_header(frame, chunks[0], "Select Target Host");
 
-    // Split content into list and preview
+    // Split content into list and preview, stacking vertically on narrow terminals
     let (list_area, preview_area) = host_selection_layout(chunks[1]);
 
     // Host list with "New host configuration" as first option, then existing hosts
@@ -260,15 +260,23 @@ pub fn draw_disk_selection(
         })
         .collect();
 
-    let table = Table::new(
-        rows,
-        [
+    let widths = if chunks[1].width < 72 {
+        vec![
+            Constraint::Length(2),
+            Constraint::Length(12),
+            Constraint::Length(8),
+            Constraint::Min(12),
+        ]
+    } else {
+        vec![
             Constraint::Length(2),
             Constraint::Length(15),
             Constraint::Length(10),
             Constraint::Min(20),
-        ],
-    )
+        ]
+    };
+
+    let table = Table::new(rows, widths)
     .header(header)
     .block(
         Block::default()

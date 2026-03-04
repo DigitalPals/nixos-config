@@ -26,6 +26,17 @@ pub fn footer_hints(hints: &[(&str, &str)]) -> Line<'static> {
 
 /// Create a centered box with specified percentage width and height
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let percent_x = if area.width < 100 {
+        percent_x.max(92)
+    } else {
+        percent_x
+    };
+    let percent_y = if area.height < 30 {
+        percent_y.max(90)
+    } else {
+        percent_y
+    };
+
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -67,11 +78,12 @@ pub fn main_layout(area: Rect) -> (Rect, Rect, Rect) {
 
 /// Split content area for progress screen (steps + output)
 pub fn progress_layout(area: Rect) -> (Rect, Rect) {
+    let steps_height = if area.height < 18 { 7 } else { 10 };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(10), // Steps
-            Constraint::Min(5),     // Output
+            Constraint::Length(steps_height), // Steps
+            Constraint::Min(5),               // Output
         ])
         .split(area);
     (chunks[0], chunks[1])
@@ -79,12 +91,22 @@ pub fn progress_layout(area: Rect) -> (Rect, Rect) {
 
 /// Split content area for host selection (list + preview)
 pub fn host_selection_layout(area: Rect) -> (Rect, Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(35), // Host list
-            Constraint::Percentage(65), // Preview panel
-        ])
-        .split(area);
+    let chunks = if area.width < 96 {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(45), // Host list
+                Constraint::Percentage(55), // Preview panel
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(35), // Host list
+                Constraint::Percentage(65), // Preview panel
+            ])
+            .split(area)
+    };
     (chunks[0], chunks[1])
 }

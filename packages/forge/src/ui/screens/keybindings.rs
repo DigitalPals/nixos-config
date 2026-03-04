@@ -89,11 +89,19 @@ pub fn draw_viewing(
         );
     frame.render_widget(header, chunks[0]);
 
-    // Main content area: categories on left, bindings on right
-    let content_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(22), Constraint::Min(40)])
-        .split(chunks[1]);
+    // Main content area: stack panels vertically on narrow terminals
+    let content_chunks = if chunks[1].width < 90 {
+        let category_height = (categories.len() as u16 + 2).clamp(6, 10);
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(category_height), Constraint::Min(8)])
+            .split(chunks[1])
+    } else {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(22), Constraint::Min(40)])
+            .split(chunks[1])
+    };
 
     // Categories list
     let categories_focused = focus == KeybindingsPanel::Categories;
@@ -197,10 +205,11 @@ fn draw_bindings_table(
     ])
     .style(Style::default().fg(theme::DIM));
 
-    let widths = [
-        Constraint::Length(25),
-        Constraint::Min(30),
-    ];
+    let widths = if area.width < 72 {
+        vec![Constraint::Length(16), Constraint::Min(12)]
+    } else {
+        vec![Constraint::Length(25), Constraint::Min(30)]
+    };
 
     let border_style = if focused {
         theme::border_active()

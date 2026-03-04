@@ -40,11 +40,11 @@ pub fn rebuild_timeout_secs() -> u64 {
         .unwrap_or(DEFAULT_REBUILD_TIMEOUT_SECS)
 }
 
-/// Minimum terminal width for proper rendering
-pub const MIN_TERMINAL_WIDTH: u16 = 80;
+/// Minimum terminal width for usable rendering
+pub const MIN_TERMINAL_WIDTH: u16 = 56;
 
-/// Minimum terminal height for proper rendering
-pub const MIN_TERMINAL_HEIGHT: u16 = 24;
+/// Minimum terminal height for usable rendering
+pub const MIN_TERMINAL_HEIGHT: u16 = 18;
 
 // =============================================================================
 // User Constants

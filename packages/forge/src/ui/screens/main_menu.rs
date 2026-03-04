@@ -54,7 +54,7 @@ pub fn draw(frame: &mut Frame, selected: usize, app: &App) {
 
 fn draw_exit_confirm(frame: &mut Frame, area: Rect) {
     // Center the popup
-    let popup_width = 40;
+    let popup_width = 40.min(area.width.saturating_sub(4)).max(24);
     let popup_height = 7;
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
@@ -88,14 +88,17 @@ fn draw_exit_confirm(frame: &mut Frame, area: Rect) {
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {
-    // Build logo lines
-    let mut lines: Vec<Line> = LOGO
-        .iter()
-        .map(|line| Line::from(Span::styled(*line, theme::title())))
-        .collect();
+    let mut lines: Vec<Line> = if area.width >= 78 {
+        let mut lines: Vec<Line> = LOGO
+            .iter()
+            .map(|line| Line::from(Span::styled(*line, theme::title())))
+            .collect();
+        lines.push(Line::from(""));
+        lines
+    } else {
+        vec![Line::from(""), Line::from("")]
+    };
 
-    // Add spacing and title
-    lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "FORGE - NixOS Toolkit",
         theme::title(),
