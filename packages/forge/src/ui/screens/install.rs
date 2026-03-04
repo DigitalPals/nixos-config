@@ -7,8 +7,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, CredentialField, InstallCredentials, StepStatus, SwapMode};
 use crate::app::state::validate_username;
+use crate::app::{App, CredentialField, InstallCredentials, StepStatus, SwapMode};
 use crate::system::config::HostConfig;
 use crate::system::disk::DiskInfo;
 use crate::ui::layout::{centered_rect, footer_hints, host_selection_layout, progress_layout};
@@ -55,8 +55,7 @@ pub fn draw_clone_repository(frame: &mut Frame, output: &[String], app: &App) {
     frame.render_widget(log, chunks[1]);
 
     // Footer
-    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")])).alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -90,7 +89,16 @@ pub fn draw_host_selection(frame: &mut Frame, selected: usize, hosts: &[HostConf
     draw_host_preview(frame, preview_area, selected, hosts);
 
     // Footer
-    draw_footer(frame, chunks[2], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back"), ("?", "Help")]);
+    draw_footer(
+        frame,
+        chunks[2],
+        &[
+            ("↑↓/jk", "Navigate"),
+            ("Enter", "Select"),
+            ("Esc", "Back"),
+            ("?", "Help"),
+        ],
+    );
 }
 
 /// Draw the host preview panel
@@ -276,9 +284,7 @@ pub fn draw_disk_selection(
         ]
     };
 
-    let table = Table::new(rows, widths)
-    .header(header)
-    .block(
+    let table = Table::new(rows, widths).header(header).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme::border())
@@ -288,7 +294,16 @@ pub fn draw_disk_selection(
     frame.render_widget(table, chunks[1]);
 
     // Footer
-    draw_footer(frame, chunks[2], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back"), ("?", "Help")]);
+    draw_footer(
+        frame,
+        chunks[2],
+        &[
+            ("↑↓/jk", "Navigate"),
+            ("Enter", "Select"),
+            ("Esc", "Back"),
+            ("?", "Help"),
+        ],
+    );
 }
 
 /// Draw credentials entry screen
@@ -319,15 +334,13 @@ pub fn draw_enter_credentials(
     draw_header(frame, chunks[0], "Enter User Credentials");
 
     // Host/Disk info
-    let info = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("  Host: ", theme::dim()),
-            Span::styled(host, theme::text()),
-            Span::styled("  |  Disk: ", theme::dim()),
-            Span::styled(&disk.path, theme::text()),
-            Span::styled(format!(" ({})", disk.size), theme::dim()),
-        ]),
-    ])
+    let info = Paragraph::new(vec![Line::from(vec![
+        Span::styled("  Host: ", theme::dim()),
+        Span::styled(host, theme::text()),
+        Span::styled("  |  Disk: ", theme::dim()),
+        Span::styled(&disk.path, theme::text()),
+        Span::styled(format!(" ({})", disk.size), theme::dim()),
+    ])])
     .block(
         Block::default()
             .borders(Borders::ALL)
@@ -392,7 +405,9 @@ pub fn draw_enter_credentials(
 
     let confirm_indicator = if credentials.confirm_password.is_empty() {
         Span::styled("", theme::dim())
-    } else if !credentials.password.is_empty() && credentials.confirm_password == credentials.password {
+    } else if !credentials.password.is_empty()
+        && credentials.confirm_password == credentials.password
+    {
         Span::styled(" ✓", theme::success())
     } else {
         Span::styled(" ✗", theme::error())
@@ -422,20 +437,38 @@ pub fn draw_enter_credentials(
 
     // Show error if present, or inline hint for focused field
     if let Some(err) = error {
-        lines.push(Line::from(Span::styled(format!("  ⚠ {}", err), theme::error())));
+        lines.push(Line::from(Span::styled(
+            format!("  ⚠ {}", err),
+            theme::error(),
+        )));
     } else if *active_field == CredentialField::Username && !credentials.username.is_empty() {
         if let Some(err) = validate_username(&credentials.username) {
-            lines.push(Line::from(Span::styled(format!("  ⚠ {}", err), theme::warning())));
+            lines.push(Line::from(Span::styled(
+                format!("  ⚠ {}", err),
+                theme::warning(),
+            )));
         } else {
             lines.push(Line::from(Span::styled(
                 "  Password will be used for login and LUKS encryption",
                 theme::dim(),
             )));
         }
-    } else if *active_field == CredentialField::Password && !credentials.password.is_empty() && credentials.password.len() < 8 {
-        lines.push(Line::from(Span::styled("  ⚠ Must be at least 8 characters", theme::warning())));
-    } else if *active_field == CredentialField::ConfirmPassword && !credentials.confirm_password.is_empty() && credentials.confirm_password != credentials.password {
-        lines.push(Line::from(Span::styled("  ⚠ Passwords do not match", theme::warning())));
+    } else if *active_field == CredentialField::Password
+        && !credentials.password.is_empty()
+        && credentials.password.len() < 8
+    {
+        lines.push(Line::from(Span::styled(
+            "  ⚠ Must be at least 8 characters",
+            theme::warning(),
+        )));
+    } else if *active_field == CredentialField::ConfirmPassword
+        && !credentials.confirm_password.is_empty()
+        && credentials.confirm_password != credentials.password
+    {
+        lines.push(Line::from(Span::styled(
+            "  ⚠ Passwords do not match",
+            theme::warning(),
+        )));
     } else {
         lines.push(Line::from(Span::styled(
             "  Password will be used for login and LUKS encryption",
@@ -457,16 +490,27 @@ pub fn draw_enter_credentials(
             "  Username: lowercase letters, numbers, underscore, hyphen",
             theme::dim(),
         )),
-        Line::from(Span::styled("  Password: minimum 8 characters", theme::dim())),
+        Line::from(Span::styled(
+            "  Password: minimum 8 characters",
+            theme::dim(),
+        )),
     ])
-    .block(Block::default().borders(Borders::ALL).border_style(theme::border()));
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border()),
+    );
     frame.render_widget(hints, chunks[3]);
 
     // Footer
     draw_footer(
         frame,
         chunks[4],
-        &[("Tab/↑↓", "Switch field"), ("Enter", "Continue"), ("Esc", "Back")],
+        &[
+            ("Tab/↑↓", "Switch field"),
+            ("Enter", "Continue"),
+            ("Esc", "Back"),
+        ],
     );
 }
 
@@ -496,15 +540,13 @@ pub fn draw_select_swap_mode(
     draw_header(frame, chunks[0], "Select Swap Configuration");
 
     // Host/Disk info
-    let info = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("  Host: ", theme::dim()),
-            Span::styled(host, theme::text()),
-            Span::styled("  |  Disk: ", theme::dim()),
-            Span::styled(&disk.path, theme::text()),
-            Span::styled(format!(" ({})", disk.size), theme::dim()),
-        ]),
-    ])
+    let info = Paragraph::new(vec![Line::from(vec![
+        Span::styled("  Host: ", theme::dim()),
+        Span::styled(host, theme::text()),
+        Span::styled("  |  Disk: ", theme::dim()),
+        Span::styled(&disk.path, theme::text()),
+        Span::styled(format!(" ({})", disk.size), theme::dim()),
+    ])])
     .block(
         Block::default()
             .borders(Borders::ALL)
@@ -568,7 +610,11 @@ pub fn draw_select_swap_mode(
     frame.render_widget(options, chunks[2]);
 
     // Footer
-    draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
+    draw_footer(
+        frame,
+        chunks[3],
+        &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")],
+    );
 }
 
 /// Draw overview/confirmation screen
@@ -683,7 +729,11 @@ pub fn draw_overview(
     frame.render_widget(prompt, chunks[2]);
 
     // Footer
-    draw_footer(frame, chunks[3], &[("Type 'yes' + Enter", "Confirm"), ("Esc", "Cancel")]);
+    draw_footer(
+        frame,
+        chunks[3],
+        &[("Type 'yes' + Enter", "Confirm"), ("Esc", "Cancel")],
+    );
 }
 
 /// Draw running installation screen
@@ -731,8 +781,7 @@ pub fn draw_running(
     frame.render_widget(log, output_area);
 
     // Footer
-    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")])).alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -762,11 +811,7 @@ pub fn draw_complete(
     };
     let header = Paragraph::new(Line::from(Span::styled(title, style)))
         .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(style),
-        );
+        .block(Block::default().borders(Borders::ALL).border_style(style));
     frame.render_widget(header, chunks[0]);
 
     // Output log
@@ -778,9 +823,19 @@ pub fn draw_complete(
 
     // Footer - show reboot option on success
     let footer = if success {
-        Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("r", "Reboot"), ("Enter", "Menu"), ("q", "Quit")]))
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Scroll"),
+            ("r", "Reboot"),
+            ("Enter", "Menu"),
+            ("q", "Quit"),
+        ]))
     } else {
-        Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("Enter", "Menu"), ("Esc", "Back"), ("q", "Quit")]))
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Scroll"),
+            ("Enter", "Menu"),
+            ("Esc", "Back"),
+            ("q", "Quit"),
+        ]))
     };
     frame.render_widget(footer.alignment(Alignment::Center), chunks[2]);
 }

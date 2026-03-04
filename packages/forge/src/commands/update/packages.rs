@@ -156,7 +156,10 @@ async fn parse_nvd_output(
                 return None;
             }
             let name = parts[0].to_string();
-            let version = parts.get(1).map(|v| v.trim_end_matches(',').to_string()).unwrap_or_default();
+            let version = parts
+                .get(1)
+                .map(|v| v.trim_end_matches(',').to_string())
+                .unwrap_or_default();
             Some((name, version))
         };
 

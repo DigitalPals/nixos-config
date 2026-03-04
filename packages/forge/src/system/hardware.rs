@@ -404,8 +404,14 @@ mod tests {
         let model = extract_gpu_model(nvidia_line, "NVIDIA");
         assert!(model.is_some());
         let model_str = model.unwrap();
-        assert!(model_str.contains("NVIDIA"), "Model should contain vendor prefix");
-        assert!(model_str.contains("RTX 3090"), "Model should contain GPU name");
+        assert!(
+            model_str.contains("NVIDIA"),
+            "Model should contain vendor prefix"
+        );
+        assert!(
+            model_str.contains("RTX 3090"),
+            "Model should contain GPU name"
+        );
     }
 
     #[test]
@@ -414,18 +420,31 @@ mod tests {
         let model = extract_gpu_model(amd_line, "AMD");
         assert!(model.is_some());
         let model_str = model.unwrap();
-        assert!(model_str.contains("AMD"), "Model should contain vendor prefix");
-        assert!(model_str.contains("Navi") || model_str.contains("Radeon"), "Model should contain GPU identifier");
+        assert!(
+            model_str.contains("AMD"),
+            "Model should contain vendor prefix"
+        );
+        assert!(
+            model_str.contains("Navi") || model_str.contains("Radeon"),
+            "Model should contain GPU identifier"
+        );
     }
 
     #[test]
     fn test_extract_gpu_model_intel() {
-        let intel_line = "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630 [8086:3e92]";
+        let intel_line =
+            "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630 [8086:3e92]";
         let model = extract_gpu_model(intel_line, "Intel");
         assert!(model.is_some());
         let model_str = model.unwrap();
-        assert!(model_str.contains("Intel"), "Model should contain vendor prefix");
-        assert!(model_str.contains("UHD") || model_str.contains("Graphics"), "Model should contain GPU identifier");
+        assert!(
+            model_str.contains("Intel"),
+            "Model should contain vendor prefix"
+        );
+        assert!(
+            model_str.contains("UHD") || model_str.contains("Graphics"),
+            "Model should contain GPU identifier"
+        );
     }
 
     #[test]

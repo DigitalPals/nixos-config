@@ -41,16 +41,19 @@ impl<'a> CommandRunner<'a> {
     /// Print a header with title
     pub async fn header(&self, title: &str) {
         self.out("").await;
-        self.out("==============================================").await;
+        self.out("==============================================")
+            .await;
         self.out(&format!("  {}", title)).await;
-        self.out("==============================================").await;
+        self.out("==============================================")
+            .await;
         self.out("").await;
     }
 
     /// Print a footer
     pub async fn footer(&self) {
         self.out("").await;
-        self.out("==============================================").await;
+        self.out("==============================================")
+            .await;
     }
 
     /// Run a command and return success status
@@ -59,7 +62,12 @@ impl<'a> CommandRunner<'a> {
     }
 
     /// Run a command with a custom timeout (in seconds)
-    pub async fn run_with_timeout(&self, cmd: &str, args: &[&str], timeout_secs: u64) -> Result<bool> {
+    pub async fn run_with_timeout(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        timeout_secs: u64,
+    ) -> Result<bool> {
         run_command_with_timeout(self.tx, cmd, args, Some(timeout_secs)).await
     }
 

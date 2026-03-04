@@ -79,12 +79,18 @@ mod tests {
 
     #[test]
     fn test_default_branch_nixpkgs() {
-        assert_eq!(default_branch_for_repo("NixOS", "nixpkgs"), "nixos-unstable");
+        assert_eq!(
+            default_branch_for_repo("NixOS", "nixpkgs"),
+            "nixos-unstable"
+        );
     }
 
     #[test]
     fn test_default_branch_home_manager() {
-        assert_eq!(default_branch_for_repo("nix-community", "home-manager"), "master");
+        assert_eq!(
+            default_branch_for_repo("nix-community", "home-manager"),
+            "master"
+        );
     }
 
     #[test]

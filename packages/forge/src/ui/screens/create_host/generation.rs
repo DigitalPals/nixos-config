@@ -59,7 +59,10 @@ pub fn draw_review(frame: &mut Frame, config: &NewHostConfig, _app: &App) {
         Line::from(vec![
             Span::styled("  Disk:        ", theme::dim()),
             Span::styled(&config.disk.path, theme::text()),
-            Span::styled(format!(" ({}, {})", config.disk.size, disk_model), theme::dim()),
+            Span::styled(
+                format!(" ({}, {})", config.disk.size, disk_model),
+                theme::dim(),
+            ),
         ]),
         Line::from(""),
     ])
@@ -182,11 +185,7 @@ pub fn draw_complete(
     };
     let header = Paragraph::new(Line::from(Span::styled(title, style)))
         .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(style),
-        );
+        .block(Block::default().borders(Borders::ALL).border_style(style));
     frame.render_widget(header, chunks[0]);
 
     if success {
@@ -199,15 +198,9 @@ pub fn draw_complete(
                 Span::styled("' has been created.", theme::text()),
             ]),
             Line::from(""),
-            Line::from(Span::styled(
-                "Proceeding to installation...",
-                theme::info(),
-            )),
+            Line::from(Span::styled("Proceeding to installation...", theme::info())),
             Line::from(""),
-            Line::from(Span::styled(
-                "Press any key to continue",
-                theme::dim(),
-            )),
+            Line::from(Span::styled("Press any key to continue", theme::dim())),
         ])
         .alignment(Alignment::Center)
         .block(

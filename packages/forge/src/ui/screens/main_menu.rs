@@ -66,7 +66,10 @@ fn draw_exit_confirm(frame: &mut Frame, area: Rect) {
     // Draw popup content
     let content = Paragraph::new(vec![
         Line::from(""),
-        Line::from(Span::styled("Are you sure you want to exit?", theme::text())),
+        Line::from(Span::styled(
+            "Are you sure you want to exit?",
+            theme::text(),
+        )),
         Line::from(""),
         Line::from(vec![
             Span::styled("[", theme::dim()),
@@ -114,7 +117,12 @@ fn draw_header(frame: &mut Frame, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let mut line = footer_hints(&[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("q", "Quit"), ("?", "Help")]);
+    let mut line = footer_hints(&[
+        ("↑↓/jk", "Navigate"),
+        ("Enter", "Select"),
+        ("q", "Quit"),
+        ("?", "Help"),
+    ]);
 
     // Show checking indicator when startup check is running
     if app.startup_check_running {

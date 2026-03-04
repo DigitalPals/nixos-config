@@ -20,8 +20,8 @@ use super::runner::CommandRunner;
 use super::CommandMessage;
 use crate::app::SwapMode;
 use crate::constants::{
-    self, INSTALL_MOUNT_POINT, INSTALL_SYMLINK_PATH, NIXOS_CONFIG_HOME_DIR,
-    PRIMARY_USER_GID, PRIMARY_USER_UID,
+    self, INSTALL_MOUNT_POINT, INSTALL_SYMLINK_PATH, NIXOS_CONFIG_HOME_DIR, PRIMARY_USER_GID,
+    PRIMARY_USER_UID,
 };
 
 // =============================================================================
@@ -142,7 +142,10 @@ fn get_ram_size_gb() -> u64 {
 
 /// Get the config directory path for the mounted system
 fn get_config_dir(username: &str) -> String {
-    format!("{}/home/{}/{}", INSTALL_MOUNT_POINT, username, NIXOS_CONFIG_HOME_DIR)
+    format!(
+        "{}/home/{}/{}",
+        INSTALL_MOUNT_POINT, username, NIXOS_CONFIG_HOME_DIR
+    )
 }
 
 /// Get the symlink target (path on the installed system, not /mnt)
@@ -169,7 +172,11 @@ pub async fn start_install(
             let error_msg = format!("{:#}", e); // Full error chain with context
             tracing::error!("Installation failed: {}", error_msg);
             // Display error to user
-            let _ = tx.send(CommandMessage::Stderr(format!("\n*** INSTALLATION ERROR ***"))).await;
+            let _ = tx
+                .send(CommandMessage::Stderr(format!(
+                    "\n*** INSTALLATION ERROR ***"
+                )))
+                .await;
             let _ = tx.send(CommandMessage::Stderr(error_msg.clone())).await;
             let _ = tx.send(CommandMessage::Stderr("".to_string())).await;
             let _ = tx
@@ -199,30 +206,55 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
         // Check if already cloned
         let hosts_dir = temp_config.join(constants::HOSTS_SUBDIR);
         if hosts_dir.exists() {
-            let _ = tx.send(CommandMessage::Stdout("Using existing configuration...".to_string())).await;
-            let _ = tx.send(CommandMessage::CloneComplete { success: true }).await;
+            let _ = tx
+                .send(CommandMessage::Stdout(
+                    "Using existing configuration...".to_string(),
+                ))
+                .await;
+            let _ = tx
+                .send(CommandMessage::CloneComplete { success: true })
+                .await;
             return;
         }
 
-        let _ = tx.send(CommandMessage::Stdout("Checking network connectivity...".to_string())).await;
+        let _ = tx
+            .send(CommandMessage::Stdout(
+                "Checking network connectivity...".to_string(),
+            ))
+            .await;
 
         // Check network
-        let (net_ok, _, _) = match run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await {
+        let (net_ok, _, _) = match run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await
+        {
             Ok(result) => result,
             Err(_) => {
-                let _ = tx.send(CommandMessage::Stderr("Network check failed".to_string())).await;
-                let _ = tx.send(CommandMessage::CloneComplete { success: false }).await;
+                let _ = tx
+                    .send(CommandMessage::Stderr("Network check failed".to_string()))
+                    .await;
+                let _ = tx
+                    .send(CommandMessage::CloneComplete { success: false })
+                    .await;
                 return;
             }
         };
 
         if !net_ok {
-            let _ = tx.send(CommandMessage::Stderr("No internet connection. Please configure WiFi with nmtui.".to_string())).await;
-            let _ = tx.send(CommandMessage::CloneComplete { success: false }).await;
+            let _ = tx
+                .send(CommandMessage::Stderr(
+                    "No internet connection. Please configure WiFi with nmtui.".to_string(),
+                ))
+                .await;
+            let _ = tx
+                .send(CommandMessage::CloneComplete { success: false })
+                .await;
             return;
         }
 
-        let _ = tx.send(CommandMessage::Stdout("Cloning configuration repository...".to_string())).await;
+        let _ = tx
+            .send(CommandMessage::Stdout(
+                "Cloning configuration repository...".to_string(),
+            ))
+            .await;
 
         // Enable flakes and disable sandbox for disk operations
         std::env::set_var("NIX_CONFIG", NIX_CONFIG_VALUE);
@@ -232,14 +264,22 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
 
         // Clone repository
         let clone_cmd = format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str);
-        let (success, stdout, stderr) = match run_capture("nix-shell", &["-p", "git", "--run", &clone_cmd]).await {
-            Ok(result) => result,
-            Err(e) => {
-                let _ = tx.send(CommandMessage::Stderr(format!("Clone command failed: {}", e))).await;
-                let _ = tx.send(CommandMessage::CloneComplete { success: false }).await;
-                return;
-            }
-        };
+        let (success, stdout, stderr) =
+            match run_capture("nix-shell", &["-p", "git", "--run", &clone_cmd]).await {
+                Ok(result) => result,
+                Err(e) => {
+                    let _ = tx
+                        .send(CommandMessage::Stderr(format!(
+                            "Clone command failed: {}",
+                            e
+                        )))
+                        .await;
+                    let _ = tx
+                        .send(CommandMessage::CloneComplete { success: false })
+                        .await;
+                    return;
+                }
+            };
 
         if !stdout.is_empty() {
             let _ = tx.send(CommandMessage::Stdout(stdout)).await;
@@ -249,7 +289,11 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
         }
 
         if success {
-            let _ = tx.send(CommandMessage::Stdout("Repository cloned successfully".to_string())).await;
+            let _ = tx
+                .send(CommandMessage::Stdout(
+                    "Repository cloned successfully".to_string(),
+                ))
+                .await;
         }
 
         let _ = tx.send(CommandMessage::CloneComplete { success }).await;
@@ -268,7 +312,9 @@ async fn step_check_network(runner: &CommandRunner<'_>) -> Result<bool> {
 
     let (success, _, _) = run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await?;
     if !success {
-        runner.step_failed("network", "No network connection", "Network check").await?;
+        runner
+            .step_failed("network", "No network connection", "Network check")
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
@@ -299,7 +345,9 @@ async fn step_prepare_repository(
         .exists();
 
     if host_exists_in_temp {
-        runner.out("Using existing configuration (host already created)...").await;
+        runner
+            .out("Using existing configuration (host already created)...")
+            .await;
     } else {
         runner.out("Cloning configuration repository...").await;
         let _ = std::fs::remove_dir_all(&temp_config);
@@ -317,7 +365,13 @@ async fn step_prepare_repository(
             .await?;
 
         if !success {
-            runner.step_failed("repository", "Failed to clone repository", "Clone repository").await?;
+            runner
+                .step_failed(
+                    "repository",
+                    "Failed to clone repository",
+                    "Clone repository",
+                )
+                .await?;
             runner.done(false).await?;
             return Ok(None);
         }
@@ -337,26 +391,32 @@ async fn step_configure_disk(
     swap_mode: &SwapMode,
 ) -> Result<bool> {
     let temp_config_str = temp_config.to_string_lossy();
-    runner.out(&format!("Configuring disk device {}...", disk)).await;
+    runner
+        .out(&format!("Configuring disk device {}...", disk))
+        .await;
 
     // Validate disk path format
     if !disk.starts_with("/dev/") {
-        runner.step_failed(
-            "disk",
-            &format!("Invalid disk path: {}. Must start with /dev/", disk),
-            "Disk validation",
-        ).await?;
+        runner
+            .step_failed(
+                "disk",
+                &format!("Invalid disk path: {}. Must start with /dev/", disk),
+                "Disk validation",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
 
     // Check that disk device actually exists
     if !std::path::Path::new(disk).exists() {
-        runner.step_failed(
-            "disk",
-            &format!("Disk device does not exist: {}", disk),
-            "Disk validation",
-        ).await?;
+        runner
+            .step_failed(
+                "disk",
+                &format!("Disk device does not exist: {}", disk),
+                "Disk validation",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
@@ -364,14 +424,16 @@ async fn step_configure_disk(
     // Check disko config file exists
     let disko_file = format!("{}/modules/disko/{}.nix", temp_config_str, hostname);
     if !std::path::Path::new(&disko_file).exists() {
-        runner.step_failed(
-            "disk",
-            &format!(
-                "No disko configuration found for host '{}'. Expected: modules/disko/{}.nix",
-                hostname, hostname
-            ),
-            "Disk configuration",
-        ).await?;
+        runner
+            .step_failed(
+                "disk",
+                &format!(
+                    "No disko configuration found for host '{}'. Expected: modules/disko/{}.nix",
+                    hostname, hostname
+                ),
+                "Disk configuration",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
@@ -389,16 +451,27 @@ async fn step_configure_disk(
         let uses_lvm = LVM_PV_RE.is_match(&disko_content);
 
         if uses_lvm {
-            runner.out("Detected LVM configuration - hibernate swap is pre-configured").await;
-            runner.out("  Skipping swapfile injection (using LVM swap partition)").await;
+            runner
+                .out("Detected LVM configuration - hibernate swap is pre-configured")
+                .await;
+            runner
+                .out("  Skipping swapfile injection (using LVM swap partition)")
+                .await;
         } else {
             let ram_gb = get_ram_size_gb();
             let swap_size_gb = ram_gb + 2; // RAM + 2GB for hibernate
-            runner.out(&format!("Configuring hibernate swap ({}GB swapfile)...", swap_size_gb)).await;
+            runner
+                .out(&format!(
+                    "Configuring hibernate swap ({}GB swapfile)...",
+                    swap_size_gb
+                ))
+                .await;
 
             let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
-            let disko_default_content = std::fs::read_to_string(&disko_default_file)
-                .with_context(|| format!("Failed to read disko default.nix: {}", disko_default_file))?;
+            let disko_default_content =
+                std::fs::read_to_string(&disko_default_file).with_context(|| {
+                    format!("Failed to read disko default.nix: {}", disko_default_file)
+                })?;
 
             // Inject @swap subvolume
             let updated_disko = inject_swap_subvolume(&disko_default_content, swap_size_gb);
@@ -406,14 +479,17 @@ async fn step_configure_disk(
             // Add fileSystems."/swap".neededForBoot
             let updated_disko = inject_swap_filesystem_config(&updated_disko);
 
-            std::fs::write(&disko_default_file, &updated_disko)
-                .with_context(|| format!("Failed to write disko default.nix: {}", disko_default_file))?;
+            std::fs::write(&disko_default_file, &updated_disko).with_context(|| {
+                format!("Failed to write disko default.nix: {}", disko_default_file)
+            })?;
 
             // Verify injection
             if updated_disko.contains("@swap") {
                 runner.out("  Swap subvolume configured successfully").await;
             } else {
-                runner.err("  WARNING: Swap subvolume injection may have failed").await;
+                runner
+                    .err("  WARNING: Swap subvolume injection may have failed")
+                    .await;
             }
         }
     } else {
@@ -422,7 +498,9 @@ async fn step_configure_disk(
 
     // Update flake.nix with username if it differs from default
     if username != DEFAULT_USERNAME {
-        runner.out(&format!("Configuring username '{}'...", username)).await;
+        runner
+            .out(&format!("Configuring username '{}'...", username))
+            .await;
 
         let flake_file = format!("{}/flake.nix", temp_config_str);
         let flake_content = std::fs::read_to_string(&flake_file)
@@ -457,14 +535,21 @@ async fn step_configure_gpu(
 
     // Only configure bus IDs for hybrid GPU systems
     if gpu.vendor != GpuVendor::HybridNvidiaAmd {
-        runner.out(&format!("GPU: {} (no PRIME configuration needed)", gpu.vendor)).await;
+        runner
+            .out(&format!(
+                "GPU: {} (no PRIME configuration needed)",
+                gpu.vendor
+            ))
+            .await;
         return Ok(true);
     }
 
     let hybrid = match &gpu.hybrid {
         Some(h) => h,
         None => {
-            runner.out("Hybrid GPU detected but no bus IDs available").await;
+            runner
+                .out("Hybrid GPU detected but no bus IDs available")
+                .await;
             return Ok(true);
         }
     };
@@ -472,7 +557,9 @@ async fn step_configure_gpu(
     let amd_bus_id = match &hybrid.amd_bus_id {
         Some(id) => id.clone(),
         None => {
-            runner.out("AMD iGPU bus ID not detected, skipping PRIME configuration").await;
+            runner
+                .out("AMD iGPU bus ID not detected, skipping PRIME configuration")
+                .await;
             return Ok(true);
         }
     };
@@ -480,15 +567,19 @@ async fn step_configure_gpu(
     let nvidia_bus_id = match &hybrid.nvidia_bus_id {
         Some(id) => id.clone(),
         None => {
-            runner.out("NVIDIA dGPU bus ID not detected, skipping PRIME configuration").await;
+            runner
+                .out("NVIDIA dGPU bus ID not detected, skipping PRIME configuration")
+                .await;
             return Ok(true);
         }
     };
 
-    runner.out(&format!(
-        "Hybrid GPU detected: AMD iGPU ({}), NVIDIA dGPU ({})",
-        amd_bus_id, nvidia_bus_id
-    )).await;
+    runner
+        .out(&format!(
+            "Hybrid GPU detected: AMD iGPU ({}), NVIDIA dGPU ({})",
+            amd_bus_id, nvidia_bus_id
+        ))
+        .await;
 
     // Update host config with detected bus IDs
     let host_config_file = format!(
@@ -498,7 +589,9 @@ async fn step_configure_gpu(
     );
 
     if !std::path::Path::new(&host_config_file).exists() {
-        runner.out("Host config not found, skipping GPU bus ID configuration").await;
+        runner
+            .out("Host config not found, skipping GPU bus ID configuration")
+            .await;
         return Ok(true);
     }
 
@@ -507,7 +600,9 @@ async fn step_configure_gpu(
 
     // Check if this host has PRIME configuration
     if !content.contains("amdgpuBusId") || !content.contains("nvidiaBusId") {
-        runner.out("No PRIME configuration found in host config, skipping").await;
+        runner
+            .out("No PRIME configuration found in host config, skipping")
+            .await;
         return Ok(true);
     }
 
@@ -535,7 +630,9 @@ async fn step_run_disko(
     let temp_config_str = temp_config.to_string_lossy();
 
     runner.out("Running disko to partition and format...").await;
-    runner.out("Using provided passphrase for LUKS encryption...").await;
+    runner
+        .out("Using provided passphrase for LUKS encryption...")
+        .await;
 
     // Write password to temp file for disko with atomic 0600 permissions
     {
@@ -548,9 +645,15 @@ async fn step_run_disko(
             .truncate(true)
             .mode(0o600)
             .open(LUKS_PASSWORD_FILE)
-            .with_context(|| format!("Failed to create LUKS password file: {}", LUKS_PASSWORD_FILE))?;
-        file.write_all(password.as_bytes())
-            .with_context(|| format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE))?;
+            .with_context(|| {
+                format!(
+                    "Failed to create LUKS password file: {}",
+                    LUKS_PASSWORD_FILE
+                )
+            })?;
+        file.write_all(password.as_bytes()).with_context(|| {
+            format!("Failed to write LUKS password file: {}", LUKS_PASSWORD_FILE)
+        })?;
         file.sync_all()
             .with_context(|| "Failed to sync LUKS password file")?;
     }
@@ -564,7 +667,9 @@ async fn step_run_disko(
             Ok(content) => {
                 let updated = inject_luks_password_file(&content);
                 if let Err(e) = std::fs::write(&host_disko_file, &updated) {
-                    runner.err(&format!("Failed to write host disko file: {}", e)).await;
+                    runner
+                        .err(&format!("Failed to write host disko file: {}", e))
+                        .await;
                 } else {
                     injected_any |= updated.contains("passwordFile");
                     runner
@@ -600,10 +705,14 @@ async fn step_run_disko(
 
     // Verify passwordFile injection
     if injected_any {
-        runner.out("LUKS passwordFile configured successfully").await;
+        runner
+            .out("LUKS passwordFile configured successfully")
+            .await;
         tracing::info!("passwordFile injection confirmed in disko config");
     } else {
-        runner.err("WARNING: passwordFile injection may have failed!").await;
+        runner
+            .err("WARNING: passwordFile injection may have failed!")
+            .await;
         tracing::error!("passwordFile NOT found in modified disko config");
     }
 
@@ -611,19 +720,31 @@ async fn step_run_disko(
     runner.out("Building disko...").await;
     let (build_ok, disko_path, build_err) = run_capture(
         "nix",
-        &["build", &format!("{}#disko", temp_config_str), "--no-link", "--print-out-paths"],
-    ).await?;
+        &[
+            "build",
+            &format!("{}#disko", temp_config_str),
+            "--no-link",
+            "--print-out-paths",
+        ],
+    )
+    .await?;
 
     if !build_ok || disko_path.trim().is_empty() {
         shred_and_remove(LUKS_PASSWORD_FILE);
-        runner.err(&format!("Failed to build disko: {}", build_err)).await;
-        runner.step_failed("disko", "Failed to build disko", "Disko build").await?;
+        runner
+            .err(&format!("Failed to build disko: {}", build_err))
+            .await;
+        runner
+            .step_failed("disko", "Failed to build disko", "Disko build")
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
 
     let disko_bin = format!("{}/bin/disko", disko_path.trim());
-    runner.out(&format!("Running disko from {}...", disko_bin)).await;
+    runner
+        .out(&format!("Running disko from {}...", disko_bin))
+        .await;
 
     // Run disko with sudo to ensure EUID=0 (required by disko)
     let success = runner
@@ -644,7 +765,9 @@ async fn step_run_disko(
     shred_and_remove(LUKS_PASSWORD_FILE);
 
     if !success {
-        runner.step_failed("disko", "Disk partitioning failed", "Disko partitioning").await?;
+        runner
+            .step_failed("disko", "Disk partitioning failed", "Disko partitioning")
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
@@ -653,38 +776,57 @@ async fn step_run_disko(
     // This matches what the NixOS graphical installer does and is more reliable
     runner.out("").await;
     runner.out("=== LUKS UUID Detection ===").await;
-    runner.out("Detecting LUKS UUID for boot configuration...").await;
+    runner
+        .out("Detecting LUKS UUID for boot configuration...")
+        .await;
 
     // Try multiple methods to find the LUKS device
     let mut luks_uuid: Option<String> = None;
 
     // Method 1: Try by-partlabel (disko's default)
-    runner.out("  Trying /dev/disk/by-partlabel/cryptroot...").await;
+    runner
+        .out("  Trying /dev/disk/by-partlabel/cryptroot...")
+        .await;
     let (ok1, uuid1, err1) = run_capture(
         "cryptsetup",
         &["luksUUID", "/dev/disk/by-partlabel/cryptroot"],
-    ).await?;
+    )
+    .await?;
     if ok1 && !uuid1.trim().is_empty() {
         luks_uuid = Some(uuid1.trim().to_string());
-        runner.out(&format!("  Found via by-partlabel: {}", uuid1.trim())).await;
+        runner
+            .out(&format!("  Found via by-partlabel: {}", uuid1.trim()))
+            .await;
     } else {
-        runner.out(&format!("  by-partlabel failed: {}", err1.trim())).await;
+        runner
+            .out(&format!("  by-partlabel failed: {}", err1.trim()))
+            .await;
     }
 
     // Method 2: If method 1 failed, try to find the backing device of /dev/mapper/cryptroot
     if luks_uuid.is_none() {
-        runner.out("  Trying to find backing device of /dev/mapper/cryptroot...").await;
+        runner
+            .out("  Trying to find backing device of /dev/mapper/cryptroot...")
+            .await;
         let (ok2, dmsetup_out, _) = run_capture(
             "sh",
-            &["-c", "dmsetup deps -o devname cryptroot 2>/dev/null | grep -oP '\\(\\K[^)]+' | head -1"],
-        ).await?;
+            &[
+                "-c",
+                "dmsetup deps -o devname cryptroot 2>/dev/null | grep -oP '\\(\\K[^)]+' | head -1",
+            ],
+        )
+        .await?;
         if ok2 && !dmsetup_out.trim().is_empty() {
             let backing_dev = format!("/dev/{}", dmsetup_out.trim());
-            runner.out(&format!("  Backing device: {}", backing_dev)).await;
+            runner
+                .out(&format!("  Backing device: {}", backing_dev))
+                .await;
             let (ok3, uuid3, _) = run_capture("cryptsetup", &["luksUUID", &backing_dev]).await?;
             if ok3 && !uuid3.trim().is_empty() {
                 luks_uuid = Some(uuid3.trim().to_string());
-                runner.out(&format!("  Found via dmsetup: {}", uuid3.trim())).await;
+                runner
+                    .out(&format!("  Found via dmsetup: {}", uuid3.trim()))
+                    .await;
             }
         }
     }
@@ -696,18 +838,26 @@ async fn step_run_disko(
             let (ok, uuid, _) = run_capture("cryptsetup", &["luksUUID", dev]).await?;
             if ok && !uuid.trim().is_empty() {
                 luks_uuid = Some(uuid.trim().to_string());
-                runner.out(&format!("  Found via {}: {}", dev, uuid.trim())).await;
+                runner
+                    .out(&format!("  Found via {}: {}", dev, uuid.trim()))
+                    .await;
                 break;
             }
         }
     }
 
     if let Some(uuid) = &luks_uuid {
-        runner.out(&format!("  SUCCESS: LUKS UUID = {}", uuid)).await;
-        runner.out("  Using disko's default by-partlabel configuration").await;
+        runner
+            .out(&format!("  SUCCESS: LUKS UUID = {}", uuid))
+            .await;
+        runner
+            .out("  Using disko's default by-partlabel configuration")
+            .await;
         // Note: Not overriding device path - testing if disko defaults work
     } else {
-        runner.err("  Could not detect LUKS UUID (informational only)").await;
+        runner
+            .err("  Could not detect LUKS UUID (informational only)")
+            .await;
     }
     runner.out("=== End LUKS UUID Detection ===").await;
     runner.out("").await;
@@ -743,8 +893,12 @@ async fn step_configure_hibernate(
             .with_context(|| format!("Failed to read host config: {}", host_config_file))?;
 
         if RESUME_DEVICE_RE.is_match(&host_content) {
-            runner.out("  Hibernate already configured in host config (LVM or manual)").await;
-            runner.out("  Skipping automatic hibernate configuration").await;
+            runner
+                .out("  Hibernate already configured in host config (LVM or manual)")
+                .await;
+            runner
+                .out("  Skipping automatic hibernate configuration")
+                .await;
             return Ok(true);
         }
     }
@@ -752,35 +906,54 @@ async fn step_configure_hibernate(
     // The swapfile should be at /mnt/swap/swapfile after disko
     let swapfile_path = "/mnt/swap/swapfile";
     if !std::path::Path::new(swapfile_path).exists() {
-        runner.err(&format!("Swapfile not found at {}", swapfile_path)).await;
-        runner.err("Hibernate configuration skipped - swapfile missing").await;
+        runner
+            .err(&format!("Swapfile not found at {}", swapfile_path))
+            .await;
+        runner
+            .err("Hibernate configuration skipped - swapfile missing")
+            .await;
         // Non-fatal - continue with installation, user can configure manually
         return Ok(true);
     }
 
     // Get resume_offset using btrfs inspect-internal map-swapfile
-    runner.out("  Detecting resume_offset for swapfile...").await;
+    runner
+        .out("  Detecting resume_offset for swapfile...")
+        .await;
     let (success, output, _) = run_capture(
         "sudo",
-        &["btrfs", "inspect-internal", "map-swapfile", "-r", swapfile_path],
-    ).await?;
+        &[
+            "btrfs",
+            "inspect-internal",
+            "map-swapfile",
+            "-r",
+            swapfile_path,
+        ],
+    )
+    .await?;
 
     if !success || output.trim().is_empty() {
         runner.err("  Failed to detect resume_offset").await;
-        runner.err("  Hibernate configuration skipped - you can configure manually").await;
+        runner
+            .err("  Hibernate configuration skipped - you can configure manually")
+            .await;
         return Ok(true);
     }
 
     let resume_offset: u64 = match output.trim().parse() {
         Ok(offset) => offset,
         Err(_) => {
-            runner.err(&format!("  Invalid resume_offset value: {}", output.trim())).await;
+            runner
+                .err(&format!("  Invalid resume_offset value: {}", output.trim()))
+                .await;
             runner.err("  Hibernate configuration skipped").await;
             return Ok(true);
         }
     };
 
-    runner.out(&format!("  Resume offset: {}", resume_offset)).await;
+    runner
+        .out(&format!("  Resume offset: {}", resume_offset))
+        .await;
 
     // Update host's default.nix with hibernate configuration
     let host_config_file = format!(
@@ -790,7 +963,9 @@ async fn step_configure_hibernate(
     );
 
     if !std::path::Path::new(&host_config_file).exists() {
-        runner.err("  Host config not found, hibernate settings not applied").await;
+        runner
+            .err("  Host config not found, hibernate settings not applied")
+            .await;
         return Ok(true);
     }
 
@@ -803,8 +978,12 @@ async fn step_configure_hibernate(
         .with_context(|| format!("Failed to write host config: {}", host_config_file))?;
 
     runner.out("  Hibernate boot settings configured:").await;
-    runner.out("    - boot.resumeDevice = /dev/mapper/cryptroot").await;
-    runner.out(&format!("    - resume_offset = {}", resume_offset)).await;
+    runner
+        .out("    - boot.resumeDevice = /dev/mapper/cryptroot")
+        .await;
+    runner
+        .out(&format!("    - resume_offset = {}", resume_offset))
+        .await;
     runner.out("    - zramSwap disabled").await;
 
     Ok(true)
@@ -830,20 +1009,27 @@ async fn step_install_nixos(
     runner.out("  Checking mount point...").await;
     if !std::path::Path::new("/mnt").exists() {
         runner.err("ERROR: /mnt does not exist!").await;
-        runner.step_failed("NixOS", "/mnt mount point missing", "NixOS installation").await?;
+        runner
+            .step_failed("NixOS", "/mnt mount point missing", "NixOS installation")
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
 
     // List what's in /mnt to debug
     if let Ok(entries) = std::fs::read_dir("/mnt") {
-        let dirs: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        let dirs: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
         runner.out(&format!("  /mnt contents: {:?}", dirs)).await;
     }
 
     // Show mount points under /mnt for debugging
-    let (_, mount_out, _) = run_capture("sh", &["-c", "mount | grep /mnt || echo 'No mounts found'"]).await
-        .unwrap_or((false, "mount command failed".to_string(), String::new()));
+    let (_, mount_out, _) =
+        run_capture("sh", &["-c", "mount | grep /mnt || echo 'No mounts found'"])
+            .await
+            .unwrap_or((false, "mount command failed".to_string(), String::new()));
     for line in mount_out.lines().take(10) {
         runner.out(&format!("  mount: {}", line)).await;
     }
@@ -851,49 +1037,107 @@ async fn step_install_nixos(
     // Verify /mnt/home exists (btrfs @home subvolume should be mounted here)
     let mnt_home = std::path::Path::new("/mnt/home");
     if !mnt_home.exists() {
-        runner.err("ERROR: /mnt/home does not exist! Disko may not have mounted subvolumes correctly.").await;
-        runner.step_failed("NixOS", "/mnt/home missing - disko mount issue", "NixOS installation").await?;
+        runner
+            .err(
+                "ERROR: /mnt/home does not exist! Disko may not have mounted subvolumes correctly.",
+            )
+            .await;
+        runner
+            .step_failed(
+                "NixOS",
+                "/mnt/home missing - disko mount issue",
+                "NixOS installation",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
-    runner.out("  /mnt/home exists (btrfs subvolume mounted)").await;
+    runner
+        .out("  /mnt/home exists (btrfs subvolume mounted)")
+        .await;
 
     // Copy configuration to user home directory
     // Note: We use sudo for all file operations because nix run doesn't preserve EUID=0
-    runner.out(&format!("  Creating user directory: /mnt/home/{}", username)).await;
+    runner
+        .out(&format!(
+            "  Creating user directory: /mnt/home/{}",
+            username
+        ))
+        .await;
     let config_parent = std::path::Path::new(&config_dir)
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid config directory path: {}", config_dir))?;
-    runner.out(&format!("  Target path: {}", config_parent.display())).await;
+    runner
+        .out(&format!("  Target path: {}", config_parent.display()))
+        .await;
 
     // Use sudo mkdir -p since nix run doesn't preserve root privileges
-    let mkdir_ok = runner.run("sudo", &["mkdir", "-p", &config_parent.to_string_lossy()]).await?;
+    let mkdir_ok = runner
+        .run("sudo", &["mkdir", "-p", &config_parent.to_string_lossy()])
+        .await?;
     if !mkdir_ok {
-        runner.err(&format!("ERROR: Failed to create {}", config_parent.display())).await;
-        runner.step_failed("NixOS", &format!("Failed to create {}", config_parent.display()), "NixOS installation").await?;
+        runner
+            .err(&format!(
+                "ERROR: Failed to create {}",
+                config_parent.display()
+            ))
+            .await;
+        runner
+            .step_failed(
+                "NixOS",
+                &format!("Failed to create {}", config_parent.display()),
+                "NixOS installation",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
-    runner.out(&format!("  Created: {}", config_parent.display())).await;
+    runner
+        .out(&format!("  Created: {}", config_parent.display()))
+        .await;
 
     // Copy configuration using sudo cp -r
     runner.out("  Copying configuration...").await;
-    let copy_ok = runner.run("sudo", &["cp", "-r", &temp_config_str.to_string(), &config_dir]).await?;
+    let copy_ok = runner
+        .run(
+            "sudo",
+            &["cp", "-r", &temp_config_str.to_string(), &config_dir],
+        )
+        .await?;
     if !copy_ok {
-        runner.err(&format!("ERROR: Failed to copy {} to {}", temp_config_str, config_dir)).await;
-        runner.step_failed("NixOS", "Failed to copy configuration", "NixOS installation").await?;
+        runner
+            .err(&format!(
+                "ERROR: Failed to copy {} to {}",
+                temp_config_str, config_dir
+            ))
+            .await;
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to copy configuration",
+                "NixOS installation",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
 
     // Remove .git from copied config
-    let _ = runner.run("sudo", &["rm", "-rf", &format!("{}/.git", config_dir)]).await;
+    let _ = runner
+        .run("sudo", &["rm", "-rf", &format!("{}/.git", config_dir)])
+        .await;
 
     // Create symlink using sudo
     runner.out("  Setting up symlink...").await;
     let symlink_ok = setup_config_symlink_sudo(runner, &symlink_target).await?;
     if !symlink_ok {
-        runner.step_failed("NixOS", "Failed to create /etc/nixos symlink", "NixOS installation").await?;
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to create /etc/nixos symlink",
+                "NixOS installation",
+            )
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
@@ -926,7 +1170,9 @@ async fn step_install_nixos(
         .unwrap_or(false);
 
     if !check_ok {
-        runner.err("Flake check failed - there may be syntax errors in the configuration.").await;
+        runner
+            .err("Flake check failed - there may be syntax errors in the configuration.")
+            .await;
         // Continue anyway - the actual build might still work
     }
 
@@ -955,8 +1201,12 @@ async fn step_install_nixos(
         .await?;
 
     if !success {
-        runner.err("nixos-install failed! Check the output above for errors.").await;
-        runner.step_failed("NixOS", "nixos-install failed", "NixOS installation").await?;
+        runner
+            .err("nixos-install failed! Check the output above for errors.")
+            .await;
+        runner
+            .step_failed("NixOS", "nixos-install failed", "NixOS installation")
+            .await?;
         runner.done(false).await?;
         return Ok(false);
     }
@@ -999,7 +1249,12 @@ async fn show_completion_message(runner: &CommandRunner<'_>, username: &str) -> 
     runner.out("  1. Reboot: reboot").await;
     runner.out("  2. Enter your LUKS passphrase at boot").await;
     runner.out("  3. Select a shell from the boot menu").await;
-    runner.out(&format!("  4. Login as '{}' with your chosen password", username)).await;
+    runner
+        .out(&format!(
+            "  4. Login as '{}' with your chosen password",
+            username
+        ))
+        .await;
     Ok(())
 }
 
@@ -1008,23 +1263,46 @@ async fn show_completion_message(runner: &CommandRunner<'_>, username: &str) -> 
 // =============================================================================
 
 /// Set up the /mnt/etc/nixos symlink using sudo (for nix run compatibility)
-async fn setup_config_symlink_sudo(runner: &CommandRunner<'_>, symlink_target: &str) -> Result<bool> {
+async fn setup_config_symlink_sudo(
+    runner: &CommandRunner<'_>,
+    symlink_target: &str,
+) -> Result<bool> {
     let symlink_parent = std::path::Path::new(INSTALL_SYMLINK_PATH)
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("Invalid symlink path: cannot determine parent of {}", INSTALL_SYMLINK_PATH))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid symlink path: cannot determine parent of {}",
+                INSTALL_SYMLINK_PATH
+            )
+        })?;
 
     // Create parent directory
-    if !runner.run("sudo", &["mkdir", "-p", &symlink_parent.to_string_lossy()]).await? {
-        runner.err(&format!("Failed to create {}", symlink_parent.display())).await;
+    if !runner
+        .run("sudo", &["mkdir", "-p", &symlink_parent.to_string_lossy()])
+        .await?
+    {
+        runner
+            .err(&format!("Failed to create {}", symlink_parent.display()))
+            .await;
         return Ok(false);
     }
 
     // Remove existing symlink/file/directory
-    let _ = runner.run("sudo", &["rm", "-rf", INSTALL_SYMLINK_PATH]).await;
+    let _ = runner
+        .run("sudo", &["rm", "-rf", INSTALL_SYMLINK_PATH])
+        .await;
 
     // Create symlink
-    if !runner.run("sudo", &["ln", "-s", symlink_target, INSTALL_SYMLINK_PATH]).await? {
-        runner.err(&format!("Failed to create symlink {} -> {}", INSTALL_SYMLINK_PATH, symlink_target)).await;
+    if !runner
+        .run("sudo", &["ln", "-s", symlink_target, INSTALL_SYMLINK_PATH])
+        .await?
+    {
+        runner
+            .err(&format!(
+                "Failed to create symlink {} -> {}",
+                INSTALL_SYMLINK_PATH, symlink_target
+            ))
+            .await;
         return Ok(false);
     }
 
@@ -1054,7 +1332,9 @@ async fn init_git_repo(runner: &CommandRunner<'_>, config_dir: &str) {
         .await
     {
         Ok(true) => tracing::info!("Git repository initialized successfully"),
-        Ok(false) => tracing::warn!("Git repository initialization returned non-zero exit - continuing"),
+        Ok(false) => {
+            tracing::warn!("Git repository initialization returned non-zero exit - continuing")
+        }
         Err(e) => tracing::warn!("Git repository initialization error: {} - continuing", e),
     }
 }
@@ -1069,12 +1349,18 @@ async fn set_config_ownership(
     let config_parent_str = config_parent.to_str().unwrap_or(".");
 
     // Use sudo for chown since nix run doesn't preserve root privileges
-    match runner.run("sudo", &["chown", &uid_gid, config_parent_str]).await {
+    match runner
+        .run("sudo", &["chown", &uid_gid, config_parent_str])
+        .await
+    {
         Ok(true) => tracing::info!("Set ownership on config parent directory"),
         Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config parent directory"),
     }
 
-    match runner.run("sudo", &["chown", "-R", &uid_gid, config_dir]).await {
+    match runner
+        .run("sudo", &["chown", "-R", &uid_gid, config_dir])
+        .await
+    {
         Ok(true) => tracing::info!("Set ownership on config directory"),
         Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config directory"),
     }
@@ -1182,7 +1468,9 @@ fn inject_luks_password_file(content: &str) -> String {
         LUKS_PASSWORD_FILE
     );
     // Use replace (not replace_all) to only inject once
-    LUKS_NAME_RE.replace(&cleaned, replacement.as_str()).to_string()
+    LUKS_NAME_RE
+        .replace(&cleaned, replacement.as_str())
+        .to_string()
 }
 
 /// Inject @swap subvolume into disko configuration for hibernate support
@@ -1192,7 +1480,8 @@ fn inject_swap_subvolume(content: &str, swap_size_gb: u64) -> String {
         return content.to_string();
     }
     // Find the @var-log subvolume closing brace and add @swap after it
-    let pattern = r#"("@var-log" = \{[^}]*mountpoint = "/var/log";[^}]*mountOptions = \[[^\]]*\];[^}]*\};)"#;
+    let pattern =
+        r#"("@var-log" = \{[^}]*mountpoint = "/var/log";[^}]*mountOptions = \[[^\]]*\];[^}]*\};)"#;
     if let Ok(re) = regex::Regex::new(pattern) {
         let swap_subvolume = format!(
             r#"$1
@@ -1298,7 +1587,9 @@ fn update_flake_username(content: &str, hostname: &str, username: &str) -> Strin
             );
             if let Ok(re_replace) = regex::Regex::new(&replace_pattern) {
                 let replacement = format!("${{1}}{}", username);
-                return re_replace.replace(content, replacement.as_str()).to_string();
+                return re_replace
+                    .replace(content, replacement.as_str())
+                    .to_string();
             }
         }
     }

@@ -57,7 +57,10 @@ pub fn generate_description(action: &str, argument: &str) -> String {
             }
 
             // Browser
-            if arg_lower.contains("chrome") || arg_lower.contains("firefox") || argument.contains("$browser") {
+            if arg_lower.contains("chrome")
+                || arg_lower.contains("firefox")
+                || argument.contains("$browser")
+            {
                 if arg_lower.contains("--incognito") || arg_lower.contains("--private") {
                     return "Open Incognito Browser".to_string();
                 }
@@ -65,7 +68,10 @@ pub fn generate_description(action: &str, argument: &str) -> String {
             }
 
             // File manager
-            if arg_lower.contains("nautilus") || arg_lower.contains("dolphin") || arg_lower.contains("thunar") {
+            if arg_lower.contains("nautilus")
+                || arg_lower.contains("dolphin")
+                || arg_lower.contains("thunar")
+            {
                 return "Open Files".to_string();
             }
 
@@ -148,7 +154,10 @@ pub fn generate_description(action: &str, argument: &str) -> String {
             }
 
             // Launcher
-            if arg_lower.contains("launcher") || arg_lower.contains("fuzzel") || arg_lower.contains("rofi") {
+            if arg_lower.contains("launcher")
+                || arg_lower.contains("fuzzel")
+                || arg_lower.contains("rofi")
+            {
                 return "Open Launcher".to_string();
             }
 
@@ -164,15 +173,13 @@ pub fn generate_description(action: &str, argument: &str) -> String {
         "exit" => "Exit Hyprland".to_string(),
 
         // Focus navigation
-        "movefocus" => {
-            match argument.to_lowercase().as_str() {
-                "l" => "Focus Left".to_string(),
-                "r" => "Focus Right".to_string(),
-                "u" => "Focus Up".to_string(),
-                "d" => "Focus Down".to_string(),
-                _ => format!("Focus {}", argument),
-            }
-        }
+        "movefocus" => match argument.to_lowercase().as_str() {
+            "l" => "Focus Left".to_string(),
+            "r" => "Focus Right".to_string(),
+            "u" => "Focus Up".to_string(),
+            "d" => "Focus Down".to_string(),
+            _ => format!("Focus {}", argument),
+        },
 
         // Workspaces
         "workspace" => {
@@ -233,7 +240,11 @@ pub fn generate_description(action: &str, argument: &str) -> String {
             if argument.is_empty() {
                 capitalize_action(base_action)
             } else {
-                format!("{}: {}", capitalize_action(base_action), truncate_arg(argument, 25))
+                format!(
+                    "{}: {}",
+                    capitalize_action(base_action),
+                    truncate_arg(argument, 25)
+                )
             }
         }
     }
@@ -267,7 +278,8 @@ pub fn detect_current_shell() -> String {
             std::fs::read_to_string("/proc/self/status")
                 .ok()
                 .and_then(|content| {
-                    content.lines()
+                    content
+                        .lines()
                         .find(|line| line.starts_with("Uid:"))
                         .and_then(|line| line.split_whitespace().nth(1))
                         .map(|s| s.to_string())
@@ -314,8 +326,12 @@ pub fn parse_bindings() -> Result<(Vec<Keybinding>, Vec<String>, String)> {
         }
 
         // Skip empty lines and Nix interpolation
-        if line.is_empty() || line.starts_with("${") || line.starts_with("let")
-            || line.starts_with("in") || line == "''" {
+        if line.is_empty()
+            || line.starts_with("${")
+            || line.starts_with("let")
+            || line.starts_with("in")
+            || line == "''"
+        {
             continue;
         }
 
@@ -323,8 +339,12 @@ pub fn parse_bindings() -> Result<(Vec<Keybinding>, Vec<String>, String)> {
         if let Some(caps) = comment_re.captures(line) {
             let comment = caps.get(1).map_or("", |m| m.as_str()).trim();
             // Skip inline comments, short comments, comments outside config block, and Variables
-            if in_config_block && !comment.is_empty() && comment.len() > 3
-                && !comment.starts_with("Wallpaper") && comment != "Variables" {
+            if in_config_block
+                && !comment.is_empty()
+                && comment.len() > 3
+                && !comment.starts_with("Wallpaper")
+                && comment != "Variables"
+            {
                 current_category = comment.to_string();
                 if !categories.contains(&current_category) {
                     categories.push(current_category.clone());
@@ -353,7 +373,11 @@ pub fn parse_bindings() -> Result<(Vec<Keybinding>, Vec<String>, String)> {
                 let mut modifiers = parts[0].to_string();
                 let key = parts[1].to_string();
                 let action = parts[2].to_string();
-                let argument = if parts.len() > 3 { parts[3].to_string() } else { String::new() };
+                let argument = if parts.len() > 3 {
+                    parts[3].to_string()
+                } else {
+                    String::new()
+                };
 
                 // Substitute variables in modifiers
                 for (var, val) in &variables {

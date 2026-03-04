@@ -68,9 +68,9 @@ pub fn main_layout(area: Rect) -> (Rect, Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // Header
-            Constraint::Min(10),    // Content
-            Constraint::Length(3),  // Footer
+            Constraint::Length(5), // Header
+            Constraint::Min(10),   // Content
+            Constraint::Length(3), // Footer
         ])
         .split(area);
     (chunks[0], chunks[1], chunks[2])

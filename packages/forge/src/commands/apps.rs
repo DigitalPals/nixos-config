@@ -42,9 +42,18 @@ fn compute_profile_hashes() -> BTreeMap<String, String> {
                 if let Ok(meta) = entry.metadata() {
                     let mtime = meta
                         .modified()
-                        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+                        .map(|t| {
+                            t.duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs()
+                        })
                         .unwrap_or(0);
-                    meta_parts.push(format!("{}:{}:{}", entry.file_name().to_string_lossy(), meta.len(), mtime));
+                    meta_parts.push(format!(
+                        "{}:{}:{}",
+                        entry.file_name().to_string_lossy(),
+                        meta.len(),
+                        mtime
+                    ));
                 }
             }
             meta_parts.sort();
@@ -98,11 +107,14 @@ pub async fn start_backup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Resu
 
         // Check if profiles changed (skip if unchanged unless --force)
         if !force && !profiles_changed() {
-            runner.out("  App profiles unchanged since last backup - skipping").await;
+            runner
+                .out("  App profiles unchanged since last backup - skipping")
+                .await;
             runner.out("  Use --force to backup anyway").await;
             tx.send(CommandMessage::StepComplete {
                 step: "Backup".to_string(),
-            }).await?;
+            })
+            .await?;
             tx.send(CommandMessage::Done { success: true }).await?;
             return Ok(());
         }
@@ -235,7 +247,9 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     .await?;
 
     if !fetch_ok {
-        runner.out("  Unable to reach remote; showing local status only").await;
+        runner
+            .out("  Unable to reach remote; showing local status only")
+            .await;
         runner.out("").await;
         list_local_files(&runner, &local_repo).await;
         runner.footer().await;
@@ -245,7 +259,12 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
     // Compare heads
     let (_, local_head, _) = run_capture(
         "git",
-        &["-C", local_repo.to_str().unwrap_or("."), "rev-parse", "HEAD"],
+        &[
+            "-C",
+            local_repo.to_str().unwrap_or("."),
+            "rev-parse",
+            "HEAD",
+        ],
     )
     .await?;
 
@@ -274,7 +293,9 @@ async fn run_status(tx: &mpsc::Sender<CommandMessage>) -> Result<()> {
         .await?;
 
         if !master_ok {
-            runner.out("  Remote branch not found (origin/main or origin/master)").await;
+            runner
+                .out("  Remote branch not found (origin/main or origin/master)")
+                .await;
             runner.out("").await;
             list_local_files(&runner, &local_repo).await;
             runner.footer().await;

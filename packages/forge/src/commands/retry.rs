@@ -5,7 +5,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::CommandMessage;
-use crate::constants::{DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BASE_DELAY_SECS, DEFAULT_RETRY_MAX_DELAY_SECS};
+use crate::constants::{
+    DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BASE_DELAY_SECS, DEFAULT_RETRY_MAX_DELAY_SECS,
+};
 
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
@@ -48,7 +50,12 @@ where
             let _ = tx
                 .send(CommandMessage::StepDetail {
                     step: step.to_string(),
-                    detail: format!("Retry {}/{} in {}s...", attempt, config.max_retries, delay.as_secs()),
+                    detail: format!(
+                        "Retry {}/{} in {}s...",
+                        attempt,
+                        config.max_retries,
+                        delay.as_secs()
+                    ),
                 })
                 .await;
             tokio::time::sleep(delay).await;

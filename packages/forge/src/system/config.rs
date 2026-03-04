@@ -51,7 +51,9 @@ fn load_host_metadata(host_path: &Path) -> Option<HostMetadata> {
 /// Discover available hosts from the hosts/ directory
 /// Checks multiple locations in order: /tmp/nixos-config, ~/nixos-config, /etc/nixos
 pub fn discover_hosts() -> Vec<HostConfig> {
-    use crate::constants::{HOSTS_SUBDIR, NIXOS_CONFIG_HOME_DIR, NIXOS_CONFIG_SYSTEM, NIXOS_CONFIG_TEMP};
+    use crate::constants::{
+        HOSTS_SUBDIR, NIXOS_CONFIG_HOME_DIR, NIXOS_CONFIG_SYSTEM, NIXOS_CONFIG_TEMP,
+    };
 
     let locations = [
         format!("{}/{}", NIXOS_CONFIG_TEMP, HOSTS_SUBDIR),
@@ -145,10 +147,7 @@ pub fn load_browser_config(path: &Path) -> Result<BrowserBackupConfig> {
         }
     }
 
-    config.repo = vars
-        .get("BROWSER_BACKUP_REPO")
-        .cloned()
-        .unwrap_or_default();
+    config.repo = vars.get("BROWSER_BACKUP_REPO").cloned().unwrap_or_default();
     config.age_recipient = vars.get("AGE_RECIPIENT").cloned().unwrap_or_default();
     config.age_key_1password = vars.get("AGE_KEY_1PASSWORD").cloned();
     config.age_key_path = vars.get("AGE_KEY_PATH").cloned();
@@ -184,7 +183,10 @@ mod tests {
         let expanded = expand_tilde(path);
         // Should expand to home directory
         assert!(!expanded.starts_with("~"), "Tilde should be expanded");
-        assert!(expanded.contains("test/path"), "Path suffix should be preserved");
+        assert!(
+            expanded.contains("test/path"),
+            "Path suffix should be preserved"
+        );
     }
 
     #[test]

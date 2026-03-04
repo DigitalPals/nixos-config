@@ -69,12 +69,9 @@ pub async fn check_flake_updates() -> Result<Vec<String>> {
     }
 
     // Check inputs with timeout (typically just 1 API call for nixpkgs)
-    let updates = tokio::time::timeout(
-        flake_check_timeout(),
-        check_inputs_rest(inputs),
-    )
-    .await
-    .unwrap_or_else(|_| Ok(vec![]))?;
+    let updates = tokio::time::timeout(flake_check_timeout(), check_inputs_rest(inputs))
+        .await
+        .unwrap_or_else(|_| Ok(vec![]))?;
 
     Ok(updates)
 }

@@ -129,14 +129,20 @@ mod tests {
     fn test_notify_state_path_is_json() {
         let path = notify_state_path();
         let path_str = path.to_string_lossy();
-        assert!(path_str.ends_with(".json"), "Notify state should be a JSON file");
+        assert!(
+            path_str.ends_with(".json"),
+            "Notify state should be a JSON file"
+        );
     }
 
     #[test]
     fn test_forge_log_path_is_log() {
         let path = forge_log_path();
         let path_str = path.to_string_lossy();
-        assert!(path_str.ends_with(".log"), "Forge log should be a .log file");
+        assert!(
+            path_str.ends_with(".log"),
+            "Forge log should be a .log file"
+        );
     }
 
     #[test]
@@ -145,7 +151,10 @@ mod tests {
         let path_str = path.to_string_lossy();
         // If config dir exists, should end with flake.lock
         if !path_str.is_empty() {
-            assert!(path_str.ends_with("flake.lock"), "Flake lock path should end with flake.lock");
+            assert!(
+                path_str.ends_with("flake.lock"),
+                "Flake lock path should end with flake.lock"
+            );
         }
     }
 

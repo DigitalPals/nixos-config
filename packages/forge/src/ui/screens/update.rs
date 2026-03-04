@@ -573,8 +573,11 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         theme::dim(),
     )));
 
-    let mut hints: Vec<(&str, &str)> =
-        vec![("↑↓/jk", "Scroll"), ("Enter", "Done"), ("v", "View log")];
+    let mut hints: Vec<(&str, &str)> = vec![
+        ("↑↓/jk", "Scroll"),
+        ("Enter/Esc", "Done"),
+        ("v", "View log"),
+    ];
     if !summary.reboot_reasons.is_empty() {
         hints.push(("r", "Reboot"));
     }

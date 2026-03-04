@@ -238,9 +238,7 @@ pub fn draw_select_disk(
         ]
     };
 
-    let table = Table::new(rows, widths)
-    .header(header)
-    .block(
+    let table = Table::new(rows, widths).header(header).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme::border())
@@ -248,5 +246,9 @@ pub fn draw_select_disk(
     );
     frame.render_widget(table, chunks[2]);
 
-    draw_footer(frame, chunks[3], &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")]);
+    draw_footer(
+        frame,
+        chunks[3],
+        &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")],
+    );
 }

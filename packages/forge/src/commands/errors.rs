@@ -106,9 +106,8 @@ impl ParsedError {
 static GITHUB_HTTP_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)HTTP\s+error\s+(\d{3})").unwrap());
 
-static GITHUB_INPUT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"github(?:\.com)?[:/]([^/\s']+/[^/\s']+)").unwrap()
-});
+static GITHUB_INPUT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"github(?:\.com)?[:/]([^/\s']+/[^/\s']+)").unwrap());
 
 fn parse_github_api_error(stderr: &str) -> Option<ParsedError> {
     // Check for HTTP errors from GitHub
@@ -247,7 +246,8 @@ fn parse_nix_build_error(stderr: &str) -> Option<ParsedError> {
         return Some(ParsedError {
             summary: "Nix build failed".to_string(),
             detail: derivation.map(|d| format!("Failed: {}", d)),
-            suggestion: "Check the build output above for compiler or dependency errors.".to_string(),
+            suggestion: "Check the build output above for compiler or dependency errors."
+                .to_string(),
         });
     }
     None

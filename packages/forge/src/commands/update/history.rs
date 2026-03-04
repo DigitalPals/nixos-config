@@ -135,10 +135,7 @@ pub fn save_record(summary: &UpdateSummary, success: bool) -> Result<()> {
 
     // Get hostname
     let hostname = std::env::var("HOSTNAME")
-        .or_else(|_| {
-            std::fs::read_to_string("/etc/hostname")
-                .map(|s| s.trim().to_string())
-        })
+        .or_else(|_| std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()))
         .unwrap_or_else(|_| "unknown".to_string());
 
     // Create new record
@@ -210,7 +207,12 @@ fn print_history_list(records: &[UpdateRecord]) {
         let mut parts = Vec::new();
 
         // Flake changes
-        let total_commits: usize = record.summary.flake_changes.iter().map(|c| c.total_commits).sum();
+        let total_commits: usize = record
+            .summary
+            .flake_changes
+            .iter()
+            .map(|c| c.total_commits)
+            .sum();
         if total_commits > 0 {
             let input_count = record.summary.flake_changes.len();
             parts.push(format!("+{} commits ({})", total_commits, input_count));
@@ -266,7 +268,10 @@ fn print_record_details(record: &UpdateRecord) {
     println!();
     println!("  Date:     {}", local_time.format("%Y-%m-%d %H:%M:%S"));
     println!("  Host:     {}", record.hostname);
-    println!("  Status:   {}", if record.success { "Success" } else { "Failed" });
+    println!(
+        "  Status:   {}",
+        if record.success { "Success" } else { "Failed" }
+    );
     println!();
 
     // Flake changes
@@ -283,7 +288,10 @@ fn print_record_details(record: &UpdateRecord) {
 
     // Package changes
     if !record.summary.package_changes.is_empty() {
-        println!("  Packages ({} changed):", record.summary.package_changes.len());
+        println!(
+            "  Packages ({} changed):",
+            record.summary.package_changes.len()
+        );
         for (name, old, new) in &record.summary.package_changes {
             println!("    {:30} {} → {}", name, old, new);
         }

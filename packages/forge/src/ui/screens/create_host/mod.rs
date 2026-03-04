@@ -13,4 +13,6 @@ mod helpers;
 // Re-export all public draw functions for external use
 pub use disk::{draw_enter_hostname, draw_select_disk};
 pub use generation::{draw_complete, draw_generating, draw_review};
-pub use hardware::{draw_confirm_cpu, draw_confirm_form_factor, draw_confirm_gpu, draw_detecting_hardware};
+pub use hardware::{
+    draw_confirm_cpu, draw_confirm_form_factor, draw_confirm_gpu, draw_detecting_hardware,
+};

@@ -297,7 +297,7 @@ fn get_available_disks_text_fallback() -> Result<Vec<DiskInfo>> {
             path,
             size: size.to_string(),
             size_bytes,
-            model: None,       // Can't reliably parse model in text mode
+            model: None,        // Can't reliably parse model in text mode
             partitions: vec![], // No partition info in text fallback mode
         });
     }
@@ -346,8 +346,14 @@ mod tests {
         assert_eq!(parse_size("2T"), 2 * 1024 * 1024 * 1024 * 1024);
         // Fractional terabytes
         let size_1_8t = parse_size("1.8T");
-        assert!(size_1_8t > 1024 * 1024 * 1024 * 1024, "1.8T should be > 1TB");
-        assert!(size_1_8t < 2 * 1024 * 1024 * 1024 * 1024, "1.8T should be < 2TB");
+        assert!(
+            size_1_8t > 1024 * 1024 * 1024 * 1024,
+            "1.8T should be > 1TB"
+        );
+        assert!(
+            size_1_8t < 2 * 1024 * 1024 * 1024 * 1024,
+            "1.8T should be < 2TB"
+        );
     }
 
     #[test]
@@ -395,7 +401,10 @@ mod tests {
         assert_eq!(format!("{}", OsType::Debian), "Debian");
         assert_eq!(format!("{}", OsType::Arch), "Arch");
         assert_eq!(format!("{}", OsType::Windows), "Windows");
-        assert_eq!(format!("{}", OsType::Other("Pop!_OS".to_string())), "Pop!_OS");
+        assert_eq!(
+            format!("{}", OsType::Other("Pop!_OS".to_string())),
+            "Pop!_OS"
+        );
         assert_eq!(format!("{}", OsType::Unknown), "Unknown");
     }
 
@@ -403,8 +412,14 @@ mod tests {
     fn test_os_type_equality() {
         assert_eq!(OsType::NixOS, OsType::NixOS);
         assert_ne!(OsType::NixOS, OsType::Ubuntu);
-        assert_eq!(OsType::Other("Foo".to_string()), OsType::Other("Foo".to_string()));
-        assert_ne!(OsType::Other("Foo".to_string()), OsType::Other("Bar".to_string()));
+        assert_eq!(
+            OsType::Other("Foo".to_string()),
+            OsType::Other("Foo".to_string())
+        );
+        assert_ne!(
+            OsType::Other("Foo".to_string()),
+            OsType::Other("Bar".to_string())
+        );
     }
 
     #[test]

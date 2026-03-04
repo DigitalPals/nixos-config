@@ -68,7 +68,12 @@ pub async fn check_browser_status() -> Result<String> {
 
     let (_, local_head, _) = run_capture(
         "git",
-        &["-C", local_repo.to_str().unwrap_or("."), "rev-parse", "HEAD"],
+        &[
+            "-C",
+            local_repo.to_str().unwrap_or("."),
+            "rev-parse",
+            "HEAD",
+        ],
     )
     .await?;
 

@@ -41,15 +41,13 @@ pub fn draw_running(frame: &mut Frame, operation: &KeysOp, output: &[String], ap
     frame.render_widget(header, chunks[0]);
 
     // Output with spinner
-    let spinner_char = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-        [app.spinner_state % 10];
+    let spinner_char = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][app.spinner_state % 10];
     let title = format!(" {} Running... ", spinner_char);
     let log = LogView::new(output).title(&title);
     frame.render_widget(log, chunks[1]);
 
     // Footer
-    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")])).alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -79,11 +77,7 @@ pub fn draw_complete(
     };
     let header = Paragraph::new(Line::from(Span::styled(title, style)))
         .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(style),
-        );
+        .block(Block::default().borders(Borders::ALL).border_style(style));
     frame.render_widget(header, chunks[0]);
 
     // Output log
@@ -94,7 +88,12 @@ pub fn draw_complete(
     frame.render_widget(log, chunks[1]);
 
     // Footer
-    let footer = Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("Enter", "Menu"), ("Esc", "Back"), ("q", "Quit")]))
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[
+        ("↑↓/jk", "Scroll"),
+        ("Enter", "Menu"),
+        ("Esc", "Back"),
+        ("q", "Quit"),
+    ]))
+    .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
 }

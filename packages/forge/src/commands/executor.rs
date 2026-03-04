@@ -205,11 +205,7 @@ pub async fn run_command_sensitive(
 
 /// Execute a command with sudo
 #[allow(dead_code)]
-pub async fn run_sudo(
-    tx: &mpsc::Sender<CommandMessage>,
-    cmd: &str,
-    args: &[&str],
-) -> Result<bool> {
+pub async fn run_sudo(tx: &mpsc::Sender<CommandMessage>, cmd: &str, args: &[&str]) -> Result<bool> {
     let mut sudo_args = vec![cmd];
     sudo_args.extend(args);
     run_command(tx, "sudo", &sudo_args).await

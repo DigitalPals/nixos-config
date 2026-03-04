@@ -742,6 +742,9 @@ impl App {
                         action = PreflightAction::Back;
                     }
                 },
+                KeyCode::Esc => {
+                    action = PreflightAction::Back;
+                }
                 _ => {}
             }
         }

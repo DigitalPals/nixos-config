@@ -58,29 +58,89 @@ impl HealthCheckResult {
 fn tools_for_operation(operation: Operation) -> Vec<ToolRequirement> {
     match operation {
         Operation::Install => vec![
-            ToolRequirement { name: "nix", install_hint: "should be available on NixOS", required: true },
-            ToolRequirement { name: "git", install_hint: "add git to system packages", required: true },
-            ToolRequirement { name: "sudo", install_hint: "should be available on NixOS", required: true },
+            ToolRequirement {
+                name: "nix",
+                install_hint: "should be available on NixOS",
+                required: true,
+            },
+            ToolRequirement {
+                name: "git",
+                install_hint: "add git to system packages",
+                required: true,
+            },
+            ToolRequirement {
+                name: "sudo",
+                install_hint: "should be available on NixOS",
+                required: true,
+            },
         ],
         Operation::Update => vec![
-            ToolRequirement { name: "nix", install_hint: "should be available on NixOS", required: true },
-            ToolRequirement { name: "git", install_hint: "add git to system packages", required: true },
-            ToolRequirement { name: "sudo", install_hint: "should be available on NixOS", required: true },
-            ToolRequirement { name: "nvd", install_hint: "add nvd to system packages", required: false },
-            ToolRequirement { name: "fwupdmgr", install_hint: "enable services.fwupd", required: false },
+            ToolRequirement {
+                name: "nix",
+                install_hint: "should be available on NixOS",
+                required: true,
+            },
+            ToolRequirement {
+                name: "git",
+                install_hint: "add git to system packages",
+                required: true,
+            },
+            ToolRequirement {
+                name: "sudo",
+                install_hint: "should be available on NixOS",
+                required: true,
+            },
+            ToolRequirement {
+                name: "nvd",
+                install_hint: "add nvd to system packages",
+                required: false,
+            },
+            ToolRequirement {
+                name: "fwupdmgr",
+                install_hint: "enable services.fwupd",
+                required: false,
+            },
         ],
         Operation::AppBackup => vec![
-            ToolRequirement { name: "app-backup", install_hint: "enable programs.app-backup and rebuild", required: true },
-            ToolRequirement { name: "git", install_hint: "add git to system packages", required: true },
+            ToolRequirement {
+                name: "app-backup",
+                install_hint: "enable programs.app-backup and rebuild",
+                required: true,
+            },
+            ToolRequirement {
+                name: "git",
+                install_hint: "add git to system packages",
+                required: true,
+            },
         ],
         Operation::AppRestore => vec![
-            ToolRequirement { name: "app-restore", install_hint: "enable programs.app-backup and rebuild", required: true },
-            ToolRequirement { name: "git", install_hint: "add git to system packages", required: true },
+            ToolRequirement {
+                name: "app-restore",
+                install_hint: "enable programs.app-backup and rebuild",
+                required: true,
+            },
+            ToolRequirement {
+                name: "git",
+                install_hint: "add git to system packages",
+                required: true,
+            },
         ],
         Operation::KeySetup => vec![
-            ToolRequirement { name: "op", install_hint: "enable programs._1password and rebuild", required: true },
-            ToolRequirement { name: "age", install_hint: "add age to system packages", required: true },
-            ToolRequirement { name: "ssh-keygen", install_hint: "add openssh to system packages", required: true },
+            ToolRequirement {
+                name: "op",
+                install_hint: "enable programs._1password and rebuild",
+                required: true,
+            },
+            ToolRequirement {
+                name: "age",
+                install_hint: "add age to system packages",
+                required: true,
+            },
+            ToolRequirement {
+                name: "ssh-keygen",
+                install_hint: "add openssh to system packages",
+                required: true,
+            },
         ],
     }
 }
@@ -110,7 +170,13 @@ mod tests {
     #[test]
     fn test_tools_for_operations() {
         // Each operation should have at least one required tool
-        for op in [Operation::Install, Operation::Update, Operation::AppBackup, Operation::AppRestore, Operation::KeySetup] {
+        for op in [
+            Operation::Install,
+            Operation::Update,
+            Operation::AppBackup,
+            Operation::AppRestore,
+            Operation::KeySetup,
+        ] {
             let tools = tools_for_operation(op);
             assert!(!tools.is_empty());
             assert!(tools.iter().any(|t| t.required));
@@ -123,7 +189,11 @@ mod tests {
         assert!(result.is_ok());
 
         let result = HealthCheckResult {
-            missing_required: vec![ToolRequirement { name: "nix", install_hint: "", required: true }],
+            missing_required: vec![ToolRequirement {
+                name: "nix",
+                install_hint: "",
+                required: true,
+            }],
             missing_optional: vec![],
         };
         assert!(!result.is_ok());
@@ -132,8 +202,16 @@ mod tests {
     #[test]
     fn test_error_message_format() {
         let result = HealthCheckResult {
-            missing_required: vec![ToolRequirement { name: "nix", install_hint: "install nix", required: true }],
-            missing_optional: vec![ToolRequirement { name: "nvd", install_hint: "add nvd", required: false }],
+            missing_required: vec![ToolRequirement {
+                name: "nix",
+                install_hint: "install nix",
+                required: true,
+            }],
+            missing_optional: vec![ToolRequirement {
+                name: "nvd",
+                install_hint: "add nvd",
+                required: false,
+            }],
         };
         let msg = result.error_message();
         assert!(msg.contains("nix"));

@@ -61,8 +61,7 @@ fn generate_gpu_config(gpu: &GpuInfo) -> String {
             // NVIDIA config is handled via nvidia.nix module imported in flake.nix
             String::new()
         }
-        GpuVendor::AMD => {
-            r#"
+        GpuVendor::AMD => r#"
   # AMD GPU configuration
   hardware.amdgpu.initrd.enable = true;
 
@@ -70,8 +69,7 @@ fn generate_gpu_config(gpu: &GpuInfo) -> String {
     "amdgpu.ppfeaturemask=0xffffffff"
   ];
 "#
-            .to_string()
-        }
+        .to_string(),
         GpuVendor::HybridNvidiaAmd => {
             let (amd_bus_id, nvidia_bus_id) = if let Some(hybrid) = &gpu.hybrid {
                 (
@@ -112,15 +110,13 @@ fn generate_gpu_config(gpu: &GpuInfo) -> String {
 /// Generate CPU-specific configuration
 fn generate_cpu_config(vendor: &CpuVendor) -> String {
     match vendor {
-        CpuVendor::Intel => {
-            r#"
+        CpuVendor::Intel => r#"
   # Intel CPU configuration (override AMD default from common.nix)
   hardware.cpu.amd.updateMicrocode = lib.mkForce false;
   hardware.cpu.intel.updateMicrocode = true;
   boot.kernelModules = [ "kvm-intel" "coretemp" ];
 "#
-            .to_string()
-        }
+        .to_string(),
         CpuVendor::AMD => {
             // AMD is default in common.nix
             String::new()
@@ -132,8 +128,7 @@ fn generate_cpu_config(vendor: &CpuVendor) -> String {
 /// Generate form factor-specific configuration (power management)
 fn generate_form_factor_config(form_factor: &FormFactor) -> String {
     match form_factor {
-        FormFactor::Laptop => {
-            r#"
+        FormFactor::Laptop => r#"
   # Laptop power management (TLP)
   services.power-profiles-daemon.enable = false;
   services.tlp = {
@@ -157,8 +152,7 @@ fn generate_form_factor_config(form_factor: &FormFactor) -> String {
     };
   };
 "#
-            .to_string()
-        }
+        .to_string(),
         FormFactor::Desktop => {
             // Desktop uses power-profiles-daemon (default from common.nix)
             String::new()
@@ -169,25 +163,20 @@ fn generate_form_factor_config(form_factor: &FormFactor) -> String {
 /// Generate initrd kernel modules based on GPU type
 fn generate_initrd_modules(gpu: &GpuInfo) -> String {
     match gpu.vendor {
-        GpuVendor::NVIDIA => {
-            r#"    "nvidia"
+        GpuVendor::NVIDIA => r#"    "nvidia"
     "nvidia_modeset"
     "nvidia_uvm"
     "nvidia_drm"
     "hid-generic"
     "usbhid"
 "#
-            .to_string()
-        }
-        GpuVendor::AMD => {
-            r#"    "amdgpu"
+        .to_string(),
+        GpuVendor::AMD => r#"    "amdgpu"
     "hid-generic"
     "usbhid"
 "#
-            .to_string()
-        }
-        GpuVendor::HybridNvidiaAmd => {
-            r#"    "nvidia"
+        .to_string(),
+        GpuVendor::HybridNvidiaAmd => r#"    "nvidia"
     "nvidia_modeset"
     "nvidia_uvm"
     "nvidia_drm"
@@ -195,21 +184,16 @@ fn generate_initrd_modules(gpu: &GpuInfo) -> String {
     "hid-generic"
     "usbhid"
 "#
-            .to_string()
-        }
-        GpuVendor::Intel => {
-            r#"    "i915"
+        .to_string(),
+        GpuVendor::Intel => r#"    "i915"
     "hid-generic"
     "usbhid"
 "#
-            .to_string()
-        }
-        GpuVendor::None => {
-            r#"    "hid-generic"
+        .to_string(),
+        GpuVendor::None => r#"    "hid-generic"
     "usbhid"
 "#
-            .to_string()
-        }
+        .to_string(),
     }
 }
 

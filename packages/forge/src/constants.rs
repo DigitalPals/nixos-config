@@ -179,15 +179,23 @@ pub fn temp_config_dir() -> PathBuf {
 
 /// Get hosts directory paths to check
 pub fn host_dir_paths(hostname: &str) -> Vec<PathBuf> {
-    let mut paths = vec![
-        PathBuf::from(NIXOS_CONFIG_TEMP).join(HOSTS_SUBDIR).join(hostname),
-    ];
+    let mut paths = vec![PathBuf::from(NIXOS_CONFIG_TEMP)
+        .join(HOSTS_SUBDIR)
+        .join(hostname)];
 
     if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(NIXOS_CONFIG_HOME_DIR).join(HOSTS_SUBDIR).join(hostname));
+        paths.push(
+            home.join(NIXOS_CONFIG_HOME_DIR)
+                .join(HOSTS_SUBDIR)
+                .join(hostname),
+        );
     }
 
-    paths.push(PathBuf::from(NIXOS_CONFIG_SYSTEM).join(HOSTS_SUBDIR).join(hostname));
+    paths.push(
+        PathBuf::from(NIXOS_CONFIG_SYSTEM)
+            .join(HOSTS_SUBDIR)
+            .join(hostname),
+    );
 
     paths
 }
@@ -214,15 +222,24 @@ mod tests {
     fn test_forge_data_dir_contains_forge() {
         let path = forge_data_dir();
         let path_str = path.to_string_lossy();
-        assert!(path_str.contains("forge"), "Forge data dir should contain 'forge'");
+        assert!(
+            path_str.contains("forge"),
+            "Forge data dir should contain 'forge'"
+        );
     }
 
     #[test]
     fn test_temp_config_dir() {
         let path = temp_config_dir();
         let path_str = path.to_string_lossy();
-        assert_eq!(path_str, NIXOS_CONFIG_TEMP, "Temp config dir should match NIXOS_CONFIG_TEMP");
-        assert!(path_str.starts_with("/tmp"), "Temp config dir should be in /tmp");
+        assert_eq!(
+            path_str, NIXOS_CONFIG_TEMP,
+            "Temp config dir should match NIXOS_CONFIG_TEMP"
+        );
+        assert!(
+            path_str.starts_with("/tmp"),
+            "Temp config dir should be in /tmp"
+        );
     }
 
     #[test]
@@ -232,8 +249,14 @@ mod tests {
         // All paths should contain the hostname
         for path in &paths {
             let path_str = path.to_string_lossy();
-            assert!(path_str.contains("testhost"), "Path should contain hostname");
-            assert!(path_str.contains("hosts"), "Path should contain 'hosts' directory");
+            assert!(
+                path_str.contains("testhost"),
+                "Path should contain hostname"
+            );
+            assert!(
+                path_str.contains("hosts"),
+                "Path should contain 'hosts' directory"
+            );
         }
     }
 
@@ -243,7 +266,10 @@ mod tests {
         let path_str = path.to_string_lossy();
         // Should be empty or contain 'claude'
         if !path_str.is_empty() {
-            assert!(path_str.contains("claude"), "Claude CLI path should contain 'claude'");
+            assert!(
+                path_str.contains("claude"),
+                "Claude CLI path should contain 'claude'"
+            );
         }
     }
 
@@ -253,7 +279,10 @@ mod tests {
         let path_str = path.to_string_lossy();
         // Should be empty or contain 'codex'
         if !path_str.is_empty() {
-            assert!(path_str.contains("codex"), "Codex CLI path should contain 'codex'");
+            assert!(
+                path_str.contains("codex"),
+                "Codex CLI path should contain 'codex'"
+            );
         }
     }
 
