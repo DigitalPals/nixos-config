@@ -14,8 +14,8 @@ let
     # G1a laptop: laptop at bottom-left, AORUS top-right
     monitor = eDP-1,preferred,0x540,auto
     monitor = desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2,3840x2160@120,1440x0,auto
-    # XREAL One Pro: XR glasses (disable laptop screen when connected)
-    monitor = desc:Nreal XREAL One Pro,preferred,auto,auto
+    # XREAL One Pro: XR glasses at 120Hz (disable laptop screen when connected)
+    monitor = desc:Nreal XREAL One Pro,1920x1080@120,auto,auto
     # Default workspace on external monitors
     workspace = 1, monitor:desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2, default:true
     workspace = 1, monitor:desc:Nreal XREAL One Pro, default:true
