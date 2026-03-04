@@ -12,8 +12,11 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState, PendingUpdates, UpdateState};
-use crate::constants::{MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT};
+use crate::app::{
+    App, AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState,
+    PendingUpdates, UpdateState,
+};
+use crate::constants::{MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH};
 
 /// Main draw function - dispatches to appropriate screen
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -27,10 +30,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         let y = area.height / 2;
         let text = Paragraph::new(Line::from(Span::styled(msg, theme::warning())))
             .alignment(ratatui::layout::Alignment::Center);
-        frame.render_widget(
-            text,
-            Rect::new(0, y, area.width, 1),
-        );
+        frame.render_widget(text, Rect::new(0, y, area.width, 1));
         return;
     }
 
@@ -61,7 +61,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 error,
             } => {
                 screens::install::draw_enter_credentials(
-                    frame, host, disk, credentials, active_field, error.as_deref(), app,
+                    frame,
+                    host,
+                    disk,
+                    credentials,
+                    active_field,
+                    error.as_deref(),
+                    app,
                 );
             }
             InstallState::SelectSwapMode {
@@ -73,8 +79,23 @@ pub fn draw(frame: &mut Frame, app: &App) {
             } => {
                 screens::install::draw_select_swap_mode(frame, host, disk, *selected, *ram_gb, app);
             }
-            InstallState::Overview { host, disk, credentials, input, hardware_config, .. } => {
-                screens::install::draw_overview(frame, host, disk, credentials, input, hardware_config.as_ref(), app);
+            InstallState::Overview {
+                host,
+                disk,
+                credentials,
+                input,
+                hardware_config,
+                ..
+            } => {
+                screens::install::draw_overview(
+                    frame,
+                    host,
+                    disk,
+                    credentials,
+                    input,
+                    hardware_config.as_ref(),
+                    app,
+                );
             }
             InstallState::Running {
                 host,
@@ -97,17 +118,51 @@ pub fn draw(frame: &mut Frame, app: &App) {
             }
         },
         AppMode::Update(state) => match state {
-            UpdateState::LocalChangesPrompt {
-                changed_files,
+            UpdateState::Preflight {
+                options,
                 selected,
+                input_buffer,
+                editing_inputs,
+                ..
             } => {
-                screens::update::draw_local_changes_prompt(frame, changed_files, *selected);
+                screens::update::draw_preflight(
+                    frame,
+                    options,
+                    *selected,
+                    input_buffer,
+                    *editing_inputs,
+                );
+            }
+            UpdateState::LocalChangesPrompt {
+                changes,
+                tracked_count,
+                untracked_count,
+                selected,
+                ..
+            } => {
+                screens::update::draw_local_changes_prompt(
+                    frame,
+                    changes,
+                    *tracked_count,
+                    *untracked_count,
+                    *selected,
+                );
             }
             UpdateState::Running {
-                steps, output, ..
+                steps,
+                output,
+                scroll_offset,
+                ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_running(frame, steps, &output_vec, false, None, app);
+                screens::update::draw_running(
+                    frame,
+                    steps,
+                    &output_vec,
+                    false,
+                    *scroll_offset,
+                    app,
+                );
             }
             UpdateState::ShowingSummary {
                 steps,
@@ -118,7 +173,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_showing_summary(frame, steps, &output_vec, summary, *scroll_offset, *summary_scroll, app);
+                screens::update::draw_showing_summary(
+                    frame,
+                    steps,
+                    &output_vec,
+                    summary,
+                    *scroll_offset,
+                    *summary_scroll,
+                    app,
+                );
             }
             UpdateState::Complete {
                 steps,
@@ -188,7 +251,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 selected,
                 ..
             } => {
-                screens::create_host::draw_confirm_gpu(frame, cpu, gpu, *override_menu, *selected, app);
+                screens::create_host::draw_confirm_gpu(
+                    frame,
+                    cpu,
+                    gpu,
+                    *override_menu,
+                    *selected,
+                    app,
+                );
             }
             CreateHostState::ConfirmFormFactor {
                 cpu,
@@ -198,7 +268,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 selected,
             } => {
                 screens::create_host::draw_confirm_form_factor(
-                    frame, cpu, gpu, form_factor, *override_menu, *selected, app,
+                    frame,
+                    cpu,
+                    gpu,
+                    form_factor,
+                    *override_menu,
+                    *selected,
+                    app,
                 );
             }
             CreateHostState::SelectDisk {
@@ -209,7 +285,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 selected,
             } => {
                 screens::create_host::draw_select_disk(
-                    frame, cpu, gpu, form_factor, disks, *selected, app,
+                    frame,
+                    cpu,
+                    gpu,
+                    form_factor,
+                    disks,
+                    *selected,
+                    app,
                 );
             }
             CreateHostState::EnterHostname {
@@ -221,7 +303,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 error,
             } => {
                 screens::create_host::draw_enter_hostname(
-                    frame, cpu, gpu, form_factor, disk, input, error.as_deref(), app,
+                    frame,
+                    cpu,
+                    gpu,
+                    form_factor,
+                    disk,
+                    input,
+                    error.as_deref(),
+                    app,
                 );
             }
             CreateHostState::Review { config } => {
@@ -290,13 +379,20 @@ pub fn draw(frame: &mut Frame, app: &App) {
             crate::app::ModalDialog::ExitConfirm => {
                 draw_exit_confirm(frame);
             }
-            crate::app::ModalDialog::RollbackPrompt { generation, selected } => {
+            crate::app::ModalDialog::RollbackPrompt {
+                generation,
+                selected,
+            } => {
                 draw_rollback_prompt(frame, *generation, *selected);
             }
             crate::app::ModalDialog::ResumePrompt => {
                 draw_resume_prompt(frame, app);
             }
         }
+    }
+
+    if let Some(error) = &app.error {
+        draw_error_popup(frame, error);
     }
 }
 
@@ -322,9 +418,16 @@ fn draw_rollback_prompt(frame: &mut Frame, generation: u32, selected: usize) {
     ];
 
     for (i, opt) in options.iter().enumerate() {
-        let style = if i == selected { theme::selected() } else { theme::text() };
+        let style = if i == selected {
+            theme::selected()
+        } else {
+            theme::text()
+        };
         let prefix = if i == selected { "▶ " } else { "  " };
-        lines.push(Line::from(Span::styled(format!("{}{}", prefix, opt), style)));
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", prefix, opt),
+            style,
+        )));
     }
 
     lines.push(Line::from(""));
@@ -364,7 +467,10 @@ fn draw_exit_confirm(frame: &mut Frame) {
     // Draw popup content
     let content = Paragraph::new(vec![
         Line::from(""),
-        Line::from(Span::styled("Are you sure you want to exit?", theme::text())),
+        Line::from(Span::styled(
+            "Are you sure you want to exit?",
+            theme::text(),
+        )),
         Line::from(""),
         Line::from(vec![
             Span::styled("[", theme::dim()),
@@ -380,6 +486,35 @@ fn draw_exit_confirm(frame: &mut Frame) {
             .borders(Borders::ALL)
             .border_style(theme::border_active())
             .title(Span::styled(" Exit ", theme::title())),
+    );
+    frame.render_widget(content, popup_area);
+}
+
+fn draw_error_popup(frame: &mut Frame, error: &str) {
+    let area = frame.area();
+    let popup_width = 70.min(area.width.saturating_sub(4));
+    let popup_height = 9.min(area.height.saturating_sub(4));
+    let popup_area = Rect::new(
+        area.x + (area.width.saturating_sub(popup_width)) / 2,
+        area.y + (area.height.saturating_sub(popup_height)) / 2,
+        popup_width,
+        popup_height,
+    );
+
+    frame.render_widget(Clear, popup_area);
+
+    let content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(error.to_string(), theme::text())),
+        Line::from(""),
+        Line::from(Span::styled("Press Enter or Esc to dismiss", theme::dim())),
+    ])
+    .alignment(ratatui::layout::Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::warning())
+            .title(Span::styled(" Error ", theme::warning())),
     );
     frame.render_widget(content, popup_area);
 }
@@ -404,7 +539,10 @@ fn draw_reboot_confirm(frame: &mut Frame, reasons: &[String]) {
         )));
     } else {
         for reason in reasons {
-            lines.push(Line::from(Span::styled(format!("- {}", reason), theme::text())));
+            lines.push(Line::from(Span::styled(
+                format!("- {}", reason),
+                theme::text(),
+            )));
         }
     }
 
@@ -490,7 +628,11 @@ fn draw_update_dialog(frame: &mut Frame, updates: &PendingUpdates) {
         } else {
             theme::text()
         };
-        let prefix = if updates.selected == option_idx { "> " } else { "  " };
+        let prefix = if updates.selected == option_idx {
+            "> "
+        } else {
+            "  "
+        };
         lines.push(Line::from(Span::styled(
             format!("{}View NixOS updates", prefix),
             style,
@@ -504,7 +646,11 @@ fn draw_update_dialog(frame: &mut Frame, updates: &PendingUpdates) {
         } else {
             theme::text()
         };
-        let prefix = if updates.selected == option_idx { "> " } else { "  " };
+        let prefix = if updates.selected == option_idx {
+            "> "
+        } else {
+            "  "
+        };
         lines.push(Line::from(Span::styled(
             format!("{}Update app profiles", prefix),
             style,
@@ -518,7 +664,11 @@ fn draw_update_dialog(frame: &mut Frame, updates: &PendingUpdates) {
         } else {
             theme::text()
         };
-        let prefix = if updates.selected == option_idx { "> " } else { "  " };
+        let prefix = if updates.selected == option_idx {
+            "> "
+        } else {
+            "  "
+        };
         lines.push(Line::from(Span::styled(
             format!("{}Update all", prefix),
             style,
@@ -532,8 +682,15 @@ fn draw_update_dialog(frame: &mut Frame, updates: &PendingUpdates) {
     } else {
         theme::dim()
     };
-    let prefix = if updates.selected == option_idx { "> " } else { "  " };
-    lines.push(Line::from(Span::styled(format!("{}Dismiss", prefix), style)));
+    let prefix = if updates.selected == option_idx {
+        "> "
+    } else {
+        "  "
+    };
+    lines.push(Line::from(Span::styled(
+        format!("{}Dismiss", prefix),
+        style,
+    )));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
@@ -575,7 +732,11 @@ fn draw_commit_list(frame: &mut Frame, updates: &PendingUpdates) {
     // Show commit count
     let commit_count = updates.commits.len();
     lines.push(Line::from(Span::styled(
-        format!("{} new commit{} available:", commit_count, if commit_count == 1 { "" } else { "s" }),
+        format!(
+            "{} new commit{} available:",
+            commit_count,
+            if commit_count == 1 { "" } else { "s" }
+        ),
         theme::text(),
     )));
     lines.push(Line::from(""));
@@ -587,7 +748,13 @@ fn draw_commit_list(frame: &mut Frame, updates: &PendingUpdates) {
     let start = updates.commit_scroll;
     let end = (start + visible_commits).min(updates.commits.len());
 
-    for (i, commit) in updates.commits.iter().enumerate().skip(start).take(visible_commits) {
+    for (i, commit) in updates
+        .commits
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(visible_commits)
+    {
         let is_current = i == updates.selected_commit;
         let style = if is_current {
             theme::selected()
@@ -638,7 +805,10 @@ fn draw_commit_list(frame: &mut Frame, updates: &PendingUpdates) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme::border_active())
-            .title(Span::styled(" Pending NixOS Config Updates ", theme::title())),
+            .title(Span::styled(
+                " Pending NixOS Config Updates ",
+                theme::title(),
+            )),
     );
     frame.render_widget(content, popup_area);
 }

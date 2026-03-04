@@ -1,9 +1,10 @@
 //! Flake-related utilities for the update command
 
 use anyhow::Result;
+use futures::future::join_all;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::commands::executor::run_capture;
 
@@ -82,28 +83,34 @@ pub async fn get_flake_lock_hash(dir: &Path) -> Option<String> {
 }
 
 /// Save a copy of flake.lock before updating
-pub async fn save_flake_lock_backup(dir: &Path) -> Option<String> {
+pub async fn save_flake_lock_backup(dir: &Path) -> Option<PathBuf> {
     let lock_path = dir.join("flake.lock");
     if !lock_path.exists() {
         return None;
     }
 
-    let backup_path = "/tmp/forge-flake.lock.old";
-    let (success, _, _) = run_capture("cp", &[lock_path.to_str()?, backup_path])
+    let backup_path = std::env::temp_dir().join(format!(
+        "forge-flake-{}-{}.lock.old",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default()
+    ));
+    let (success, _, _) = run_capture("cp", &[lock_path.to_str()?, backup_path.to_str()?])
         .await
         .ok()?;
 
     if success {
-        Some(backup_path.to_string())
+        Some(backup_path)
     } else {
         None
     }
 }
 
 /// Parse changes in flake.lock between old backup and current
-pub async fn parse_flake_changes(dir: &Path) -> Result<Vec<FlakeInputChange>> {
+pub async fn parse_flake_changes(dir: &Path, backup_path: &Path) -> Result<Vec<FlakeInputChange>> {
     let lock_path = dir.join("flake.lock");
-    let backup_path = Path::new("/tmp/forge-flake.lock.old");
 
     if !lock_path.exists() || !backup_path.exists() {
         return Ok(Vec::new());
@@ -160,7 +167,10 @@ pub async fn parse_flake_changes(dir: &Path) -> Result<Vec<FlakeInputChange>> {
                             total_commits: 0,
                             compare_url: Some(format!(
                                 "https://github.com/{}/{}/compare/{}...{}",
-                                owner, repo, &old_rev[..7.min(old_rev.len())], &new_rev[..7.min(new_rev.len())]
+                                owner,
+                                repo,
+                                &old_rev[..7.min(old_rev.len())],
+                                &new_rev[..7.min(new_rev.len())]
                             )),
                         });
                     }
@@ -192,19 +202,20 @@ async fn fetch_commits_for_changes(changes: &mut Vec<FlakeInputChange>) {
         }
     };
 
-    for change in changes.iter_mut() {
-        match fetch_github_commits(&client, change).await {
+    let results = join_all(changes.iter().map(|change| async {
+        let result = fetch_github_commits(&client, change).await;
+        (change.owner.clone(), change.repo.clone(), result)
+    }))
+    .await;
+
+    for (change, (owner, repo, result)) in changes.iter_mut().zip(results) {
+        match result {
             Ok((commits, total)) => {
                 change.commits = commits;
                 change.total_commits = total;
             }
             Err(e) => {
-                tracing::debug!(
-                    "Failed to fetch commits for {}/{}: {}",
-                    change.owner,
-                    change.repo,
-                    e
-                );
+                tracing::debug!("Failed to fetch commits for {}/{}: {}", owner, repo, e);
             }
         }
     }

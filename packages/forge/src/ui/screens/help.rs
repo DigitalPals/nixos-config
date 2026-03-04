@@ -7,7 +7,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState, UpdateState};
+use crate::app::{
+    AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState,
+    UpdateState,
+};
 use crate::ui::theme;
 
 /// Draw the help overlay modal centered on screen
@@ -19,117 +22,195 @@ pub fn draw_help(frame: &mut Frame, mode: &AppMode) {
 
     let title = match mode {
         AppMode::MainMenu { .. } => {
-            add_section(&mut lines, "Navigation", &[
-                ("↑ / k", "Move selection up"),
-                ("↓ / j", "Move selection down"),
-                ("Enter", "Select menu item"),
-                ("q", "Quit Forge"),
-                ("Esc", "Quit Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Navigation",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter", "Select menu item"),
+                    ("q", "Quit Forge"),
+                    ("Esc", "Quit Forge"),
+                ],
+            );
             lines.push(Line::from(""));
-            add_section(&mut lines, "Menu Items", &[
-                ("Install NixOS", "Fresh install from Live ISO"),
-                ("Update system", "Pull, rebuild, update tools"),
-                ("App profiles", "Backup/restore browser data"),
-                ("Keybindings", "View desktop keybindings"),
-                ("Exit", "Close Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Menu Items",
+                &[
+                    ("Install NixOS", "Fresh install from Live ISO"),
+                    ("Update system", "Pull, rebuild, update tools"),
+                    ("App profiles", "Backup/restore browser data"),
+                    ("Keybindings", "View desktop keybindings"),
+                    ("Exit", "Close Forge"),
+                ],
+            );
             " Help - Main Menu "
         }
         AppMode::Install(InstallState::SelectHost { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("↑ / k", "Move selection up"),
-                ("↓ / j", "Move selection down"),
-                ("Enter", "Select host"),
-                ("Esc", "Back to main menu"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter", "Select host"),
+                    ("Esc", "Back to main menu"),
+                ],
+            );
             " Help - Host Selection "
         }
         AppMode::Install(InstallState::SelectDisk { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("↑ / k", "Move selection up"),
-                ("↓ / j", "Move selection down"),
-                ("Enter", "Select disk"),
-                ("Esc", "Back"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter", "Select disk"),
+                    ("Esc", "Back"),
+                ],
+            );
             " Help - Disk Selection "
         }
         AppMode::Install(InstallState::EnterCredentials { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("Tab / ↓", "Next field"),
-                ("Shift+Tab / ↑", "Previous field"),
-                ("Enter", "Continue (validates all fields)"),
-                ("Esc", "Back"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("Tab / ↓", "Next field"),
+                    ("Shift+Tab / ↑", "Previous field"),
+                    ("Enter", "Continue (validates all fields)"),
+                    ("Esc", "Back"),
+                ],
+            );
             " Help - Credentials "
         }
         AppMode::Install(InstallState::Running { .. })
-        | AppMode::Update(UpdateState::Running { .. })
         | AppMode::Apps(AppProfileState::Running { .. })
         | AppMode::Keys(KeysState::Running { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("Ctrl+C", "Cancel the operation"),
-            ]);
+            add_section(&mut lines, "Keys", &[("Ctrl+C", "Cancel the operation")]);
             " Help - Running "
+        }
+        AppMode::Update(UpdateState::Running { .. }) => {
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Scroll up"),
+                    ("↓ / j", "Scroll down"),
+                    ("f", "Resume auto-follow"),
+                    ("Ctrl+C", "Cancel the operation"),
+                ],
+            );
+            " Help - Running Update "
         }
         AppMode::Install(InstallState::Complete { .. })
         | AppMode::Update(UpdateState::Complete { .. })
         | AppMode::Apps(AppProfileState::Complete { .. })
         | AppMode::Keys(KeysState::Complete { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("↑ / k", "Scroll up"),
-                ("↓ / j", "Scroll down"),
-                ("Enter", "Return to menu"),
-                ("Esc", "Go back"),
-                ("q", "Quit Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Scroll up"),
+                    ("↓ / j", "Scroll down"),
+                    ("f", "Resume auto-follow"),
+                    ("Enter", "Return to menu"),
+                    ("Esc", "Go back"),
+                    ("q", "Quit Forge"),
+                ],
+            );
             " Help - Complete "
         }
+        AppMode::Update(UpdateState::Preflight { editing_inputs, .. }) => {
+            if *editing_inputs {
+                add_section(
+                    &mut lines,
+                    "Keys",
+                    &[
+                        ("Type", "Edit specific flake inputs"),
+                        ("Enter", "Save inputs"),
+                        ("Esc", "Cancel editing"),
+                    ],
+                );
+            } else {
+                add_section(
+                    &mut lines,
+                    "Keys",
+                    &[
+                        ("↑ / k", "Move selection up"),
+                        ("↓ / j", "Move selection down"),
+                        ("Enter", "Activate selected row"),
+                        ("← / → / Space", "Cycle update mode"),
+                        ("Esc", "Back to main menu"),
+                    ],
+                );
+            }
+            " Help - Update Preflight "
+        }
         AppMode::Apps(AppProfileState::Menu { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("↑ / k", "Move selection up"),
-                ("↓ / j", "Move selection down"),
-                ("Enter", "Select option"),
-                ("Esc", "Back to main menu"),
-                ("q", "Quit Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter", "Select option"),
+                    ("Esc", "Back to main menu"),
+                    ("q", "Quit Forge"),
+                ],
+            );
             " Help - App Profiles "
         }
         AppMode::Update(UpdateState::ShowingSummary { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("↑ / k", "Scroll up"),
-                ("↓ / j", "Scroll down"),
-                ("Enter / v", "View full log"),
-                ("r", "Reboot (if recommended)"),
-                ("q", "Quit Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Scroll up"),
+                    ("↓ / j", "Scroll down"),
+                    ("Enter / v", "View full log"),
+                    ("r", "Reboot (if recommended)"),
+                    ("q", "Quit Forge"),
+                ],
+            );
             " Help - Update Summary "
         }
         AppMode::Keybindings(KeybindingsState::Viewing { .. }) => {
-            add_section(&mut lines, "Keys", &[
-                ("Tab", "Switch between panels"),
-                ("↑ / k", "Navigate up"),
-                ("↓ / j", "Navigate down"),
-                ("Esc", "Back to main menu"),
-                ("q", "Quit Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("Tab", "Switch between panels"),
+                    ("↑ / k", "Navigate up"),
+                    ("↓ / j", "Navigate down"),
+                    ("Esc", "Back to main menu"),
+                    ("q", "Quit Forge"),
+                ],
+            );
             " Help - Keybindings Viewer "
         }
         AppMode::CreateHost(_) => {
-            add_section(&mut lines, "Keys", &[
-                ("↑ / k", "Move selection up"),
-                ("↓ / j", "Move selection down"),
-                ("Enter / y", "Confirm / select"),
-                ("n", "Override detected value"),
-                ("Esc", "Back"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter / y", "Confirm / select"),
+                    ("n", "Override detected value"),
+                    ("Esc", "Back"),
+                ],
+            );
             " Help - Create Host "
         }
         _ => {
-            add_section(&mut lines, "Keys", &[
-                ("Esc", "Go back"),
-                ("q", "Quit Forge"),
-            ]);
+            add_section(
+                &mut lines,
+                "Keys",
+                &[("Esc", "Go back"), ("q", "Quit Forge")],
+            );
             " Help "
         }
     };

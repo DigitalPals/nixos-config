@@ -17,8 +17,7 @@ use crate::commands::CommandMessage;
 use crate::constants::{nixos_config_dir, OUTPUT_BUFFER_SIZE};
 
 /// Regex to match ANSI escape codes.
-static ANSI_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
+static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
 
 /// Strip ANSI escape codes from a string
 fn strip_ansi_codes(s: &str) -> String {
@@ -69,7 +68,10 @@ impl App {
                 }
             }
             CommandMessage::RollbackAvailable { generation } => {
-                self.push_modal(super::ModalDialog::RollbackPrompt { generation, selected: 0 });
+                self.push_modal(super::ModalDialog::RollbackPrompt {
+                    generation,
+                    selected: 0,
+                });
             }
             CommandMessage::RebootRecommended { reasons } => {
                 self.push_modal(super::ModalDialog::RebootConfirm { reasons });
@@ -98,7 +100,8 @@ impl App {
             output.push_back("Failed to clone configuration repository.".to_string());
             output.push_back("".to_string());
             output.push_back("Please check:".to_string());
-            output.push_back("  1. Internet connection (run 'nmtui' to configure WiFi)".to_string());
+            output
+                .push_back("  1. Internet connection (run 'nmtui' to configure WiFi)".to_string());
             output.push_back("  2. GitHub is accessible".to_string());
             output.push_back("".to_string());
             output.push_back("Press Enter to return to main menu.".to_string());
@@ -159,31 +162,18 @@ impl App {
         }
     }
 
-    /// Check if a step matches the given step name.
-    fn step_matches(step: &StepStatus, step_name: &str) -> bool {
-        let step_lower = step.name.to_lowercase();
-        let name_lower = step_name.to_lowercase();
-
-        if step_lower.contains(&name_lower) {
-            return true;
-        }
-
-        if let Some(first_word) = step_lower.split_whitespace().next() {
-            if first_word == name_lower || name_lower.contains(first_word) {
-                return true;
-            }
-        }
-
-        false
+    fn find_step_mut<'a>(steps: &'a mut [StepStatus], step_id: &str) -> Option<&'a mut StepStatus> {
+        steps.iter_mut().find(|step| step.id == step_id)
     }
 
-    fn mark_step_complete(&mut self, step_name: &str) {
-        self.log_to_screen(&format!("[✓] Step complete: {}", step_name));
+    fn mark_step_complete(&mut self, step_id: &str) {
+        self.log_to_screen(&format!("[✓] Step complete: {}", step_id));
 
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { steps, step, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Complete;
+                    s.detail = None;
                 }
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {
@@ -194,7 +184,7 @@ impl App {
                 super::resume::save_pending("update", *step, steps.len());
             }
             AppMode::Install(InstallState::Running { steps, step, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Complete;
                 }
                 *step = (*step + 1).min(steps.len());
@@ -204,7 +194,7 @@ impl App {
                 }
             }
             AppMode::CreateHost(CreateHostState::Generating { steps, step, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Complete;
                 }
                 *step = (*step + 1).min(steps.len());
@@ -217,9 +207,9 @@ impl App {
         }
     }
 
-    fn mark_step_failed(&mut self, step_name: &str, error: ParsedError) {
+    fn mark_step_failed(&mut self, step_id: &str, error: ParsedError) {
         // Log formatted error to screen
-        self.log_to_screen(&format!("[✗] Step failed: {}", step_name));
+        self.log_to_screen(&format!("[✗] Step failed: {}", step_id));
         self.log_to_screen("");
         self.log_to_screen(&format!("  Error: {}", error.summary));
         if let Some(ref detail) = error.detail {
@@ -232,19 +222,19 @@ impl App {
 
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { steps, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Failed;
                 }
                 self.error = Some(error.summary);
             }
             AppMode::Install(InstallState::Running { steps, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Failed;
                 }
                 self.error = Some(error.summary);
             }
             AppMode::CreateHost(CreateHostState::Generating { steps, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Failed;
                 }
                 self.error = Some(error.summary);
@@ -253,12 +243,12 @@ impl App {
         }
     }
 
-    fn set_step_detail(&mut self, step_name: &str, detail: &str) {
+    fn set_step_detail(&mut self, step_id: &str, detail: &str) {
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { steps, .. })
             | AppMode::Install(InstallState::Running { steps, .. })
             | AppMode::CreateHost(CreateHostState::Generating { steps, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.detail = Some(detail.to_string());
                 }
             }
@@ -266,13 +256,14 @@ impl App {
         }
     }
 
-    fn mark_step_skipped(&mut self, step_name: &str) {
-        self.log_to_screen(&format!("[-] Step skipped: {}", step_name));
+    fn mark_step_skipped(&mut self, step_id: &str) {
+        self.log_to_screen(&format!("[-] Step skipped: {}", step_id));
 
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { steps, step, .. }) => {
-                if let Some(s) = steps.iter_mut().find(|s| Self::step_matches(s, step_name)) {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Skipped;
+                    s.detail = None;
                 }
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {
@@ -315,30 +306,44 @@ impl App {
             AppMode::Update(UpdateState::Running {
                 steps,
                 output,
-                stashed,
+                stash,
                 ..
             }) => {
-                let was_stashed = *stashed;
+                let stash = stash.clone();
                 let mut final_output = output.clone();
 
                 // If we stashed changes and update succeeded, restore them
-                if was_stashed && success {
+                if let Some(stash) = stash.clone().filter(|_| success) {
                     let config_path = nixos_config_dir();
                     let config_str = config_path.to_string_lossy().to_string();
 
                     final_output.push_back("".to_string());
-                    final_output.push_back("Restoring stashed changes...".to_string());
+                    final_output.push_back(format!(
+                        "Restoring stashed changes from {}...",
+                        stash.reference
+                    ));
 
-                    match run_capture("git", &["-C", &config_str, "stash", "pop"]).await {
+                    match run_capture(
+                        "git",
+                        &["-C", &config_str, "stash", "pop", &stash.reference],
+                    )
+                    .await
+                    {
                         Ok((pop_ok, stdout, stderr)) => {
                             if pop_ok {
-                                final_output.push_back("  ✓ Stashed changes restored successfully".to_string());
+                                final_output.push_back(
+                                    "  ✓ Stashed changes restored successfully".to_string(),
+                                );
                             } else {
-                                final_output.push_back("  ✗ Failed to restore stashed changes".to_string());
+                                final_output
+                                    .push_back("  ✗ Failed to restore stashed changes".to_string());
                                 if !stderr.is_empty() {
                                     final_output.push_back(format!("    {}", stderr.trim()));
                                 }
-                                final_output.push_back("    Run 'git stash pop' manually to restore".to_string());
+                                final_output.push_back(format!(
+                                    "    Run 'git stash pop {}' manually to restore",
+                                    stash.reference
+                                ));
                             }
                             if !stdout.is_empty() {
                                 for line in stdout.lines() {
@@ -348,9 +353,24 @@ impl App {
                         }
                         Err(e) => {
                             final_output.push_back(format!("  ✗ Error restoring stash: {}", e));
-                            final_output.push_back("    Run 'git stash pop' manually to restore".to_string());
+                            final_output.push_back(format!(
+                                "    Run 'git stash pop {}' manually to restore",
+                                stash.reference
+                            ));
                         }
                     }
+                }
+
+                if let Some(stash) = stash.filter(|_| !success) {
+                    final_output.push_back("".to_string());
+                    final_output.push_back(format!(
+                        "Autostash preserved at {} ({})",
+                        stash.reference, stash.message
+                    ));
+                    final_output.push_back(format!(
+                        "  Run 'git stash pop {}' after resolving the failure.",
+                        stash.reference
+                    ));
                 }
 
                 // Clear pending operation on completion

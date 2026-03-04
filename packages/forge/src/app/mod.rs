@@ -26,9 +26,10 @@ use crate::system::hardware::{CpuVendor, GpuInfo, GpuVendor};
 // Re-export commonly used types
 pub use state::{
     AppMode, AppOp, AppProfileState, CreateHostState, CredentialField, InstallCredentials,
-    InstallState, Keybinding, KeybindingsPanel, KeybindingsState, KeysOp, KeysState, ModalDialog,
-    NewHostConfig, PendingUpdates, StepState, StepStatus, SwapMode, UpdateOptions, UpdateState, UpdateSummary,
-    APP_MENU_ITEMS, MAIN_MENU_ITEMS,
+    InstallState, Keybinding, KeybindingsPanel, KeybindingsState, KeysOp, KeysState, LocalChange,
+    ModalDialog, NewHostConfig, PendingUpdates, StashInfo, StepState, StepStatus, SwapMode,
+    UpdateOptions, UpdatePreflightField, UpdateState, UpdateSummary, APP_MENU_ITEMS,
+    MAIN_MENU_ITEMS,
 };
 
 /// Main application state
@@ -135,15 +136,21 @@ impl App {
 
     /// Check if a specific modal type is showing (convenience for backward compatibility)
     pub fn show_exit_confirm(&self) -> bool {
-        self.modal_stack.iter().any(|m| matches!(m, ModalDialog::ExitConfirm))
+        self.modal_stack
+            .iter()
+            .any(|m| matches!(m, ModalDialog::ExitConfirm))
     }
 
     pub fn show_reboot_confirm(&self) -> bool {
-        self.modal_stack.iter().any(|m| matches!(m, ModalDialog::RebootConfirm { .. }))
+        self.modal_stack
+            .iter()
+            .any(|m| matches!(m, ModalDialog::RebootConfirm { .. }))
     }
 
     pub fn show_help(&self) -> bool {
-        self.modal_stack.iter().any(|m| matches!(m, ModalDialog::Help))
+        self.modal_stack
+            .iter()
+            .any(|m| matches!(m, ModalDialog::Help))
     }
 
     /// Get reboot reasons from the modal stack
@@ -186,20 +193,33 @@ impl App {
         }
     }
 
+    pub(crate) async fn launch_update_command(&mut self) -> Result<()> {
+        if let AppMode::Update(UpdateState::Running { steps, options, .. }) = &mut self.mode {
+            if !steps.is_empty() && !matches!(steps[0].status, StepState::Running) {
+                steps[0].status = StepState::Running;
+                steps[0].started_at = Some(Instant::now());
+            }
+            let opts = options.clone();
+            let tx = self.cmd_tx.clone();
+            if let Some(tx) = tx {
+                let cancel = self.new_cancel_token();
+                commands::update::start_update(tx, cancel, opts).await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Start initial command if mode requires it
     pub async fn start_initial_command(&mut self) -> Result<()> {
         match &mut self.mode {
-            AppMode::Update(UpdateState::Running { steps, options, .. }) => {
-                if !steps.is_empty() {
-                    steps[0].status = StepState::Running;
-                    steps[0].started_at = Some(Instant::now());
+            AppMode::Update(UpdateState::Preflight { auto_start, .. }) => {
+                if *auto_start {
+                    *auto_start = false;
+                    self.begin_update_flow().await?;
                 }
-                let opts = options.clone();
-                let tx = self.cmd_tx.clone();
-                if let Some(tx) = tx {
-                    let cancel = self.new_cancel_token();
-                    commands::update::start_update(tx, cancel, opts).await?;
-                }
+            }
+            AppMode::Update(UpdateState::Running { .. }) => {
+                self.launch_update_command().await?;
             }
             AppMode::Apps(AppProfileState::Running {
                 operation, force, ..

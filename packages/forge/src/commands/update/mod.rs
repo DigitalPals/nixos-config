@@ -15,12 +15,16 @@ mod tools;
 use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::UpdateSummary;
+use crate::app::{LocalChange, StashInfo, UpdateSummary};
 use crate::commands::errors::{ErrorContext, ParsedError};
-use crate::commands::executor::{command_exists, get_output, run_capture, run_command_cancellable_transformed, run_command_cancellable_with_timeout, CommandResult};
+use crate::commands::executor::{
+    command_exists, get_output, run_capture, run_command_cancellable_transformed,
+    run_command_cancellable_with_timeout, CommandResult,
+};
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
@@ -29,9 +33,20 @@ use tools::{check_browser_status, clean_version, get_npm_package_version};
 
 use crate::constants::nixos_config_dir;
 
+const STEP_PULL: &str = "update.pull";
+const STEP_FLAKE: &str = "update.flake";
+const STEP_REBUILD: &str = "update.rebuild";
+const STEP_PACKAGES: &str = "update.packages";
+const STEP_CLAUDE: &str = "update.claude";
+const STEP_CODEX: &str = "update.codex";
+const STEP_BROWSER: &str = "update.browser";
+const STEP_FIRMWARE: &str = "update.firmware";
+
 /// Get the current NixOS system generation number
 pub async fn get_current_generation() -> Option<u32> {
-    let output = get_output("readlink", &["/nix/var/nix/profiles/system"]).await.ok()?;
+    let output = get_output("readlink", &["/nix/var/nix/profiles/system"])
+        .await
+        .ok()?;
     let gen_str = output.trim();
     // Format: system-N-link
     gen_str.split('-').nth(1)?.parse().ok()
@@ -39,7 +54,7 @@ pub async fn get_current_generation() -> Option<u32> {
 
 /// Check for local uncommitted changes in the NixOS config directory.
 /// Returns a list of changed files (empty if no changes).
-pub fn check_local_changes() -> Vec<String> {
+pub fn check_local_changes() -> Vec<LocalChange> {
     let config_path = nixos_config_dir();
 
     // Check if this is a git repository
@@ -49,7 +64,12 @@ pub fn check_local_changes() -> Vec<String> {
 
     // Run git status --porcelain to get changed files
     let output = std::process::Command::new("git")
-        .args(["-C", &config_path.to_string_lossy(), "status", "--porcelain"])
+        .args([
+            "-C",
+            &config_path.to_string_lossy(),
+            "status",
+            "--porcelain",
+        ])
         .output();
 
     match output {
@@ -59,12 +79,15 @@ pub fn check_local_changes() -> Vec<String> {
                 .lines()
                 .filter(|line| !line.is_empty())
                 .map(|line| {
-                    // Format: "XY filename" where XY is the status code
-                    // Extract just the filename (skip first 3 chars: status + space)
-                    if line.len() > 3 {
+                    let path = if line.len() > 3 {
                         line[3..].to_string()
                     } else {
                         line.to_string()
+                    };
+                    let status = line.chars().take(2).collect::<String>();
+                    LocalChange {
+                        path,
+                        tracked: status != "??",
                     }
                 })
                 .collect()
@@ -73,13 +96,66 @@ pub fn check_local_changes() -> Vec<String> {
     }
 }
 
+/// Resolve the current branch upstream, if configured.
+pub fn get_upstream_ref(config_path: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args([
+            "-C",
+            config_path,
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let upstream = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !upstream.is_empty() {
+            return Some(upstream);
+        }
+    }
+    None
+}
+
+pub async fn find_stash_reference(config_path: &str, message: &str) -> Option<StashInfo> {
+    let (success, stdout, _) = run_capture(
+        "git",
+        &["-C", config_path, "stash", "list", "--format=%gd:%s"],
+    )
+    .await
+    .ok()?;
+
+    if !success {
+        return None;
+    }
+
+    stdout.lines().find_map(|line| {
+        let (reference, stash_message) = line.split_once(':')?;
+        if stash_message.contains(message) {
+            Some(StashInfo {
+                reference: reference.to_string(),
+                message: stash_message.to_string(),
+            })
+        } else {
+            None
+        }
+    })
+}
+
 /// Get the default branch name (main or master) for the remote
 pub fn get_default_branch() -> String {
     let config_path = nixos_config_dir();
 
     // Try to get the default branch from remote HEAD
     let output = std::process::Command::new("git")
-        .args(["-C", &config_path.to_string_lossy(), "symbolic-ref", "refs/remotes/origin/HEAD"])
+        .args([
+            "-C",
+            &config_path.to_string_lossy(),
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+        ])
         .output();
 
     if let Ok(output) = output {
@@ -94,7 +170,13 @@ pub fn get_default_branch() -> String {
 
     // Fall back to checking if origin/main exists
     let check_main = std::process::Command::new("git")
-        .args(["-C", &config_path.to_string_lossy(), "rev-parse", "--verify", "origin/main"])
+        .args([
+            "-C",
+            &config_path.to_string_lossy(),
+            "rev-parse",
+            "--verify",
+            "origin/main",
+        ])
         .output();
 
     if let Ok(output) = check_main {
@@ -198,7 +280,11 @@ fn transform_nix_output(line: &str) -> Option<String> {
 }
 
 /// Start the update process
-pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: CancellationToken, options: crate::app::UpdateOptions) -> Result<()> {
+pub async fn start_update(
+    tx: mpsc::Sender<CommandMessage>,
+    cancel: CancellationToken,
+    options: crate::app::UpdateOptions,
+) -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = run_update(&tx, cancel, &options).await {
             tracing::error!("Update failed: {}", e);
@@ -219,7 +305,11 @@ pub async fn start_update(tx: mpsc::Sender<CommandMessage>, cancel: Cancellation
     Ok(())
 }
 
-async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken, options: &crate::app::UpdateOptions) -> Result<()> {
+async fn run_update(
+    tx: &mpsc::Sender<CommandMessage>,
+    cancel: CancellationToken,
+    options: &crate::app::UpdateOptions,
+) -> Result<()> {
     let mut summary = UpdateSummary::default();
 
     // Find the flake directory
@@ -256,85 +346,104 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
 
     // Save flake.lock hash and backup before update
     let lock_before = get_flake_lock_hash(&flake_dir).await;
-    save_flake_lock_backup(&flake_dir).await;
+    let lock_backup = save_flake_lock_backup(&flake_dir).await;
 
     // Step 2: Flake update (with streaming output)
     let needs_rebuild = if !skip_flake {
-    out(tx, "").await;
-    out(tx, "══════════════════════════════════════════════").await;
-    out(tx, "  Updating Flake Inputs").await;
-    out(tx, "══════════════════════════════════════════════").await;
-    out(tx, "").await;
+        out(tx, "").await;
+        out(tx, "══════════════════════════════════════════════").await;
+        out(tx, "  Updating Flake Inputs").await;
+        out(tx, "══════════════════════════════════════════════").await;
+        out(tx, "").await;
 
-    // Build flake update args
-    let mut flake_args: Vec<String> = vec!["flake".into(), "update".into()];
-    for input in &options.inputs {
-        flake_args.push(input.clone());
-    }
-    flake_args.push("--flake".into());
-    flake_args.push(flake_path.to_string());
-    let flake_arg_refs: Vec<&str> = flake_args.iter().map(|s| s.as_str()).collect();
+        // Build flake update args
+        let mut flake_args: Vec<String> = vec!["flake".into(), "update".into()];
+        for input in &options.inputs {
+            flake_args.push(input.clone());
+        }
+        flake_args.push("--flake".into());
+        flake_args.push(flake_path.to_string());
+        let flake_arg_refs: Vec<&str> = flake_args.iter().map(|s| s.as_str()).collect();
 
-    // Transform output: filter noise and extract useful info from errors
-    // Also send StepDetail messages for input updates
-    let tx_detail = tx.clone();
-    let result = run_command_cancellable_transformed(tx, "nix", &flake_arg_refs, cancel.clone(), move |line: &str| {
-        // Send step detail for "updating input" lines
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("updating input '").or_else(|| trimmed.strip_prefix("• Updated input '")) {
-            if let Some(name) = rest.split('\'').next() {
-                let detail_msg = format!("Updating {}", name);
-                let tx = tx_detail.clone();
-                tokio::spawn(async move {
-                    let _ = tx.send(CommandMessage::StepDetail {
-                        step: "flake".to_string(),
-                        detail: detail_msg,
-                    }).await;
-                });
+        // Transform output: filter noise and extract useful info from errors
+        // Also send StepDetail messages for input updates
+        let tx_detail = tx.clone();
+        let result = run_command_cancellable_transformed(
+            tx,
+            "nix",
+            &flake_arg_refs,
+            cancel.clone(),
+            move |line: &str| {
+                // Send step detail for "updating input" lines
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed
+                    .strip_prefix("updating input '")
+                    .or_else(|| trimmed.strip_prefix("• Updated input '"))
+                {
+                    if let Some(name) = rest.split('\'').next() {
+                        let detail_msg = format!("Updating {}", name);
+                        let tx = tx_detail.clone();
+                        tokio::spawn(async move {
+                            let _ = tx
+                                .send(CommandMessage::StepDetail {
+                                    step: STEP_FLAKE.to_string(),
+                                    detail: detail_msg,
+                                })
+                                .await;
+                        });
+                    }
+                }
+                transform_nix_output(line)
+            },
+        )
+        .await?;
+
+        out(tx, "").await;
+        match result {
+            CommandResult::Cancelled => {
+                out(tx, "  ⊘ Flake update cancelled").await;
+                tx.send(CommandMessage::Cancelled).await?;
+                return Ok(());
+            }
+            CommandResult::Completed(false) => {
+                out(tx, "  ✗ Flake update failed").await;
+                let error = ParsedError::from_stderr(
+                    "Flake update failed - see output above for details",
+                    ErrorContext {
+                        operation: "Flake update".to_string(),
+                    },
+                );
+                tx.send(CommandMessage::StepFailed {
+                    step: STEP_FLAKE.to_string(),
+                    error,
+                })
+                .await?;
+                tx.send(CommandMessage::Done { success: false }).await?;
+                return Ok(());
+            }
+            CommandResult::Completed(true) => {}
+        }
+        out(tx, "  ✓ Flake inputs updated").await;
+        tx.send(CommandMessage::StepComplete {
+            step: STEP_FLAKE.to_string(),
+        })
+        .await?;
+
+        // Check if flake.lock changed
+        let lock_after = get_flake_lock_hash(&flake_dir).await;
+        let changed = lock_before != lock_after;
+
+        if changed {
+            if let Some(ref backup_path) = lock_backup {
+                summary.flake_changes = parse_flake_changes(&flake_dir, backup_path)
+                    .await
+                    .unwrap_or_default();
             }
         }
-        transform_nix_output(line)
-    }).await?;
-
-    out(tx, "").await;
-    match result {
-        CommandResult::Cancelled => {
-            out(tx, "  ⊘ Flake update cancelled").await;
-            tx.send(CommandMessage::Cancelled).await?;
-            return Ok(());
+        if let Some(backup_path) = lock_backup.as_ref() {
+            let _ = tokio::fs::remove_file(backup_path).await;
         }
-        CommandResult::Completed(false) => {
-            out(tx, "  ✗ Flake update failed").await;
-            let error = ParsedError::from_stderr(
-                "Flake update failed - see output above for details",
-                ErrorContext {
-                    operation: "Flake update".to_string(),
-                },
-            );
-            tx.send(CommandMessage::StepFailed {
-                step: "flake".to_string(),
-                error,
-            })
-            .await?;
-            tx.send(CommandMessage::Done { success: false }).await?;
-            return Ok(());
-        }
-        CommandResult::Completed(true) => {}
-    }
-    out(tx, "  ✓ Flake inputs updated").await;
-    tx.send(CommandMessage::StepComplete {
-        step: "flake".to_string(),
-    })
-    .await?;
-
-    // Check if flake.lock changed
-    let lock_after = get_flake_lock_hash(&flake_dir).await;
-    let changed = lock_before != lock_after;
-
-    if changed {
-        summary.flake_changes = parse_flake_changes(&flake_dir).await.unwrap_or_default();
-    }
-    changed
+        changed
     } else {
         // rebuild_only mode: always rebuild
         true
@@ -355,15 +464,23 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
         let pre_rebuild_gen = get_current_generation().await;
 
         // Send detail for rebuild phase
-        let _ = tx.send(CommandMessage::StepDetail {
-            step: "Rebuild".to_string(),
-            detail: format!("nixos-rebuild switch --flake .#{}", config_name),
-        }).await;
+        let _ = tx
+            .send(CommandMessage::StepDetail {
+                step: STEP_REBUILD.to_string(),
+                detail: format!("nixos-rebuild switch --flake .#{}", config_name),
+            })
+            .await;
 
         // Use configurable timeout for rebuild (default 30 minutes, override with FORGE_REBUILD_TIMEOUT)
         let timeout = crate::constants::rebuild_timeout_secs();
-        let result =
-            run_command_cancellable_with_timeout(tx, "sudo", &["nixos-rebuild", "switch", "--flake", &flake_ref], Some(timeout), cancel.clone()).await?;
+        let result = run_command_cancellable_with_timeout(
+            tx,
+            "sudo",
+            &["nixos-rebuild", "switch", "--flake", &flake_ref],
+            Some(timeout),
+            cancel.clone(),
+        )
+        .await?;
 
         out(tx, "").await;
         match result {
@@ -375,7 +492,7 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
             CommandResult::Completed(true) => {
                 out(tx, "  ✓ System rebuilt successfully").await;
                 tx.send(CommandMessage::StepComplete {
-                    step: "Rebuild".to_string(),
+                    step: STEP_REBUILD.to_string(),
                 })
                 .await?;
             }
@@ -389,7 +506,7 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
                     },
                 );
                 tx.send(CommandMessage::StepFailed {
-                    step: "Rebuild".to_string(),
+                    step: STEP_REBUILD.to_string(),
                     error,
                 })
                 .await?;
@@ -406,7 +523,7 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
         out(tx, "  - Skipping rebuild (no changes)").await;
         summary.rebuild_skipped = true;
         tx.send(CommandMessage::StepSkipped {
-            step: "Rebuild".to_string(),
+            step: STEP_REBUILD.to_string(),
         })
         .await?;
     }
@@ -433,7 +550,7 @@ async fn run_update(tx: &mpsc::Sender<CommandMessage>, cancel: CancellationToken
             .await;
         }
         tx.send(CommandMessage::StepComplete {
-            step: "Packages".to_string(),
+            step: STEP_PACKAGES.to_string(),
         })
         .await?;
     }
@@ -496,23 +613,33 @@ async fn update_claude_code(
 
         if success {
             out(tx, "  ✓ Updating Claude Code").await;
+            tx.send(CommandMessage::StepComplete {
+                step: STEP_CLAUDE.to_string(),
+            })
+            .await?;
         } else {
             out(tx, "  ✗ Updating Claude Code").await;
+            let error = ParsedError::from_stderr(
+                "Claude Code update failed",
+                ErrorContext {
+                    operation: "Claude Code update".to_string(),
+                },
+            );
+            tx.send(CommandMessage::StepFailed {
+                step: STEP_CLAUDE.to_string(),
+                error,
+            })
+            .await?;
         }
 
         summary.claude_new = get_output(claude_cmd, &["--version"])
             .await
             .ok()
             .map(|v| clean_version(&v));
-
-        tx.send(CommandMessage::StepComplete {
-            step: "Claude".to_string(),
-        })
-        .await?;
     } else {
         out(tx, "  - Claude Code not installed").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "Claude".to_string(),
+            step: STEP_CLAUDE.to_string(),
         })
         .await?;
     }
@@ -534,20 +661,30 @@ async fn update_codex_cli(
 
         if success {
             out(tx, "  ✓ Updating Codex CLI").await;
+            tx.send(CommandMessage::StepComplete {
+                step: STEP_CODEX.to_string(),
+            })
+            .await?;
         } else {
             out(tx, "  ✗ Updating Codex CLI").await;
+            let error = ParsedError::from_stderr(
+                "Codex CLI update failed",
+                ErrorContext {
+                    operation: "Codex CLI update".to_string(),
+                },
+            );
+            tx.send(CommandMessage::StepFailed {
+                step: STEP_CODEX.to_string(),
+                error,
+            })
+            .await?;
         }
 
         summary.codex_new = get_npm_package_version("@openai/codex").await;
-
-        tx.send(CommandMessage::StepComplete {
-            step: "Codex".to_string(),
-        })
-        .await?;
     } else {
         out(tx, "  - Codex CLI not installed").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "Codex".to_string(),
+            step: STEP_CODEX.to_string(),
         })
         .await?;
     }
@@ -563,23 +700,32 @@ async fn check_app_profiles(
         let config_path = crate::constants::app_backup_config_path();
 
         if config_path.exists() {
-            summary.browser_status =
-                check_browser_status().await.unwrap_or_else(|_| "unknown".to_string());
-            out(tx, "  ✓ Browser profiles up to date").await;
+            summary.browser_status = check_browser_status()
+                .await
+                .unwrap_or_else(|_| "unknown".to_string());
+            if summary.browser_status == "up to date" {
+                out(tx, "  ✓ Browser profiles up to date").await;
+            } else {
+                out(
+                    tx,
+                    &format!("  ! Browser profiles status: {}", summary.browser_status),
+                )
+                .await;
+            }
         } else {
             summary.browser_status = "not configured".to_string();
             out(tx, "  - Browser profiles not configured").await;
         }
 
         tx.send(CommandMessage::StepComplete {
-            step: "browser".to_string(),
+            step: STEP_BROWSER.to_string(),
         })
         .await?;
     } else {
         summary.browser_status = "not configured".to_string();
         out(tx, "  - App backup not configured").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "browser".to_string(),
+            step: STEP_BROWSER.to_string(),
         })
         .await?;
     }
@@ -595,7 +741,7 @@ async fn check_firmware_updates(
     if !command_exists("fwupdmgr").await {
         out(tx, "  - fwupd not installed").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "firmware".to_string(),
+            step: STEP_FIRMWARE.to_string(),
         })
         .await?;
         return Ok(());
@@ -606,21 +752,41 @@ async fn check_firmware_updates(
     let _ = run_capture("fwupdmgr", &["refresh"]).await;
 
     // Check for available updates (exit code 2 = no updates)
-    let (has_updates, stdout, _) = run_capture("fwupdmgr", &["get-updates"]).await?;
+    let output = Command::new("fwupdmgr")
+        .args(["get-updates"])
+        .output()
+        .await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let status_code = output.status.code().unwrap_or(-1);
 
-    if !has_updates {
+    if status_code == 2 {
         out(tx, "  ✓ Firmware is up to date").await;
         summary.firmware_status = "up to date".to_string();
-    } else {
-        // Count updates by looking for device entries
+    } else if output.status.success() {
         let count = count_firmware_updates(&stdout);
         out(tx, &format!("  ! {} firmware update(s) available", count)).await;
         out(tx, "    Run 'fwupdmgr update' to apply").await;
         summary.firmware_status = format!("{} update(s) available", count);
+    } else {
+        out(tx, "  ✗ Firmware check failed").await;
+        let error = ParsedError::from_stderr(
+            &stderr,
+            ErrorContext {
+                operation: "Firmware check".to_string(),
+            },
+        );
+        tx.send(CommandMessage::StepFailed {
+            step: STEP_FIRMWARE.to_string(),
+            error,
+        })
+        .await?;
+        summary.firmware_status = "check failed".to_string();
+        return Ok(());
     }
 
     tx.send(CommandMessage::StepComplete {
-        step: "firmware".to_string(),
+        step: STEP_FIRMWARE.to_string(),
     })
     .await?;
     Ok(())
@@ -635,9 +801,7 @@ fn count_firmware_updates(output: &str) -> usize {
         .max(1) // At least 1 if we got here
 }
 
-async fn detect_reboot_reasons(
-    package_changes: &[(String, String, String)],
-) -> Vec<String> {
+async fn detect_reboot_reasons(package_changes: &[(String, String, String)]) -> Vec<String> {
     let mut reasons = Vec::new();
 
     if let (Ok(booted), Ok(current)) = (
@@ -781,7 +945,11 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     // Added packages
     if !summary.packages_added.is_empty() {
         out(tx, "").await;
-        out(tx, &format!("  Packages added ({}):", summary.packages_added.len())).await;
+        out(
+            tx,
+            &format!("  Packages added ({}):", summary.packages_added.len()),
+        )
+        .await;
         for (pkg, ver) in &summary.packages_added {
             if ver.is_empty() {
                 out(tx, &format!("    + {}", pkg)).await;
@@ -794,7 +962,11 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     // Removed packages
     if !summary.packages_removed.is_empty() {
         out(tx, "").await;
-        out(tx, &format!("  Packages removed ({}):", summary.packages_removed.len())).await;
+        out(
+            tx,
+            &format!("  Packages removed ({}):", summary.packages_removed.len()),
+        )
+        .await;
         for (pkg, ver) in &summary.packages_removed {
             if ver.is_empty() {
                 out(tx, &format!("    - {}", pkg)).await;
@@ -867,19 +1039,23 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
     if !git_dir.exists() {
         out(tx, "  - Not a git repository, skipping pull").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "pull".to_string(),
+            step: STEP_PULL.to_string(),
         })
         .await?;
         return Ok(());
     }
 
-    // Fetch from remote
-    let (fetch_ok, _, _) = run_capture("git", &["-C", config_path, "fetch", "origin"]).await?;
+    let upstream =
+        get_upstream_ref(config_path).unwrap_or_else(|| format!("origin/{}", get_default_branch()));
+    let fetch_remote = upstream.split('/').next().unwrap_or("origin").to_string();
+
+    // Fetch from the configured upstream remote
+    let (fetch_ok, _, _) = run_capture("git", &["-C", config_path, "fetch", &fetch_remote]).await?;
 
     if !fetch_ok {
         out(tx, "  - Unable to fetch from remote").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "pull".to_string(),
+            step: STEP_PULL.to_string(),
         })
         .await?;
         return Ok(());
@@ -893,40 +1069,27 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
     .await?;
     let flake_lock_modified = diff_ok && !diff_output.trim().is_empty();
 
-    // Check if there are unpulled commits (and track which branch)
     let (count_ok, count_str, _) = run_capture(
         "git",
-        &["-C", config_path, "rev-list", "HEAD..origin/main", "--count"],
+        &[
+            "-C",
+            config_path,
+            "rev-list",
+            &format!("HEAD..{}", upstream),
+            "--count",
+        ],
     )
     .await?;
-
-    let (count, branch): (usize, &str) = if count_ok {
-        (count_str.trim().parse().unwrap_or(0), "main")
+    let count = if count_ok {
+        count_str.trim().parse().unwrap_or(0)
     } else {
-        // Try origin/master as fallback
-        let (master_ok, master_count, _) = run_capture(
-            "git",
-            &[
-                "-C",
-                config_path,
-                "rev-list",
-                "HEAD..origin/master",
-                "--count",
-            ],
-        )
-        .await?;
-
-        if master_ok {
-            (master_count.trim().parse().unwrap_or(0), "master")
-        } else {
-            (0, "main")
-        }
+        0
     };
 
     if count == 0 {
         out(tx, "  - No configuration updates to pull").await;
         tx.send(CommandMessage::StepSkipped {
-            step: "pull".to_string(),
+            step: STEP_PULL.to_string(),
         })
         .await?;
         return Ok(());
@@ -936,10 +1099,9 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
     // This is safe because nix flake update will regenerate it anyway
     if flake_lock_modified {
         out(tx, "  - Resetting flake.lock to remote version").await;
-        let remote_ref = format!("origin/{}", branch);
         let (reset_ok, _, _) = run_capture(
             "git",
-            &["-C", config_path, "checkout", &remote_ref, "--", "flake.lock"],
+            &["-C", config_path, "checkout", &upstream, "--", "flake.lock"],
         )
         .await?;
 
@@ -956,7 +1118,7 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
     if pull_ok {
         out(tx, &format!("  ✓ Pulled {} commit(s)", count)).await;
         tx.send(CommandMessage::StepComplete {
-            step: "pull".to_string(),
+            step: STEP_PULL.to_string(),
         })
         .await?;
     } else {
@@ -968,7 +1130,7 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
             },
         );
         tx.send(CommandMessage::StepFailed {
-            step: "pull".to_string(),
+            step: STEP_PULL.to_string(),
             error,
         })
         .await?;

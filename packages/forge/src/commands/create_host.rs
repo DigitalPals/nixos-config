@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
 use super::executor::run_command;
+use super::steps;
 use super::CommandMessage;
 use crate::app::{AppMode, CreateHostState, NewHostConfig};
 use crate::system::hardware::{FormFactor, GpuVendor};
@@ -22,7 +23,7 @@ pub async fn start_create_host(tx: mpsc::Sender<CommandMessage>, mode: AppMode) 
         _ => {
             let _ = tx
                 .send(CommandMessage::StepFailed {
-                    step: "host".to_string(),
+                    step: steps::HOST_DIR.to_string(),
                     error: ParsedError::from_stderr(
                         "Invalid state for create_host",
                         ErrorContext {
@@ -41,7 +42,7 @@ pub async fn start_create_host(tx: mpsc::Sender<CommandMessage>, mode: AppMode) 
             tracing::error!("Create host failed: {}", e);
             let _ = tx
                 .send(CommandMessage::StepFailed {
-                    step: "configuration".to_string(),
+                    step: steps::HOST_CONFIG.to_string(),
                     error: ParsedError::from_stderr(
                         &e.to_string(),
                         ErrorContext {
@@ -56,10 +57,7 @@ pub async fn start_create_host(tx: mpsc::Sender<CommandMessage>, mode: AppMode) 
     Ok(())
 }
 
-async fn run_create_host(
-    tx: &mpsc::Sender<CommandMessage>,
-    config: &NewHostConfig,
-) -> Result<()> {
+async fn run_create_host(tx: &mpsc::Sender<CommandMessage>, config: &NewHostConfig) -> Result<()> {
     // Clone repository if running from live ISO and no config exists
     if crate::system::is_live_iso_environment() {
         let temp_config = crate::constants::temp_config_dir();
@@ -90,7 +88,7 @@ async fn run_create_host(
             }
 
             tx.send(CommandMessage::StepComplete {
-                step: "repository".to_string(),
+                step: steps::REPOSITORY.to_string(),
             })
             .await?;
         }
@@ -119,7 +117,7 @@ async fn run_create_host(
         .with_context(|| format!("Failed to create host directory: {}", host_dir))?;
 
     tx.send(CommandMessage::StepComplete {
-        step: "host".to_string(),
+        step: steps::HOST_DIR.to_string(),
     })
     .await?;
 
@@ -153,7 +151,7 @@ async fn run_create_host(
     }
 
     tx.send(CommandMessage::StepComplete {
-        step: "hardware".to_string(),
+        step: steps::HW_CONFIG.to_string(),
     })
     .await?;
 
@@ -169,7 +167,7 @@ async fn run_create_host(
         .with_context(|| format!("Failed to write default.nix: {}", default_nix_path))?;
 
     tx.send(CommandMessage::StepComplete {
-        step: "host config".to_string(),
+        step: steps::HOST_CONFIG.to_string(),
     })
     .await?;
 
@@ -185,7 +183,7 @@ async fn run_create_host(
         .with_context(|| format!("Failed to write disko config: {}", disko_path))?;
 
     tx.send(CommandMessage::StepComplete {
-        step: "disko".to_string(),
+        step: steps::DISKO_CONFIG.to_string(),
     })
     .await?;
 
@@ -202,7 +200,7 @@ async fn run_create_host(
         .with_context(|| format!("Failed to write flake.nix: {}", flake_path))?;
 
     tx.send(CommandMessage::StepComplete {
-        step: "flake".to_string(),
+        step: steps::FLAKE_NIX.to_string(),
     })
     .await?;
 
@@ -336,18 +334,30 @@ fn update_flake_nix(content: &str, config: &NewHostConfig) -> Result<String> {
     };
 
     let description = match (&config.gpu.vendor, &config.form_factor) {
-        (GpuVendor::NVIDIA, FormFactor::Desktop) => format!("{} - Desktop with NVIDIA GPU", config.hostname),
-        (GpuVendor::NVIDIA, FormFactor::Laptop) => format!("{} - Laptop with NVIDIA GPU", config.hostname),
+        (GpuVendor::NVIDIA, FormFactor::Desktop) => {
+            format!("{} - Desktop with NVIDIA GPU", config.hostname)
+        }
+        (GpuVendor::NVIDIA, FormFactor::Laptop) => {
+            format!("{} - Laptop with NVIDIA GPU", config.hostname)
+        }
         (GpuVendor::HybridNvidiaAmd, FormFactor::Desktop) => {
             format!("{} - Desktop with Hybrid NVIDIA + AMD GPU", config.hostname)
         }
         (GpuVendor::HybridNvidiaAmd, FormFactor::Laptop) => {
             format!("{} - Laptop with Hybrid NVIDIA + AMD GPU", config.hostname)
         }
-        (GpuVendor::AMD, FormFactor::Desktop) => format!("{} - Desktop with AMD GPU", config.hostname),
-        (GpuVendor::AMD, FormFactor::Laptop) => format!("{} - Laptop with AMD GPU", config.hostname),
-        (GpuVendor::Intel, FormFactor::Desktop) => format!("{} - Desktop with Intel GPU", config.hostname),
-        (GpuVendor::Intel, FormFactor::Laptop) => format!("{} - Laptop with Intel GPU", config.hostname),
+        (GpuVendor::AMD, FormFactor::Desktop) => {
+            format!("{} - Desktop with AMD GPU", config.hostname)
+        }
+        (GpuVendor::AMD, FormFactor::Laptop) => {
+            format!("{} - Laptop with AMD GPU", config.hostname)
+        }
+        (GpuVendor::Intel, FormFactor::Desktop) => {
+            format!("{} - Desktop with Intel GPU", config.hostname)
+        }
+        (GpuVendor::Intel, FormFactor::Laptop) => {
+            format!("{} - Laptop with Intel GPU", config.hostname)
+        }
         (GpuVendor::None, FormFactor::Desktop) => format!("{} - Desktop", config.hostname),
         (GpuVendor::None, FormFactor::Laptop) => format!("{} - Laptop", config.hostname),
     };

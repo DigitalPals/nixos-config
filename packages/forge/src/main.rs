@@ -147,7 +147,12 @@ async fn main() -> Result<()> {
             // Hostname is now entered at the end of the wizard, so we always start with hardware detection
             run_tui(AppMode::CreateHost(app::CreateHostState::new())).await
         }
-        Some(Commands::Update { action, rebuild_only, flake_only, inputs }) => match action {
+        Some(Commands::Update {
+            action,
+            rebuild_only,
+            flake_only,
+            inputs,
+        }) => match action {
             Some(UpdateAction::History { details }) => {
                 // Run history command directly (no TUI)
                 commands::update::history::print_history(details.as_deref())?;
@@ -159,7 +164,7 @@ async fn main() -> Result<()> {
                     flake_only,
                     inputs,
                 };
-                run_tui(AppMode::Update(app::UpdateState::new_with_options(options, false))).await
+                run_tui(AppMode::Update(app::UpdateState::preflight(options, true))).await
             }
         },
         Some(Commands::Apps { action }) => match action {
@@ -175,18 +180,12 @@ async fn main() -> Result<()> {
             None => run_tui(AppMode::Apps(app::AppProfileState::new_menu())).await,
         },
         Some(Commands::Keys { action }) => match action {
-            KeysAction::Setup => {
-                run_tui(AppMode::Keys(app::KeysState::new_setup())).await
-            }
-            KeysAction::Backup => {
-                run_tui(AppMode::Keys(app::KeysState::new_backup())).await
-            }
+            KeysAction::Setup => run_tui(AppMode::Keys(app::KeysState::new_setup())).await,
+            KeysAction::Backup => run_tui(AppMode::Keys(app::KeysState::new_backup())).await,
             KeysAction::Restore { force } => {
                 run_tui(AppMode::Keys(app::KeysState::new_restore(force))).await
             }
-            KeysAction::Status => {
-                run_tui(AppMode::Keys(app::KeysState::new_status())).await
-            }
+            KeysAction::Status => run_tui(AppMode::Keys(app::KeysState::new_status())).await,
         },
         None => run_tui(AppMode::MainMenu { selected: 0 }).await,
     }

@@ -28,7 +28,9 @@ pub const APP_MENU_ITEMS: &[&str] = &[
 /// Application mode/screen
 #[derive(Debug, Clone)]
 pub enum AppMode {
-    MainMenu { selected: usize },
+    MainMenu {
+        selected: usize,
+    },
     Install(InstallState),
     CreateHost(CreateHostState),
     Update(UpdateState),
@@ -161,14 +163,46 @@ pub fn validate_username(username: &str) -> Option<String> {
         return Some("Username too long (max 32 characters)".to_string());
     }
     // Safe: we already checked that username is not empty above
-    if !username.chars().next().expect("username is not empty").is_ascii_lowercase() {
+    if !username
+        .chars()
+        .next()
+        .expect("username is not empty")
+        .is_ascii_lowercase()
+    {
         return Some("Username must start with a lowercase letter".to_string());
     }
-    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
-        return Some("Username can only contain lowercase letters, numbers, underscore, and hyphen".to_string());
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+    {
+        return Some(
+            "Username can only contain lowercase letters, numbers, underscore, and hyphen"
+                .to_string(),
+        );
     }
     // Reserved usernames
-    let reserved = ["root", "nobody", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats", "systemd-network", "systemd-resolve"];
+    let reserved = [
+        "root",
+        "nobody",
+        "daemon",
+        "bin",
+        "sys",
+        "sync",
+        "games",
+        "man",
+        "lp",
+        "mail",
+        "news",
+        "uucp",
+        "proxy",
+        "www-data",
+        "backup",
+        "list",
+        "irc",
+        "gnats",
+        "systemd-network",
+        "systemd-resolve",
+    ];
     if reserved.contains(&username) {
         return Some(format!("'{}' is a reserved username", username));
     }
@@ -272,20 +306,56 @@ pub enum LocalChangesResolution {
     Cancel,
 }
 
+/// A local git change discovered before running update
+#[derive(Debug, Clone)]
+pub struct LocalChange {
+    pub path: String,
+    pub tracked: bool,
+}
+
+/// Metadata for an autostash created by forge update
+#[derive(Debug, Clone)]
+pub struct StashInfo {
+    pub reference: String,
+    pub message: String,
+}
+
+/// Which row is selected in the update preflight screen
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UpdatePreflightField {
+    Start,
+    Mode,
+    Inputs,
+    Back,
+}
+
 /// Update state machine
 #[derive(Debug, Clone)]
 pub enum UpdateState {
+    /// Configure update options before starting
+    Preflight {
+        options: UpdateOptions,
+        selected: UpdatePreflightField,
+        input_buffer: String,
+        editing_inputs: bool,
+        auto_start: bool,
+    },
     /// Prompt user about local changes before updating
     LocalChangesPrompt {
-        changed_files: Vec<String>,
+        changes: Vec<LocalChange>,
+        tracked_count: usize,
+        untracked_count: usize,
         selected: usize, // 0=Overwrite, 1=Stash, 2=Cancel
+        options: UpdateOptions,
     },
     Running {
         step: usize,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
-        /// Whether we stashed changes that need to be restored
-        stashed: bool,
+        /// Manual scroll position for the live log
+        scroll_offset: Option<usize>,
+        /// Autostash metadata that should be restored at the end of a successful update
+        stash: Option<StashInfo>,
         /// Selective update options
         options: UpdateOptions,
     },
@@ -318,40 +388,113 @@ pub struct UpdateOptions {
     pub inputs: Vec<String>,
 }
 
+impl UpdateOptions {
+    pub fn validate(&self) -> Option<String> {
+        if self.rebuild_only && self.flake_only {
+            Some("Update mode cannot be both 'rebuild only' and 'flake only'.".to_string())
+        } else {
+            None
+        }
+    }
+
+    pub fn mode_label(&self) -> &'static str {
+        if self.rebuild_only {
+            "Rebuild only"
+        } else if self.flake_only {
+            "Flake inputs only"
+        } else {
+            "Full update"
+        }
+    }
+
+    pub fn cycle_mode(&mut self) {
+        match (self.rebuild_only, self.flake_only) {
+            (false, false) => {
+                self.rebuild_only = true;
+                self.flake_only = false;
+            }
+            (true, false) => {
+                self.rebuild_only = false;
+                self.flake_only = true;
+            }
+            _ => {
+                self.rebuild_only = false;
+                self.flake_only = false;
+            }
+        }
+    }
+}
+
 impl UpdateState {
     pub fn new() -> Self {
-        Self::new_with_options(UpdateOptions::default(), false)
+        Self::preflight(UpdateOptions::default(), false)
     }
 
-    pub fn new_with_stash(stashed: bool) -> Self {
-        Self::new_with_options(UpdateOptions::default(), stashed)
+    pub fn preflight(options: UpdateOptions, auto_start: bool) -> Self {
+        let input_buffer = if options.inputs.is_empty() {
+            String::new()
+        } else {
+            options.inputs.join(", ")
+        };
+        UpdateState::Preflight {
+            options,
+            selected: UpdatePreflightField::Start,
+            input_buffer,
+            editing_inputs: false,
+            auto_start,
+        }
     }
 
-    pub fn new_with_options(options: UpdateOptions, stashed: bool) -> Self {
+    pub fn new_with_options(options: UpdateOptions, stash: Option<StashInfo>) -> Self {
         let mut steps = Vec::new();
 
         if !options.rebuild_only {
-            steps.push(StepStatus::new("Pulling configuration updates"));
-            steps.push(StepStatus::new("Updating flake inputs"));
+            steps.push(StepStatus::new_with_id(
+                "update.pull",
+                "Pulling configuration updates",
+            ));
+            steps.push(StepStatus::new_with_id(
+                "update.flake",
+                "Updating flake inputs",
+            ));
         }
 
         if !options.flake_only {
-            steps.push(StepStatus::new("Rebuilding system"));
-            steps.push(StepStatus::new("Comparing packages"));
+            steps.push(StepStatus::new_with_id(
+                "update.rebuild",
+                "Rebuilding system",
+            ));
+            steps.push(StepStatus::new_with_id(
+                "update.packages",
+                "Comparing packages",
+            ));
         }
 
         if !options.rebuild_only && !options.flake_only {
-            steps.push(StepStatus::new("Updating Claude Code"));
-            steps.push(StepStatus::new("Updating Codex CLI"));
-            steps.push(StepStatus::new("Checking browser profiles"));
-            steps.push(StepStatus::new("Checking firmware updates"));
+            steps.push(StepStatus::new_with_id(
+                "update.claude",
+                "Updating Claude Code",
+            ));
+            steps.push(StepStatus::new_with_id(
+                "update.codex",
+                "Updating Codex CLI",
+            ));
+            steps.push(StepStatus::new_with_id(
+                "update.browser",
+                "Checking browser profiles",
+            ));
+            steps.push(StepStatus::new_with_id(
+                "update.firmware",
+                "Checking firmware updates",
+            ));
         }
 
         UpdateState::Running {
             step: 0,
             steps,
             output: VecDeque::new(),
-            stashed,
+            scroll_offset: None,
+            stash,
             options,
         }
     }
@@ -360,7 +503,9 @@ impl UpdateState {
 /// App profile management state (browsers, Portal, etc.)
 #[derive(Debug, Clone)]
 pub enum AppProfileState {
-    Menu { selected: usize },
+    Menu {
+        selected: usize,
+    },
     Running {
         operation: AppOp,
         output: VecDeque<String>,
@@ -501,7 +646,6 @@ pub enum KeybindingsState {
     },
 }
 
-
 /// Modal dialog types that can be stacked
 #[derive(Debug, Clone)]
 pub enum ModalDialog {
@@ -520,6 +664,7 @@ pub enum ModalDialog {
 /// Step progress status
 #[derive(Debug, Clone)]
 pub struct StepStatus {
+    pub id: String,
     pub name: String,
     pub status: StepState,
     /// Optional sub-step detail shown below the step name (e.g. "Downloading nixpkgs (2/5)")
@@ -530,7 +675,12 @@ pub struct StepStatus {
 
 impl StepStatus {
     pub fn new(name: &str) -> Self {
+        Self::new_with_id(name, name)
+    }
+
+    pub fn new_with_id(id: &str, name: &str) -> Self {
         Self {
+            id: id.to_string(),
             name: name.to_string(),
             status: StepState::Pending,
             detail: None,
@@ -556,11 +706,11 @@ pub enum StepState {
 /// Update summary data
 #[derive(Debug, Clone, Default)]
 pub struct UpdateSummary {
-    pub flake_changes: Vec<FlakeInputChange>,         // Flake input changes with commits
+    pub flake_changes: Vec<FlakeInputChange>, // Flake input changes with commits
     pub package_changes: Vec<(String, String, String)>, // (pkg, old_ver, new_ver)
-    pub packages_added: Vec<(String, String)>,        // (pkg, version)
-    pub packages_removed: Vec<(String, String)>,      // (pkg, version)
-    pub closure_summary: Option<String>,              // nvd closure size summary
+    pub packages_added: Vec<(String, String)>, // (pkg, version)
+    pub packages_removed: Vec<(String, String)>, // (pkg, version)
+    pub closure_summary: Option<String>,      // nvd closure size summary
     pub claude_old: Option<String>,
     pub claude_new: Option<String>,
     pub codex_old: Option<String>,
@@ -644,7 +794,12 @@ pub fn validate_hostname(hostname: &str, hosts: &[HostConfig]) -> Option<String>
         return Some("Hostname too long (max 63 characters)".to_string());
     }
     // Safe: we already checked that hostname is not empty above
-    if !hostname.chars().next().expect("hostname is not empty").is_alphanumeric() {
+    if !hostname
+        .chars()
+        .next()
+        .expect("hostname is not empty")
+        .is_alphanumeric()
+    {
         return Some("Hostname must start with a letter or number".to_string());
     }
     if !hostname.chars().all(|c| c.is_alphanumeric() || c == '-') {

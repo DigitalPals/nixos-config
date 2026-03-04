@@ -8,7 +8,9 @@ use super::state::*;
 use super::App;
 use crate::commands;
 use crate::commands::executor::run_capture;
-use crate::commands::update::{check_local_changes, get_default_branch};
+use crate::commands::update::{
+    check_local_changes, find_stash_reference, get_default_branch, get_upstream_ref,
+};
 use crate::constants::nixos_config_dir;
 use crate::constants::MAX_INPUT_LENGTH;
 use crate::system::hardware::{
@@ -41,16 +43,33 @@ fn get_ram_size_gb() -> u64 {
     8
 }
 
+fn parse_update_inputs(input: &str) -> Vec<String> {
+    input
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
 impl App {
     /// Handle keyboard input
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+        if self.error.is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
+                self.error = None;
+            }
+            return Ok(());
+        }
+
         // Handle topmost modal dialog first
         if let Some(modal) = self.top_modal().cloned() {
             match modal {
                 super::ModalDialog::RebootConfirm { .. } => {
                     match key.code {
                         KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            let _ = crate::commands::executor::run_capture("sudo", &["reboot"]).await;
+                            let _ =
+                                crate::commands::executor::run_capture("sudo", &["reboot"]).await;
                             self.should_quit = true;
                         }
                         KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
@@ -81,12 +100,17 @@ impl App {
                     }
                     return Ok(());
                 }
-                super::ModalDialog::RollbackPrompt { generation, selected } => {
+                super::ModalDialog::RollbackPrompt {
+                    generation,
+                    selected,
+                } => {
                     match key.code {
                         KeyCode::Up | KeyCode::Char('k') => {
                             if selected > 0 {
-                                if let Some(super::ModalDialog::RollbackPrompt { selected: s, .. }) =
-                                    self.modal_stack.last_mut()
+                                if let Some(super::ModalDialog::RollbackPrompt {
+                                    selected: s,
+                                    ..
+                                }) = self.modal_stack.last_mut()
                                 {
                                     *s = selected - 1;
                                 }
@@ -94,8 +118,10 @@ impl App {
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
                             if selected < 1 {
-                                if let Some(super::ModalDialog::RollbackPrompt { selected: s, .. }) =
-                                    self.modal_stack.last_mut()
+                                if let Some(super::ModalDialog::RollbackPrompt {
+                                    selected: s,
+                                    ..
+                                }) = self.modal_stack.last_mut()
                                 {
                                     *s = selected + 1;
                                 }
@@ -130,7 +156,7 @@ impl App {
                             if let Some(ref pending) = self.pending_resume {
                                 match pending.operation.as_str() {
                                     "update" => {
-                                        self.start_update_with_changes_check().await?;
+                                        self.begin_update_flow().await?;
                                     }
                                     _ => {
                                         // Unknown operation, just clear
@@ -154,8 +180,10 @@ impl App {
                     if self.pending_updates.selected_commit > 0 {
                         self.pending_updates.selected_commit -= 1;
                         // Scroll up if selection above visible area
-                        if self.pending_updates.selected_commit < self.pending_updates.commit_scroll {
-                            self.pending_updates.commit_scroll = self.pending_updates.selected_commit;
+                        if self.pending_updates.selected_commit < self.pending_updates.commit_scroll
+                        {
+                            self.pending_updates.commit_scroll =
+                                self.pending_updates.selected_commit;
                         }
                     }
                 }
@@ -165,15 +193,19 @@ impl App {
                         self.pending_updates.selected_commit += 1;
                         // Scroll down if selection below visible area (assume ~8 visible)
                         let visible = 8;
-                        if self.pending_updates.selected_commit >= self.pending_updates.commit_scroll + visible {
-                            self.pending_updates.commit_scroll = self.pending_updates.selected_commit - visible + 1;
+                        if self.pending_updates.selected_commit
+                            >= self.pending_updates.commit_scroll + visible
+                        {
+                            self.pending_updates.commit_scroll =
+                                self.pending_updates.selected_commit - visible + 1;
                         }
                     }
                 }
                 KeyCode::Enter => {
                     // Run system update
                     self.pending_updates.clear();
-                    self.start_update_with_changes_check().await?;
+                    self.mode =
+                        AppMode::Update(UpdateState::preflight(UpdateOptions::default(), false));
                 }
                 KeyCode::Esc | KeyCode::Backspace => {
                     // Go back to main dialog
@@ -214,25 +246,24 @@ impl App {
         // Handle ShowingSummary modal keys
         if let AppMode::Update(UpdateState::ShowingSummary { .. }) = &self.mode {
             // Extract what we need without holding a mutable borrow
-            let modal_to_push = if let AppMode::Update(UpdateState::ShowingSummary {
-                summary,
-                ..
-            }) = &self.mode
-            {
-                match key.code {
-                    KeyCode::Char('r') | KeyCode::Char('R') if !summary.reboot_reasons.is_empty() => {
-                        Some(super::ModalDialog::RebootConfirm {
-                            reasons: summary.reboot_reasons.clone(),
-                        })
+            let modal_to_push =
+                if let AppMode::Update(UpdateState::ShowingSummary { summary, .. }) = &self.mode {
+                    match key.code {
+                        KeyCode::Char('r') | KeyCode::Char('R')
+                            if !summary.reboot_reasons.is_empty() =>
+                        {
+                            Some(super::ModalDialog::RebootConfirm {
+                                reasons: summary.reboot_reasons.clone(),
+                            })
+                        }
+                        KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            Some(super::ModalDialog::ExitConfirm)
+                        }
+                        _ => None,
                     }
-                    KeyCode::Char('q') | KeyCode::Char('Q') => {
-                        Some(super::ModalDialog::ExitConfirm)
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
 
             if let Some(modal) = modal_to_push {
                 self.push_modal(modal);
@@ -277,6 +308,10 @@ impl App {
                 AppMode::Install(InstallState::EnterCredentials { .. })
                     | AppMode::Install(InstallState::Overview { .. })
                     | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
+                    | AppMode::Update(UpdateState::Preflight {
+                        editing_inputs: true,
+                        ..
+                    })
             )
         {
             self.push_modal(super::ModalDialog::Help);
@@ -293,6 +328,7 @@ impl App {
                     | AppMode::Apps(AppProfileState::Status { .. })
                     | AppMode::Keys(KeysState::Complete { .. })
                     | AppMode::Keybindings(KeybindingsState::Viewing { .. })
+                    | AppMode::Update(UpdateState::Preflight { .. })
                     | AppMode::Update(UpdateState::Complete { .. })
                     | AppMode::Install(InstallState::Complete { .. })
                     | AppMode::CreateHost(CreateHostState::Complete { .. })
@@ -304,12 +340,18 @@ impl App {
 
         // Escape to go back (show confirm if on main menu)
         if key.code == KeyCode::Esc {
-            if matches!(self.mode, AppMode::MainMenu { .. }) {
-                self.push_modal(super::ModalDialog::ExitConfirm);
+            if !matches!(
+                self.mode,
+                AppMode::Update(UpdateState::Preflight { .. })
+                    | AppMode::Update(UpdateState::LocalChangesPrompt { .. })
+            ) {
+                if matches!(self.mode, AppMode::MainMenu { .. }) {
+                    self.push_modal(super::ModalDialog::ExitConfirm);
+                    return Ok(());
+                }
+                self.handle_back().await?;
                 return Ok(());
             }
-            self.handle_back().await?;
-            return Ok(());
         }
 
         // Handle Ctrl+C to cancel running operations
@@ -327,12 +369,34 @@ impl App {
             }
         }
 
+        if matches!(self.mode, AppMode::Update(UpdateState::Running { .. })) {
+            match key.code {
+                KeyCode::Up | KeyCode::Down | KeyCode::Char('k') | KeyCode::Char('j') => {
+                    self.handle_scroll(key);
+                    return Ok(());
+                }
+                KeyCode::Char('f') | KeyCode::Char('F') => {
+                    self.handle_follow_log();
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
+        if let AppMode::Update(UpdateState::Preflight { .. }) = &mut self.mode {
+            self.handle_update_preflight_key(key).await?;
+            return Ok(());
+        }
+
         // Handle local changes prompt dialog
         if let AppMode::Update(UpdateState::LocalChangesPrompt {
-            changed_files,
+            changes,
+            options,
             selected,
+            ..
         }) = &mut self.mode
         {
+            let mut pending_resolution: Option<(LocalChangesResolution, UpdateOptions)> = None;
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     *selected = selected.saturating_sub(1);
@@ -346,15 +410,17 @@ impl App {
                         1 => LocalChangesResolution::Stash,
                         _ => LocalChangesResolution::Cancel,
                     };
-                    // Take ownership of changed_files before applying resolution
-                    let _files = std::mem::take(changed_files);
-                    self.apply_local_changes_resolution(resolution).await?;
+                    let _changes = std::mem::take(changes);
+                    pending_resolution = Some((resolution, options.clone()));
                 }
                 KeyCode::Esc => {
-                    // Cancel - return to main menu
-                    self.mode = AppMode::MainMenu { selected: 1 };
+                    self.mode = AppMode::Update(UpdateState::preflight(options.clone(), false));
                 }
                 _ => {}
+            }
+            if let Some((resolution, options)) = pending_resolution {
+                self.apply_local_changes_resolution(resolution, options)
+                    .await?;
             }
             return Ok(());
         }
@@ -389,15 +455,27 @@ impl App {
             }
             AppMode::Install(InstallState::Complete { success, .. }) => match key.code {
                 KeyCode::Enter => Some(("complete", 0, None, None)),
-                KeyCode::Char('r') | KeyCode::Char('R') if *success => Some(("reboot", 0, None, None)),
-                KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
+                KeyCode::Char('r') | KeyCode::Char('R') if *success => {
+                    Some(("reboot", 0, None, None))
+                }
+                KeyCode::Up | KeyCode::Down | KeyCode::Char('k') | KeyCode::Char('j') => {
+                    Some(("scroll", 0, None, None))
+                }
+                KeyCode::Char('f') | KeyCode::Char('F') => Some(("follow", 0, None, None)),
+                _ => None,
+            },
+            AppMode::Update(UpdateState::Preflight { .. }) => match key.code {
+                KeyCode::Enter => Some(("complete", 0, None, None)),
                 _ => None,
             },
             AppMode::Update(UpdateState::Complete { .. })
             | AppMode::Apps(AppProfileState::Complete { .. })
             | AppMode::Keys(KeysState::Complete { .. }) => match key.code {
                 KeyCode::Enter => Some(("complete", 0, None, None)),
-                KeyCode::Up | KeyCode::Down => Some(("scroll", 0, None, None)),
+                KeyCode::Up | KeyCode::Down | KeyCode::Char('k') | KeyCode::Char('j') => {
+                    Some(("scroll", 0, None, None))
+                }
+                KeyCode::Char('f') | KeyCode::Char('F') => Some(("follow", 0, None, None)),
                 _ => None,
             },
             AppMode::Apps(AppProfileState::Status { .. }) => {
@@ -439,6 +517,9 @@ impl App {
             }
             Some(("complete", _, _, _)) => {
                 self.mode = AppMode::MainMenu { selected: 0 };
+            }
+            Some(("follow", _, _, _)) => {
+                self.handle_follow_log();
             }
             Some(("reboot", _, _, _)) => {
                 // Reboot the system
@@ -496,7 +577,7 @@ impl App {
         // Check if Update all was selected
         if both && selected == idx {
             self.pending_updates.clear();
-            self.start_update_with_changes_check().await?;
+            self.mode = AppMode::Update(UpdateState::preflight(UpdateOptions::default(), false));
             return Ok(());
         }
 
@@ -536,14 +617,14 @@ impl App {
                         "Error: Install can only be run from a NixOS Live ISO.".to_string(),
                     );
                     output.push_back("".to_string());
-                    output.push_back(
-                        "You appear to be running on an installed system.".to_string(),
-                    );
+                    output
+                        .push_back("You appear to be running on an installed system.".to_string());
                     output.push_back("".to_string());
                     output.push_back("To install NixOS:".to_string());
                     output.push_back("  1. Boot from a NixOS minimal ISO".to_string());
                     output.push_back("  2. Connect to WiFi: nmtui".to_string());
-                    output.push_back("  3. Run: nix run github:DigitalPals/nixos-config".to_string());
+                    output
+                        .push_back("  3. Run: nix run github:DigitalPals/nixos-config".to_string());
                     output.push_back("  4. Select 'Install NixOS' from the menu".to_string());
                     self.mode = AppMode::Install(InstallState::Complete {
                         success: false,
@@ -560,7 +641,8 @@ impl App {
             }
             1 => {
                 // Update
-                self.start_update_with_changes_check().await?;
+                self.mode =
+                    AppMode::Update(UpdateState::preflight(UpdateOptions::default(), false));
             }
             2 => {
                 // App profiles
@@ -580,27 +662,135 @@ impl App {
         Ok(())
     }
 
-    /// Start update, checking for local changes first
-    /// If local changes exist, shows a prompt dialog
-    /// Otherwise, starts the update directly
-    async fn start_update_with_changes_check(&mut self) -> Result<()> {
+    async fn handle_update_preflight_key(&mut self, key: KeyEvent) -> Result<()> {
+        enum PreflightAction {
+            None,
+            Start,
+            Back,
+        }
+
+        let mut action = PreflightAction::None;
+
+        if let AppMode::Update(UpdateState::Preflight {
+            options,
+            selected,
+            input_buffer,
+            editing_inputs,
+            ..
+        }) = &mut self.mode
+        {
+            if *editing_inputs {
+                match key.code {
+                    KeyCode::Enter => {
+                        options.inputs = parse_update_inputs(input_buffer);
+                        *editing_inputs = false;
+                    }
+                    KeyCode::Esc => {
+                        *input_buffer = if options.inputs.is_empty() {
+                            String::new()
+                        } else {
+                            options.inputs.join(", ")
+                        };
+                        *editing_inputs = false;
+                    }
+                    KeyCode::Backspace => {
+                        input_buffer.pop();
+                    }
+                    KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if input_buffer.len() < MAX_INPUT_LENGTH {
+                            input_buffer.push(c);
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(());
+            }
+
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = match selected {
+                        UpdatePreflightField::Start => UpdatePreflightField::Start,
+                        UpdatePreflightField::Mode => UpdatePreflightField::Start,
+                        UpdatePreflightField::Inputs => UpdatePreflightField::Mode,
+                        UpdatePreflightField::Back => UpdatePreflightField::Inputs,
+                    };
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = match selected {
+                        UpdatePreflightField::Start => UpdatePreflightField::Mode,
+                        UpdatePreflightField::Mode => UpdatePreflightField::Inputs,
+                        UpdatePreflightField::Inputs => UpdatePreflightField::Back,
+                        UpdatePreflightField::Back => UpdatePreflightField::Back,
+                    };
+                }
+                KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') => {
+                    if *selected == UpdatePreflightField::Mode {
+                        options.cycle_mode();
+                    }
+                }
+                KeyCode::Enter => match selected {
+                    UpdatePreflightField::Start => {
+                        action = PreflightAction::Start;
+                    }
+                    UpdatePreflightField::Mode => {
+                        options.cycle_mode();
+                    }
+                    UpdatePreflightField::Inputs => {
+                        *editing_inputs = true;
+                    }
+                    UpdatePreflightField::Back => {
+                        action = PreflightAction::Back;
+                    }
+                },
+                _ => {}
+            }
+        }
+
+        match action {
+            PreflightAction::None => {}
+            PreflightAction::Start => self.begin_update_flow().await?,
+            PreflightAction::Back => {
+                self.mode = AppMode::MainMenu { selected: 1 };
+            }
+        }
+        Ok(())
+    }
+
+    /// Start update, checking for health and local changes first.
+    pub(super) async fn begin_update_flow(&mut self) -> Result<()> {
         // Health check before update
-        let health: commands::health::HealthCheckResult = commands::health::check_health(commands::health::Operation::Update).await;
+        let health: commands::health::HealthCheckResult =
+            commands::health::check_health(commands::health::Operation::Update).await;
         if !health.is_ok() {
             self.error = Some(health.error_message());
             return Ok(());
         }
 
-        let changed_files = check_local_changes();
-        if changed_files.is_empty() {
+        let options = match &self.mode {
+            AppMode::Update(UpdateState::Preflight { options, .. }) => options.clone(),
+            AppMode::Update(UpdateState::LocalChangesPrompt { options, .. }) => options.clone(),
+            AppMode::Update(UpdateState::Running { options, .. }) => options.clone(),
+            _ => UpdateOptions::default(),
+        };
+
+        if let Some(error) = options.validate() {
+            self.error = Some(error);
+            return Ok(());
+        }
+
+        let changes = check_local_changes();
+        if changes.is_empty() {
             // No local changes, start update directly
-            self.mode = AppMode::Update(UpdateState::new());
-            self.start_initial_command().await?;
+            self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
+            self.launch_update_command().await?;
         } else {
             // Local changes detected, show prompt
             self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {
-                changed_files,
-                selected: 0,
+                tracked_count: changes.iter().filter(|change| change.tracked).count(),
+                untracked_count: changes.iter().filter(|change| !change.tracked).count(),
+                changes,
+                selected: 1,
+                options,
             });
         }
         Ok(())
@@ -610,6 +800,7 @@ impl App {
     async fn apply_local_changes_resolution(
         &mut self,
         resolution: LocalChangesResolution,
+        options: UpdateOptions,
     ) -> Result<()> {
         let config_path = nixos_config_dir();
         let config_str = config_path.to_string_lossy().to_string();
@@ -618,22 +809,16 @@ impl App {
             LocalChangesResolution::Overwrite => {
                 // Get the default branch name
                 let branch = get_default_branch();
+                let upstream =
+                    get_upstream_ref(&config_str).unwrap_or_else(|| format!("origin/{}", branch));
+                let fetch_remote = upstream.split('/').next().unwrap_or("origin").to_string();
 
                 // Fetch from remote first
-                let _ = run_capture("git", &["-C", &config_str, "fetch", "origin"]).await;
+                let _ = run_capture("git", &["-C", &config_str, "fetch", &fetch_remote]).await;
 
                 // Reset to remote branch
-                let (reset_ok, _, _) = run_capture(
-                    "git",
-                    &[
-                        "-C",
-                        &config_str,
-                        "reset",
-                        "--hard",
-                        &format!("origin/{}", branch),
-                    ],
-                )
-                .await?;
+                let (reset_ok, _, _) =
+                    run_capture("git", &["-C", &config_str, "reset", "--hard", &upstream]).await?;
 
                 if reset_ok {
                     // Also clean untracked files
@@ -641,37 +826,58 @@ impl App {
                 }
 
                 // Start update (no stash needed)
-                self.mode = AppMode::Update(UpdateState::new_with_stash(false));
-                self.start_initial_command().await?;
+                self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
+                self.launch_update_command().await?;
             }
             LocalChangesResolution::Stash => {
+                let stash_message = format!(
+                    "forge-update-autostash-{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|duration| duration.as_secs())
+                        .unwrap_or_default()
+                );
+
                 // Stash changes
-                let (stash_ok, _, _) = run_capture(
+                let (stash_ok, _, stderr) = run_capture(
                     "git",
                     &[
                         "-C",
                         &config_str,
                         "stash",
                         "push",
+                        "-u",
                         "-m",
-                        "forge-update-autostash",
+                        &stash_message,
                     ],
                 )
                 .await?;
 
                 if stash_ok {
-                    // Start update with stash flag
-                    self.mode = AppMode::Update(UpdateState::new_with_stash(true));
-                    self.start_initial_command().await?;
+                    let stash = find_stash_reference(&config_str, &stash_message).await;
+                    if let Some(stash) = stash {
+                        self.mode =
+                            AppMode::Update(UpdateState::new_with_options(options, Some(stash)));
+                        self.launch_update_command().await?;
+                    } else {
+                        self.error = Some(
+                            "Created an autostash, but could not locate its exact stash reference."
+                                .to_string(),
+                        );
+                        self.mode = AppMode::Update(UpdateState::preflight(options, false));
+                    }
                 } else {
-                    // Stash failed, go back to main menu
-                    self.error = Some("Failed to stash changes".to_string());
-                    self.mode = AppMode::MainMenu { selected: 1 };
+                    // Start update with stash flag
+                    self.error = Some(if stderr.trim().is_empty() {
+                        "Failed to stash changes".to_string()
+                    } else {
+                        format!("Failed to stash changes: {}", stderr.trim())
+                    });
+                    self.mode = AppMode::Update(UpdateState::preflight(options, false));
                 }
             }
             LocalChangesResolution::Cancel => {
-                // Just return to main menu
-                self.mode = AppMode::MainMenu { selected: 1 };
+                self.mode = AppMode::Update(UpdateState::preflight(options, false));
             }
         }
         Ok(())
@@ -688,6 +894,11 @@ impl App {
 
         match &mut self.mode {
             AppMode::Install(InstallState::Complete {
+                output,
+                scroll_offset,
+                ..
+            })
+            | AppMode::Update(UpdateState::Running {
                 output,
                 scroll_offset,
                 ..
@@ -714,10 +925,10 @@ impl App {
                 let current = scroll_offset.unwrap_or(max_scroll);
 
                 match key.code {
-                    KeyCode::Up => {
+                    KeyCode::Up | KeyCode::Char('k') => {
                         *scroll_offset = Some(current.saturating_sub(1));
                     }
-                    KeyCode::Down => {
+                    KeyCode::Down | KeyCode::Char('j') => {
                         // Don't scroll past the point where last line is at bottom
                         if current < max_scroll {
                             *scroll_offset = Some(current + 1);
@@ -728,7 +939,20 @@ impl App {
                     }
                     _ => {}
                 }
-            },
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_follow_log(&mut self) {
+        match &mut self.mode {
+            AppMode::Install(InstallState::Complete { scroll_offset, .. })
+            | AppMode::Update(UpdateState::Running { scroll_offset, .. })
+            | AppMode::Update(UpdateState::Complete { scroll_offset, .. })
+            | AppMode::Apps(AppProfileState::Complete { scroll_offset, .. })
+            | AppMode::Keys(KeysState::Complete { scroll_offset, .. }) => {
+                *scroll_offset = None;
+            }
             _ => {}
         }
     }
@@ -821,8 +1045,9 @@ impl App {
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if let AppMode::Install(InstallState::SelectDisk { selected, disks, .. }) =
-                    &mut self.mode
+                if let AppMode::Install(InstallState::SelectDisk {
+                    selected, disks, ..
+                }) = &mut self.mode
                 {
                     if !disks.is_empty() {
                         *selected = (*selected + 1).min(disks.len() - 1);
@@ -903,7 +1128,9 @@ impl App {
                     // Validate and proceed to swap mode selection
                     if let Some(err) = validate_username(&credentials.username) {
                         *error = Some(err);
-                    } else if let Some(err) = validate_password(&credentials.password, &credentials.confirm_password) {
+                    } else if let Some(err) =
+                        validate_password(&credentials.password, &credentials.confirm_password)
+                    {
                         *error = Some(err);
                     } else {
                         // All valid, proceed to swap mode selection
@@ -924,7 +1151,11 @@ impl App {
         Ok(())
     }
 
-    async fn handle_swap_mode_key(&mut self, key: KeyEvent, _current_selected: usize) -> Result<()> {
+    async fn handle_swap_mode_key(
+        &mut self,
+        key: KeyEvent,
+        _current_selected: usize,
+    ) -> Result<()> {
         if let AppMode::Install(InstallState::SelectSwapMode {
             host,
             disk,
@@ -1002,13 +1233,28 @@ impl App {
         if should_start {
             if let (Some(disk), Some(creds)) = (disk, credentials) {
                 let mut steps = vec![
-                    StepStatus::new("Checking network connectivity"),
-                    StepStatus::new("Enabling Nix flakes"),
-                    StepStatus::new("Cloning configuration repository"),
-                    StepStatus::new("Configuring disk device"),
-                    StepStatus::new("Running disko (partitioning)"),
-                    StepStatus::new("Installing NixOS"),
-                    StepStatus::new("Setting up user account"),
+                    StepStatus::new_with_id(
+                        crate::commands::steps::NETWORK,
+                        "Checking network connectivity",
+                    ),
+                    StepStatus::new_with_id(crate::commands::steps::FLAKES, "Enabling Nix flakes"),
+                    StepStatus::new_with_id(
+                        crate::commands::steps::REPOSITORY,
+                        "Cloning configuration repository",
+                    ),
+                    StepStatus::new_with_id(
+                        crate::commands::steps::DISK,
+                        "Configuring disk device",
+                    ),
+                    StepStatus::new_with_id(
+                        crate::commands::steps::DISKO,
+                        "Running disko (partitioning)",
+                    ),
+                    StepStatus::new_with_id(crate::commands::steps::NIXOS, "Installing NixOS"),
+                    StepStatus::new_with_id(
+                        crate::commands::steps::INSTALL,
+                        "Setting up user account",
+                    ),
                 ];
                 steps[0].status = StepState::Running;
                 steps[0].started_at = Some(std::time::Instant::now());
@@ -1028,7 +1274,8 @@ impl App {
                         &creds.username,
                         &creds.password,
                         creds.swap_mode.clone(),
-                    ).await?;
+                    )
+                    .await?;
                 }
             }
         }
@@ -1129,22 +1376,22 @@ impl App {
                     }
                 }
             }
-            AppMode::CreateHost(CreateHostState::SelectDisk { disks, selected, .. }) => {
-                match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        *selected = selected.saturating_sub(1);
-                        false
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if !disks.is_empty() {
-                            *selected = (*selected + 1).min(disks.len() - 1);
-                        }
-                        false
-                    }
-                    KeyCode::Enter if !disks.is_empty() => true,
-                    _ => false,
+            AppMode::CreateHost(CreateHostState::SelectDisk {
+                disks, selected, ..
+            }) => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = selected.saturating_sub(1);
+                    false
                 }
-            }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !disks.is_empty() {
+                        *selected = (*selected + 1).min(disks.len() - 1);
+                    }
+                    false
+                }
+                KeyCode::Enter if !disks.is_empty() => true,
+                _ => false,
+            },
             AppMode::CreateHost(CreateHostState::EnterHostname { input, error, .. }) => {
                 match key.code {
                     KeyCode::Char(c) => {
@@ -1223,19 +1470,16 @@ impl App {
             }) => {
                 if override_menu {
                     let options = gpu_vendor_options(gpu.hybrid.is_some());
-                    let new_vendor = options
-                        .get(selected)
-                        .copied()
-                        .unwrap_or(GpuVendor::None);
+                    let new_vendor = options.get(selected).copied().unwrap_or(GpuVendor::None);
                     let hybrid = if new_vendor == GpuVendor::HybridNvidiaAmd {
                         gpu.hybrid.clone()
                     } else {
                         None
                     };
                     let model = if new_vendor == GpuVendor::HybridNvidiaAmd {
-                        gpu.model.clone().or_else(|| {
-                            Some(format!("{} (manually selected)", new_vendor))
-                        })
+                        gpu.model
+                            .clone()
+                            .or_else(|| Some(format!("{} (manually selected)", new_vendor)))
                     } else {
                         Some(format!("{} (manually selected)", new_vendor))
                     };
@@ -1338,22 +1582,55 @@ impl App {
             AppMode::CreateHost(CreateHostState::Review { config }) => {
                 let mut steps = if crate::system::is_live_iso_environment() {
                     vec![
-                        StepStatus::new("Cloning configuration repository"),
-                        StepStatus::new("Creating host directory"),
-                        StepStatus::new("Generating hardware configuration"),
-                        StepStatus::new("Creating host configuration"),
-                        StepStatus::new("Creating disko configuration"),
-                        StepStatus::new("Updating flake.nix"),
-                        StepStatus::new("Generating host metadata"),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::REPOSITORY,
+                            "Cloning configuration repository",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::HOST_DIR,
+                            "Creating host directory",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::HW_CONFIG,
+                            "Generating hardware configuration",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::HOST_CONFIG,
+                            "Creating host configuration",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::DISKO_CONFIG,
+                            "Creating disko configuration",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::FLAKE_NIX,
+                            "Updating flake.nix",
+                        ),
+                        StepStatus::new_with_id("metadata", "Generating host metadata"),
                     ]
                 } else {
                     vec![
-                        StepStatus::new("Creating host directory"),
-                        StepStatus::new("Generating hardware configuration"),
-                        StepStatus::new("Creating host configuration"),
-                        StepStatus::new("Creating disko configuration"),
-                        StepStatus::new("Updating flake.nix"),
-                        StepStatus::new("Generating host metadata"),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::HOST_DIR,
+                            "Creating host directory",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::HW_CONFIG,
+                            "Generating hardware configuration",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::HOST_CONFIG,
+                            "Creating host configuration",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::DISKO_CONFIG,
+                            "Creating disko configuration",
+                        ),
+                        StepStatus::new_with_id(
+                            crate::commands::steps::FLAKE_NIX,
+                            "Updating flake.nix",
+                        ),
+                        StepStatus::new_with_id("metadata", "Generating host metadata"),
                     ]
                 };
                 steps[0].status = StepState::Running;
@@ -1414,9 +1691,7 @@ impl App {
                 AppMode::Apps(AppProfileState::Menu { selected: 0 })
             }
             AppMode::Keys(KeysState::Complete { .. }) => AppMode::MainMenu { selected: 2 },
-            AppMode::Install(InstallState::SelectHost { .. }) => {
-                AppMode::MainMenu { selected: 0 }
-            }
+            AppMode::Install(InstallState::SelectHost { .. }) => AppMode::MainMenu { selected: 0 },
             AppMode::Install(InstallState::SelectDisk { .. }) => {
                 AppMode::Install(InstallState::SelectHost { selected: 0 })
             }
@@ -1428,7 +1703,12 @@ impl App {
                     selected: 0,
                 })
             }
-            AppMode::Install(InstallState::SelectSwapMode { host, disk, credentials, .. }) => {
+            AppMode::Install(InstallState::SelectSwapMode {
+                host,
+                disk,
+                credentials,
+                ..
+            }) => {
                 // Go back to credentials entry
                 AppMode::Install(InstallState::EnterCredentials {
                     host,
@@ -1438,7 +1718,12 @@ impl App {
                     error: None,
                 })
             }
-            AppMode::Install(InstallState::Overview { host, disk, credentials, .. }) => {
+            AppMode::Install(InstallState::Overview {
+                host,
+                disk,
+                credentials,
+                ..
+            }) => {
                 // Go back to swap mode selection
                 let ram_gb = get_ram_size_gb();
                 AppMode::Install(InstallState::SelectSwapMode {
@@ -1450,7 +1735,8 @@ impl App {
                 })
             }
             AppMode::Install(InstallState::Complete { .. }) => AppMode::MainMenu { selected: 0 },
-            AppMode::Update(UpdateState::Complete { .. }) => AppMode::MainMenu { selected: 1 },
+            AppMode::Update(UpdateState::Preflight { .. })
+            | AppMode::Update(UpdateState::Complete { .. }) => AppMode::MainMenu { selected: 1 },
             // CreateHost back navigation - take ownership to avoid clones
             AppMode::CreateHost(CreateHostState::DetectingHardware) => {
                 AppMode::Install(InstallState::SelectHost { selected: 0 })
@@ -1607,7 +1893,8 @@ impl App {
                         KeybindingsPanel::Bindings => {
                             // Next binding
                             if filtered_count > 0 {
-                                *selected_binding = (*selected_binding + 1).min(filtered_count.saturating_sub(1));
+                                *selected_binding =
+                                    (*selected_binding + 1).min(filtered_count.saturating_sub(1));
                                 let visible = 15;
                                 if *selected_binding >= *scroll_offset + visible {
                                     *scroll_offset = selected_binding.saturating_sub(visible - 1);

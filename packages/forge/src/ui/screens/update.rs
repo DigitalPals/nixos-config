@@ -7,10 +7,110 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, StepStatus, UpdateSummary};
-use crate::ui::layout::{footer_hints, progress_layout};
+use crate::app::{
+    App, LocalChange, StepStatus, UpdateOptions, UpdatePreflightField, UpdateSummary,
+};
+use crate::ui::layout::{centered_fixed, footer_hints, progress_layout};
 use crate::ui::theme;
 use crate::ui::widgets::{LogView, ProgressSteps};
+
+/// Draw update preflight configuration screen
+pub fn draw_preflight(
+    frame: &mut Frame,
+    options: &UpdateOptions,
+    selected: UpdatePreflightField,
+    input_buffer: &str,
+    editing_inputs: bool,
+) {
+    let area = centered_fixed(
+        72.min(frame.area().width.saturating_sub(2)),
+        16,
+        frame.area(),
+    );
+    frame.render_widget(Clear, area);
+
+    let mode_line = format!("Mode: {}", options.mode_label());
+    let inputs_line = if input_buffer.trim().is_empty() {
+        "Inputs: all flake inputs".to_string()
+    } else {
+        format!("Inputs: {}", input_buffer)
+    };
+
+    let rows = [
+        (UpdatePreflightField::Start, "Start update".to_string()),
+        (UpdatePreflightField::Mode, mode_line),
+        (
+            UpdatePreflightField::Inputs,
+            if editing_inputs {
+                format!("Inputs: {}_", input_buffer)
+            } else {
+                inputs_line
+            },
+        ),
+        (UpdatePreflightField::Back, "Back to main menu".to_string()),
+    ];
+
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Configure what forge update should run before we touch the system.",
+            theme::text(),
+        )),
+        Line::from(""),
+    ];
+
+    for (field, label) in rows {
+        let is_selected = field == selected;
+        let style = if is_selected {
+            theme::selected()
+        } else {
+            theme::text()
+        };
+        let prefix = if is_selected { "▶ " } else { "  " };
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", prefix, label),
+            style,
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Specific inputs accept commas or spaces, for example: nixpkgs home-manager",
+        theme::dim(),
+    )));
+
+    let hints = if editing_inputs {
+        footer_hints(&[
+            ("Type", "Edit inputs"),
+            ("Enter", "Save"),
+            ("Esc", "Cancel"),
+        ])
+    } else {
+        footer_hints(&[
+            ("↑↓/jk", "Navigate"),
+            ("Enter", "Select"),
+            ("←→/Space", "Cycle mode"),
+            ("Esc", "Back"),
+        ])
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::border_active())
+        .title(Span::styled(" Update Preflight ", theme::title()));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+
+    let footer_area = Rect::new(
+        area.x,
+        area.y + area.height.saturating_sub(2),
+        area.width,
+        1,
+    );
+    frame.render_widget(
+        Paragraph::new(hints).alignment(Alignment::Center),
+        footer_area,
+    );
+}
 
 /// Draw running/complete update screen
 pub fn draw_running(
@@ -60,9 +160,19 @@ pub fn draw_running(
 
     // Footer
     let footer = if complete {
-        Paragraph::new(footer_hints(&[("↑↓/jk", "Scroll"), ("Enter", "Menu"), ("Esc", "Back"), ("q", "Quit")]))
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Scroll"),
+            ("f", "Follow"),
+            ("Enter", "Menu"),
+            ("Esc", "Back"),
+            ("q", "Quit"),
+        ]))
     } else {
-        Paragraph::new(footer_hints(&[("Ctrl+C", "Cancel")]))
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Scroll"),
+            ("f", "Follow"),
+            ("Ctrl+C", "Cancel"),
+        ]))
     }
     .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
@@ -76,12 +186,18 @@ const LOCAL_CHANGES_OPTIONS: &[&str] = &[
 ];
 
 /// Draw local changes prompt dialog
-pub fn draw_local_changes_prompt(frame: &mut Frame, changed_files: &[String], selected: usize) {
+pub fn draw_local_changes_prompt(
+    frame: &mut Frame,
+    changes: &[LocalChange],
+    tracked_count: usize,
+    untracked_count: usize,
+    selected: usize,
+) {
     let area = frame.area();
 
     // Calculate popup dimensions
     let popup_width = 60.min(area.width.saturating_sub(4));
-    let file_list_height = changed_files.len().min(8) as u16;
+    let file_list_height = changes.len().min(8) as u16;
     let popup_height = (12 + file_list_height).min(area.height.saturating_sub(4));
 
     // Center the popup
@@ -103,10 +219,10 @@ pub fn draw_local_changes_prompt(frame: &mut Frame, changed_files: &[String], se
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),              // Title
+            Constraint::Length(2),                    // Title
             Constraint::Length(file_list_height + 2), // File list
-            Constraint::Length(5),              // Options
-            Constraint::Length(2),              // Footer
+            Constraint::Length(5),                    // Options
+            Constraint::Length(2),                    // Footer
         ])
         .split(inner_area);
 
@@ -118,26 +234,38 @@ pub fn draw_local_changes_prompt(frame: &mut Frame, changed_files: &[String], se
     frame.render_widget(border, popup_area);
 
     // Title/description
-    let title = Paragraph::new(Line::from(vec![
-        Span::styled("Your local repository has uncommitted changes:", theme::text()),
-    ]))
+    let title = Paragraph::new(Line::from(vec![Span::styled(
+        format!(
+            "Detected {} tracked and {} untracked local changes:",
+            tracked_count, untracked_count
+        ),
+        theme::text(),
+    )]))
     .alignment(Alignment::Left);
     frame.render_widget(title, chunks[0]);
 
     // File list
-    let files: Vec<ListItem> = changed_files
+    let files: Vec<ListItem> = changes
         .iter()
         .take(8)
-        .map(|f| {
+        .map(|change| {
             ListItem::new(Line::from(vec![
                 Span::styled("  ", theme::dim()),
-                Span::styled(f.clone(), theme::info()),
+                Span::styled(
+                    if change.tracked {
+                        "[tracked] "
+                    } else {
+                        "[new] "
+                    },
+                    theme::dim(),
+                ),
+                Span::styled(change.path.clone(), theme::info()),
             ]))
         })
         .collect();
 
-    let more_indicator = if changed_files.len() > 8 {
-        format!("  ... and {} more", changed_files.len() - 8)
+    let more_indicator = if changes.len() > 8 {
+        format!("  ... and {} more", changes.len() - 8)
     } else {
         String::new()
     };
@@ -169,7 +297,10 @@ pub fn draw_local_changes_prompt(frame: &mut Frame, changed_files: &[String], se
                 theme::text()
             };
             let prefix = if i == selected { "▶ " } else { "  " };
-            ListItem::new(Line::from(Span::styled(format!("{}{}", prefix, opt), style)))
+            ListItem::new(Line::from(Span::styled(
+                format!("{}{}", prefix, opt),
+                style,
+            )))
         })
         .collect();
 
@@ -177,8 +308,12 @@ pub fn draw_local_changes_prompt(frame: &mut Frame, changed_files: &[String], se
     frame.render_widget(options_list, chunks[2]);
 
     // Footer
-    let footer = Paragraph::new(footer_hints(&[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Cancel")]))
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new(footer_hints(&[
+        ("↑↓/jk", "Navigate"),
+        ("Enter", "Select"),
+        ("Esc", "Cancel"),
+    ]))
+    .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[3]);
 }
 
@@ -217,13 +352,43 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
 
     // Flake changes section (no limit)
     if !summary.flake_changes.is_empty() {
-        all_lines.push(Line::from(Span::styled("Flake Inputs:".to_string(), theme::title())));
+        all_lines.push(Line::from(Span::styled(
+            "Flake Inputs:".to_string(),
+            theme::title(),
+        )));
         for change in &summary.flake_changes {
-            let commit_text = if change.total_commits == 1 { "commit" } else { "commits" };
+            let commit_text = if change.total_commits == 1 {
+                "commit"
+            } else {
+                "commits"
+            };
             all_lines.push(Line::from(vec![
                 Span::styled(format!("  {:20}", change.name), theme::text()),
-                Span::styled(format!("+{} {}", change.total_commits, commit_text), theme::success()),
+                Span::styled(
+                    format!("+{} {}", change.total_commits, commit_text),
+                    theme::success(),
+                ),
             ]));
+            all_lines.push(Line::from(Span::styled(
+                format!(
+                    "    {} -> {}",
+                    &change.old_rev[..7.min(change.old_rev.len())],
+                    &change.new_rev[..7.min(change.new_rev.len())]
+                ),
+                theme::dim(),
+            )));
+            for commit in change.commits.iter().take(3) {
+                all_lines.push(Line::from(Span::styled(
+                    format!("    {} {}", commit.hash, commit.message),
+                    theme::info(),
+                )));
+            }
+            if let Some(compare_url) = &change.compare_url {
+                all_lines.push(Line::from(Span::styled(
+                    format!("    {}", compare_url),
+                    theme::dim(),
+                )));
+            }
         }
         all_lines.push(Line::from(""));
     }
@@ -291,12 +456,19 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
 
     // CLI tools section
     if claude_changed || codex_changed {
-        all_lines.push(Line::from(Span::styled("CLI Tools:".to_string(), theme::title())));
+        all_lines.push(Line::from(Span::styled(
+            "CLI Tools:".to_string(),
+            theme::title(),
+        )));
         if claude_changed {
             all_lines.push(Line::from(vec![
                 Span::styled("  Claude Code       ".to_string(), theme::text()),
                 Span::styled(
-                    format!("{} → {}", summary.claude_old.as_deref().unwrap_or(""), summary.claude_new.as_deref().unwrap_or("")),
+                    format!(
+                        "{} → {}",
+                        summary.claude_old.as_deref().unwrap_or(""),
+                        summary.claude_new.as_deref().unwrap_or("")
+                    ),
                     theme::info(),
                 ),
             ]));
@@ -305,7 +477,11 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
             all_lines.push(Line::from(vec![
                 Span::styled("  Codex CLI         ".to_string(), theme::text()),
                 Span::styled(
-                    format!("{} → {}", summary.codex_old.as_deref().unwrap_or(""), summary.codex_new.as_deref().unwrap_or("")),
+                    format!(
+                        "{} → {}",
+                        summary.codex_old.as_deref().unwrap_or(""),
+                        summary.codex_new.as_deref().unwrap_or("")
+                    ),
                     theme::info(),
                 ),
             ]));
@@ -315,9 +491,15 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
 
     // Status
     if summary.rebuild_skipped {
-        all_lines.push(Line::from(Span::styled("  System already up to date".to_string(), theme::dim())));
+        all_lines.push(Line::from(Span::styled(
+            "  System already up to date".to_string(),
+            theme::dim(),
+        )));
     } else if summary.rebuild_failed {
-        all_lines.push(Line::from(Span::styled("  ✗ System rebuild failed".to_string(), theme::error())));
+        all_lines.push(Line::from(Span::styled(
+            "  ✗ System rebuild failed".to_string(),
+            theme::error(),
+        )));
     }
 
     // Reboot warning
@@ -340,7 +522,10 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         && !summary.rebuild_failed
     {
         all_lines.push(Line::from(""));
-        all_lines.push(Line::from(Span::styled("  System is up to date - no changes".to_string(), theme::success())));
+        all_lines.push(Line::from(Span::styled(
+            "  System is up to date - no changes".to_string(),
+            theme::success(),
+        )));
         all_lines.push(Line::from(""));
     }
 
@@ -388,7 +573,8 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         theme::dim(),
     )));
 
-    let mut hints: Vec<(&str, &str)> = vec![("↑↓/jk", "Scroll"), ("Enter", "Done"), ("v", "View log")];
+    let mut hints: Vec<(&str, &str)> =
+        vec![("↑↓/jk", "Scroll"), ("Enter", "Done"), ("v", "View log")];
     if !summary.reboot_reasons.is_empty() {
         hints.push(("r", "Reboot"));
     }
