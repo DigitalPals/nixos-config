@@ -24,7 +24,10 @@
     description = "G1a power policy (PPD + AMD P-State EPP + boost)";
     after = [ "power-profiles-daemon.service" ];
     wants = [ "power-profiles-daemon.service" ];
-    wantedBy = [ "multi-user.target" ];
+    # Use graphical.target (not multi-user.target) to avoid a systemd ordering cycle:
+    # multi-user.target → g1a-power-policy → PPD → After=multi-user.target → cycle!
+    # graphical.target comes after multi-user.target, breaking the cycle.
+    wantedBy = [ "graphical.target" ];
 
     serviceConfig = {
       Type = "oneshot";

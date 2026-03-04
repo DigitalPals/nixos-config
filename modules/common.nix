@@ -62,10 +62,10 @@
       wayland
       fontconfig
       libdrm
-      xorg.libX11
-      xorg.libXcursor
-      xorg.libXrandr
-      xorg.libXi
+      libx11
+      libxcursor
+      libxrandr
+      libxi
     ];
   };
 
@@ -208,11 +208,15 @@
     polkitPolicyOwners = [ username ];
   };
 
-  # Google Chrome extension policies (force-install 1Password)
+  # Google Chrome managed policies
   environment.etc."opt/chrome/policies/managed/extensions.json".text = builtins.toJSON {
     ExtensionInstallForcelist = [
       "aeblfdkhhhdcdjpifhhbdiojplfjncoa;https://clients2.google.com/service/update2/crx"
     ];
+  };
+  environment.etc."opt/chrome/policies/managed/session.json".text = builtins.toJSON {
+    # 1 = Restore the last session (suppresses the crash restore dialog)
+    RestoreOnStartup = 1;
   };
 
   environment.systemPackages = with pkgs; [
