@@ -217,6 +217,9 @@ in
       # which then causes Hyprland to crash when its GL context becomes unusable after a GPU reset.
       # Disabling VA-API (hw video decode/encode) avoids a common trigger path.
       "--disable-features=VaapiVideoDecodeLinuxGL,VaapiVideoEncoder"
+
+      # Suppress "Chrome didn't shut down correctly" crash restore bubble
+      "--hide-crash-restore-bubble"
     ];
   };
 
