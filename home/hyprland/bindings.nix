@@ -18,7 +18,7 @@
   bind = $mainMod, S, exec, slack
   bind = $mainMod SHIFT, SLASH, exec, 1password
   bind = $mainMod, D, exec, $terminal -e lazydocker
-  bind = $mainMod, T, exec, Telegram
+  bind = $mainMod, T, exec, $browser --app=https://web.telegram.org/a/
   bind = $mainMod SHIFT, T, exec, $terminal -e btop
   bind = $mainMod, W, exec, $browser --app=https://web.whatsapp.com/
   bind = $mainMod, Y, exec, $browser --app=https://youtube.com/
