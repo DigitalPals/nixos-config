@@ -21,8 +21,8 @@
     max_duration_secs = 60
 
     [whisper]
-    model = "tiny.en"
-    language = "en"
+    model = "base"
+    language = "auto"
     translate = false
 
     [output]
@@ -58,7 +58,7 @@
 
   # Ensure the selected model exists locally (downloads once when missing).
   home.activation.setupVoxtypeModel = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    model="$HOME/.local/share/voxtype/models/ggml-tiny.en.bin"
+    model="$HOME/.local/share/voxtype/models/ggml-base.bin"
 
     if [ ! -f "$model" ]; then
       mkdir -p "$(dirname "$model")"
