@@ -24,6 +24,8 @@
   bind = $mainMod SHIFT, A, exec, $browser --app=https://chatgpt.com/
   bind = $mainMod SHIFT, P, exec, $browser --app=https://photos.google.com/
   bind = $mainMod SHIFT, X, exec, $browser --app=https://x.com/
+  bind = $mainMod CTRL, X, exec, voxtype record toggle
+  bind = , F9, exec, voxtype record toggle
 
   # Clipboard
   bind = $mainMod, C, sendshortcut, CTRL, Insert,
@@ -81,7 +83,7 @@
   bindel = , XF86MonBrightnessUp, exec, brightnessctl set 5%+
   bindel = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
   bindl = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
-  bindl = , XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+  bindl = , XF86AudioMicMute, exec, voxtype record toggle
   bindl = , XF86AudioPlay, exec, playerctl play-pause
   bindl = , XF86AudioPause, exec, playerctl play-pause
   bindl = , XF86AudioNext, exec, playerctl next

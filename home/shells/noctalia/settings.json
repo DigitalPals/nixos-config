@@ -336,7 +336,7 @@
     "notifications": {
         "backgroundOpacity": 1,
         "criticalUrgencyDuration": 15,
-        "enableKeyboardLayoutToast": true,
+        "enableKeyboardLayoutToast": false,
         "enabled": true,
         "location": "top_right",
         "lowUrgencyDuration": 3,
