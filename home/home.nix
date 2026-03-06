@@ -153,7 +153,6 @@ in
     playerctl
 
     # Applications
-    slack
     spotify
 
     lazydocker
