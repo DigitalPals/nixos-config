@@ -172,6 +172,7 @@ in
     bat              # cat with syntax highlighting
     eza              # modern ls with tree view
     tree             # directory structure
+    zip              # create zip archives
     yq-go            # jq for YAML/TOML
     delta            # better git diffs
 
