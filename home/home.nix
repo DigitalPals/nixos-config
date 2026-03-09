@@ -195,6 +195,7 @@ in
 
     # Productivity
     evince           # document/PDF viewer
+    file-roller      # archive manager (Nautilus integration)
     localsend        # local file sharing
     libreoffice-fresh  # office suite (using fresh variant to work around nixpkgs#495219)
 
