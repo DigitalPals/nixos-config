@@ -69,6 +69,10 @@
     ];
   };
 
+  # Make nix-ld libraries available to dlopen (for NixOS-compiled binaries
+  # that load shared libs at runtime, e.g. ONNX runtime via fastembed)
+  environment.sessionVariables.LD_LIBRARY_PATH = [ "/run/current-system/sw/share/nix-ld/lib" ];
+
   # Networking
   networking.networkmanager = {
     enable = true;
