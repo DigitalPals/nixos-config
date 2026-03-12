@@ -154,7 +154,6 @@ in
     playerctl
 
     # Applications
-    spotify
 
     lazydocker
     btop

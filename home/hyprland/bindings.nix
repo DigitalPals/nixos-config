@@ -14,7 +14,7 @@
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
-  bind = $mainMod, M, exec, spotify
+  bind = $mainMod, S, exec, $browser --app=https://open.spotify.com/
   bind = $mainMod SHIFT, SLASH, exec, 1password
   bind = $mainMod, D, exec, $terminal -e lazydocker
   bind = $mainMod, T, exec, $browser --app=https://web.telegram.org/a/
