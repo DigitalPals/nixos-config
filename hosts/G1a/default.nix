@@ -80,6 +80,11 @@
 
   # Fingerprint reader (Synaptics FS7606, power button)
   services.fprintd.enable = true;
+  security.pam.services = {
+    noctalia.fprintAuth = true;
+    polkit-1.fprintAuth = true;
+    sudo.fprintAuth = true;
+  };
 
   # Fingerprint reader suspend/resume: force USB reset on resume for this device
   # Without this, the device fails to resume from s2idle (kernel error -107,
