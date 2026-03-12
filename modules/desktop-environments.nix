@@ -4,17 +4,30 @@
 let
   # Import Hyprland session packages
   hyprlandSessions = pkgs.callPackage ../packages/hyprland-sessions { };
+  hyprlandNoctalia = "${hyprlandSessions.script}/bin/hyprland-noctalia";
+  isG1a = config.networking.hostName == "G1a";
 in
 {
   # Auto-login directly to Hyprland with Noctalia shell (no session selector)
   services.greetd = {
     enable = true;
-    settings = {
-      default_session = {
-        command = "${hyprlandSessions.script}/bin/hyprland-noctalia";
-        user = username;
-      };
-    };
+    useTextGreeter = isG1a;
+    settings =
+      if isG1a then
+        {
+          initial_session = {
+            command = hyprlandNoctalia;
+            user = username;
+          };
+          default_session.command = "${pkgs.greetd}/bin/agreety --cmd ${hyprlandNoctalia}";
+        }
+      else
+        {
+          default_session = {
+            command = hyprlandNoctalia;
+            user = username;
+          };
+        };
   };
 
   systemd.services.greetd = {
