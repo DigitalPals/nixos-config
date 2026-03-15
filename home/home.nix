@@ -154,7 +154,6 @@ in
     playerctl
 
     # Applications
-
     lazydocker
     btop
     gnome-calculator
@@ -188,6 +187,7 @@ in
     net-tools        # ifconfig, netstat, etc.
 
     # Media
+    ffmpeg           # audio/video processing
     mpv              # video player
     imv              # image viewer
     pinta            # image editor
