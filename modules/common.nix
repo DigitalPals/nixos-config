@@ -147,6 +147,8 @@
   };
 
   # SSD TRIM
+  # Use periodic fstrim instead of continuous online discard. This keeps
+  # post-build Btrfs cleanup from stretching out after heavy /nix/store churn.
   services.fstrim.enable = true;
 
   # Firmware updates via fwupd (LVFS)
