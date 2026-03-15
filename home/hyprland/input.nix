@@ -37,6 +37,6 @@
     }
   }
 
-  # Scroll nicely in the terminal (use scroll_mouse for mouse scroll factor)
-  windowrule = match:class com\.mitchellh\.ghostty, scroll_mouse 0.2
+  # Keep Ghostty at normal compositor scroll speed; Ghostty itself adds extra acceleration.
+  windowrule = match:class com\.mitchellh\.ghostty, scroll_mouse 1.0
 ''

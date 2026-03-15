@@ -4,15 +4,13 @@
 
 let
   # Check base hostname (handles -illogical suffix)
+  isG1a = lib.hasPrefix "G1a" hostname;
   isKraken = lib.hasPrefix "kraken" hostname;
   isProart = lib.hasPrefix "proart" hostname;
 
-  # Dwindle layout for desktop and proart - wide monitors benefit from aspect ratio control
-  useDwindle = isKraken || isProart;
+  # Dwindle layout on all hosts
+  useDwindle = true;
   layoutType = if useDwindle then "dwindle" else "master";
-
-  # Aspect ratio for single windows: kraken uses 4:3 (large screen), proart uses none
-  aspectRatio = if isKraken then "4 3" else "0 0";
 
   dwindleConfig = if useDwindle then ''
     # Layout
@@ -20,8 +18,6 @@ let
     dwindle {
       pseudotile = true
       preserve_split = true
-      # Aspect ratio constraint for single windows (0 0 = no constraint)
-      single_window_aspect_ratio = ${aspectRatio}
     }
   '' else "";
 
@@ -39,7 +35,7 @@ in
   general {
     gaps_in = 5
     gaps_out = 10
-    border_size = 2
+    border_size = 1
     col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
     col.inactive_border = rgba(595959aa)
     layout = ${layoutType}
@@ -107,6 +103,9 @@ ${masterConfig}
   windowrule = match:class org\.gnome\.Nautilus, match:title Properties, float on
   windowrule = match:class org\.gnome\.Nautilus, match:title Open.*, float on
   windowrule = match:class org\.gnome\.Nautilus, match:title Save.*, float on
+
+  # On the AORUS monitor, keep a lone tiled window narrower instead of edge-to-edge.
+  workspace = m[DP-4] w[t1], gapsout:10 480 10 480
 
   # Suppress maximize for all windows
   windowrule = match:class .*, suppress_event maximize

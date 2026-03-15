@@ -52,7 +52,7 @@ in
       shell-integration-features = "no-cursor,ssh-env";
 
       # Mouse
-      mouse-scroll-multiplier = 0.95;
+      mouse-scroll-multiplier = "discrete:4";
 
       # Theme
       theme = "noctalia";
