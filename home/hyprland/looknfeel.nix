@@ -105,7 +105,7 @@ ${masterConfig}
   windowrule = match:class org\.gnome\.Nautilus, match:title Save.*, float on
 
   # On the AORUS monitor, keep a lone tiled window narrower instead of edge-to-edge.
-  workspace = m[DP-4] w[t1], gapsout:10 480 10 480
+  workspace = m[desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2] w[t1], gapsout:10 480 10 480
 
   # Suppress maximize for all windows
   windowrule = match:class .*, suppress_event maximize
