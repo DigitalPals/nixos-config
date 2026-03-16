@@ -11,19 +11,22 @@
 
   networking.hostName = "G1a";
 
-  # Fan spin-ups at "idle" are usually caused by brief CPU boost bursts that cross the
-  # EC's fan threshold. On this machine, the default PPD "balanced" profile maps to
-  # EPP=balance_performance, which is quite eager to boost.
+  # power-profiles-daemon is currently broken on this machine with amd-pstate-epp:
+  # it fails when writing policy*/boost and then reports/sticks to "power-saver"
+  # even after the actual kernel policy has been corrected via sysfs.
+  services.power-profiles-daemon.enable = lib.mkForce false;
+
+  # Keep this laptop out of the kernel/firmware "power-saver" path.
   #
-  # Policy:
-  # - On AC: keep platform_profile=balanced, but set EPP=balance_power (quieter idle).
-  # - On battery: set power-saver + EPP=power and disable CPU boost.
+  # powerprofilesctl currently fails on this host when it tries to toggle AMD boost,
+  # so we apply the durable bits directly through sysfs instead:
+  # - always keep the platform profile on "balanced"
+  # - on AC: prefer snappier boosting with EPP=balance_performance
+  # - on battery: stay efficient with EPP=balance_power, but do not drop to power-saver
   #
   # This runs at boot and whenever AC online status changes.
   systemd.services.g1a-power-policy = {
-    description = "G1a power policy (PPD + AMD P-State EPP + boost)";
-    after = [ "power-profiles-daemon.service" ];
-    wants = [ "power-profiles-daemon.service" ];
+    description = "G1a power policy (platform profile + AMD P-State EPP)";
     # Use graphical.target (not multi-user.target) to avoid a systemd ordering cycle:
     # multi-user.target → g1a-power-policy → PPD → After=multi-user.target → cycle!
     # graphical.target comes after multi-user.target, breaking the cycle.
@@ -42,25 +45,21 @@
       fi
 
       if [ "$ac_online" = "1" ]; then
-        # Keep platform_profile balanced, but dial back boost eagerness.
-        ${pkgs.power-profiles-daemon}/bin/powerprofilesctl set balanced || true
+        if [ -w /sys/firmware/acpi/platform_profile ]; then
+          echo balanced > /sys/firmware/acpi/platform_profile || true
+        fi
+        for p in /sys/devices/system/cpu/cpufreq/policy*/energy_performance_preference; do
+          [ -w "$p" ] || continue
+          echo balance_performance > "$p" || true
+        done
+      else
+        if [ -w /sys/firmware/acpi/platform_profile ]; then
+          echo balanced > /sys/firmware/acpi/platform_profile || true
+        fi
         for p in /sys/devices/system/cpu/cpufreq/policy*/energy_performance_preference; do
           [ -w "$p" ] || continue
           echo balance_power > "$p" || true
         done
-        if [ -w /sys/devices/system/cpu/cpufreq/boost ]; then
-          echo 1 > /sys/devices/system/cpu/cpufreq/boost || true
-        fi
-      else
-        # Battery: prioritize quietness and efficiency.
-        ${pkgs.power-profiles-daemon}/bin/powerprofilesctl set power-saver || true
-        for p in /sys/devices/system/cpu/cpufreq/policy*/energy_performance_preference; do
-          [ -w "$p" ] || continue
-          echo power > "$p" || true
-        done
-        if [ -w /sys/devices/system/cpu/cpufreq/boost ]; then
-          echo 0 > /sys/devices/system/cpu/cpufreq/boost || true
-        fi
       fi
     '';
   };
@@ -90,7 +89,16 @@
   # Without this, the device fails to resume from s2idle (kernel error -107,
   # endpoint stalled) and fprintd can't communicate with it.
   # The 'b' flag sets USB_QUIRK_RESET_RESUME for this specific device.
+  #
+  # Display stability workarounds for this Strix Halo laptop:
+  # - disable Panel Replay and PSR on the internal panel because recent AMD
+  #   laptops repeatedly work around amdgpu flip_done stalls that way
+  # - disable scatter/gather display for docked external monitors, another
+  #   common workaround for AMD APU external display corruption/freezes
+  # - avoid forcing PCIe ASPM globally; let firmware + drivers negotiate it
   boot.kernelParams = lib.mkAfter [
+    "amdgpu.dcdebugmask=0x410"
+    "amdgpu.sg_display=0"
     "usbcore.quirks=06cb:0106:b"
   ];
 

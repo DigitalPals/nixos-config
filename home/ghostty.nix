@@ -54,6 +54,9 @@ in
       # Mouse
       mouse-scroll-multiplier = "discrete:4";
 
+      # Use epoll instead of io_uring to avoid false iowait accounting
+      async-backend = "epoll";
+
       # Theme
       theme = "noctalia";
       background-opacity = 0.95;

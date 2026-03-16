@@ -293,8 +293,8 @@
 
   # I/O scheduler tuning for NVMe (use none/mq-deadline for best performance)
   services.udev.extraRules = ''
-    # NVMe drives - use none scheduler (lowest latency)
-    ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
+    # NVMe namespaces - use none scheduler (lowest latency)
+    ACTION=="add|change", KERNEL=="nvme[0-9]n[0-9]", ATTR{queue/scheduler}="none"
     # SATA SSDs - use mq-deadline
     ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
   '';

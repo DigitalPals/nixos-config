@@ -11,10 +11,6 @@
 
   # AMD GPU kernel parameters
   boot.kernelParams = [
-    # Mitigate intermittent GPU hangs/reset storms seen on RDNA3/3.5 laptops under heavy
-    # Wayland/Chromium GPU load (Hyprland + Chrome). Not fixed as of kernel 6.19.
-    # Costs ~2-5W idle power (GPU can't power-gate).
-    "amdgpu.gfxoff=0"
     # Enable GPU reset recovery (default is -1/auto which is disabled for GFX11).
     # Without this, a GPU hang freezes the system instead of recovering.
     "amdgpu.gpu_recovery=1"
