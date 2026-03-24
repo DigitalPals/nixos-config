@@ -185,7 +185,7 @@ fn generate_initrd_modules(gpu: &GpuInfo) -> String {
     "usbhid"
 "#
         .to_string(),
-        GpuVendor::Intel => r#"    "i915"
+        GpuVendor::Intel => r#"    "xe"
     "hid-generic"
     "usbhid"
 "#

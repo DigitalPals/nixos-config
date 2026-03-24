@@ -10,7 +10,8 @@ Configuration details and solutions to issues in this NixOS setup.
 ├── hosts/
 │   ├── kraken/                     # Desktop: AMD Ryzen 9 9950X3D, NVIDIA RTX 5090, 96GB RAM
 │   ├── G1a/                        # HP ZBook Ultra G1a: AMD Ryzen AI MAX+ PRO 395, Radeon 8060S, 64GB RAM
-│   └── proart/                     # ASUS ProArt P16 OLED: AMD Ryzen AI 9 HX 370, Radeon 890M + RTX 5090, 64GB RAM
+│   ├── proart/                     # ASUS ProArt P16 OLED: AMD Ryzen AI 9 HX 370, Radeon 890M + RTX 5090, 64GB RAM
+│   └── xps/                        # Dell XPS 14 DA14260: Intel Core Ultra X7 358H, Intel Arc (Xe3), 32GB RAM
 ├── modules/
 │   ├── boot/limine-plymouth.nix    # Bootloader + Plymouth config
 │   ├── common.nix                  # Shared system config
@@ -508,6 +509,52 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference  # EPP
 journalctl -b | grep -iE "(suspend|resume|s2idle)"  # Last suspend
 cat /proc/acpi/wakeup | grep enabled                 # Wakeup sources
 ```
+
+## Dell XPS 14 (Panther Lake) Configuration
+
+**Host:** Dell XPS 14 DA14260 (Intel Core Ultra X7 358H, Intel Arc Xe3, 32GB LPDDR5x)
+
+### Panther Lake Display Fix
+
+**Problem:** Display stuck at 10Hz refresh rate on Panther Lake systems using the `xe` kernel module.
+
+**Root cause:** Panel Self Refresh (PSR), Panel Replay, Framebuffer Compression, and Display Core power management features in the xe driver are unstable on Panther Lake (Xe3).
+
+**Solution:** Kernel parameters in `modules/hardware/intel.nix`:
+```nix
+boot.kernelParams = [
+  "xe.enable_psr=0"
+  "xe.enable_panel_replay=0"
+  "xe.enable_fbc=0"
+  "xe.enable_dc=0"
+];
+```
+
+**Source:** [Omarchy Linux Panther Lake fix](https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-intel-panther-lake-display.sh)
+
+**When fixed:** These params will likely become safe to re-enable once the xe driver matures (kernel 6.20+). Test by removing one param at a time.
+
+### Dell XPS Haptic Touchpad
+
+**Problem:** Synaptics haptic touchpad (06CB:D01A) loses haptic feedback after suspend/resume due to aggressive I2C power management.
+
+**Solution:** Two-part fix in `hosts/xps/default.nix`:
+1. Udev rule to keep I2C controller powered (`power/control="on"`)
+2. Systemd service to unbind/rebind `i2c_hid_acpi` driver on resume
+
+**Source:** [Omarchy Linux haptic touchpad fix](https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-dell-xps-haptic-touchpad.sh)
+
+### Dell XPS Audio (SOF Conflict)
+
+**Problem:** On some Panther Lake systems, SOF (Sound Open Firmware) modules conflict with standard HDA drivers.
+
+**Status:** Kernel 6.19+ likely has the upstream fix. A commented-out blacklist is in `hosts/xps/default.nix` — uncomment only if audio doesn't work.
+
+**Source:** [Omarchy Linux audio fix](https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-dell-xps-audio.sh)
+
+### Intel WiFi 7 BE211
+
+Uses the `iwlwifi` driver which is well-supported in Linux. No special workarounds needed (unlike MediaTek MT7925 on G1a/proart). WiFi power save is globally disabled in `modules/common.nix`.
 
 ## Key NVIDIA Settings
 

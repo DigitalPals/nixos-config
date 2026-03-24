@@ -123,6 +123,12 @@
         extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
+      # Dell XPS 14 DA14260 (Intel Panther Lake)
+      xps = mkNixosSystem {
+        hostname = "xps";
+        extraModules = [ ./modules/hardware/intel.nix ];
+      };
+
       # Forge Installer ISO
       # Build: nix build .#nixosConfigurations.iso.config.system.build.isoImage
       iso = nixpkgs.lib.nixosSystem {
