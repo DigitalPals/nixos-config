@@ -5,8 +5,12 @@
 let
   # Startup script that checks connectivity and launches Forge
   forgeStartup = pkgs.writeShellScriptBin "forge-startup" ''
+    # Drop to shell on Ctrl+C
+    trap 'echo ""; echo "  Interrupted. Type \"forge-startup\" to restart."; exit 0' INT
+
+    # Connectivity check using curl (works even if ICMP is blocked)
     check_internet() {
-      ${pkgs.iputils}/bin/ping -c 1 -W 2 github.com &>/dev/null
+      ${pkgs.curl}/bin/curl -sf --max-time 5 https://github.com > /dev/null 2>&1
     }
 
     clear
@@ -15,22 +19,55 @@ let
     echo "  ║     Forge NixOS Installer             ║"
     echo "  ╚═══════════════════════════════════════╝"
     echo ""
+    echo "  Press Ctrl+C for a shell. Other TTYs: Ctrl+Alt+F2"
+    echo ""
 
+    # Wait for NetworkManager to activate startup connections
+    # Ethernet: 2-5s. WiFi (unconfigured): times out at 15s.
+    echo "  Waiting for network..."
+    ${pkgs.networkmanager}/bin/nm-online -s -q --timeout=15
+
+    # Check actual internet connectivity
     while ! check_internet; do
+      echo ""
       echo "  No internet connection detected."
       echo "  Opening network configuration..."
       echo ""
-      sleep 2
+      sleep 1
       ${pkgs.networkmanager}/bin/nmtui
       clear
+      echo ""
+      echo "  ╔═══════════════════════════════════════╗"
+      echo "  ║     Forge NixOS Installer             ║"
+      echo "  ╚═══════════════════════════════════════╝"
       echo ""
       echo "  Checking connection..."
     done
 
+    echo ""
     echo "  Connected! Starting Forge..."
     echo ""
     sleep 1
-    exec sudo nix run github:DigitalPals/nixos-config
+
+    # Run Forge with error recovery
+    while true; do
+      sudo nix run github:DigitalPals/nixos-config
+      exit_code=$?
+      if [ $exit_code -eq 0 ]; then
+        break
+      fi
+      echo ""
+      echo "  Forge exited with an error (code: $exit_code)."
+      echo ""
+      echo "  [r] Retry"
+      echo "  [s] Drop to shell"
+      echo ""
+      read -r -p "  Choice [r/s]: " choice
+      case "$choice" in
+        s|S) echo "  Type 'forge-startup' to restart."; break ;;
+        *) echo "  Retrying..."; echo "" ;;
+      esac
+    done
   '';
 in
 {
@@ -105,8 +142,8 @@ in
 
   # Run forge-startup on login to tty1
   programs.bash.loginShellInit = ''
-    if [ "$(tty)" = "/dev/tty1" ] && [ -z "$FORGE_STARTED" ]; then
-      export FORGE_STARTED=1
+    if [ "$(tty)" = "/dev/tty1" ] && [ ! -f /tmp/forge-started ]; then
+      touch /tmp/forge-started
       exec forge-startup
     fi
   '';

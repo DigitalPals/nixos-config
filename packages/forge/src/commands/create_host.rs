@@ -217,6 +217,17 @@ async fn run_create_host(tx: &mpsc::Sender<CommandMessage>, config: &NewHostConf
     })
     .await?;
 
+    // Stage new files so nix flake evaluation can see them.
+    // Nix ignores untracked files in git repos.
+    let config_dir_for_git = get_config_dir()?;
+    if std::path::Path::new(&config_dir_for_git).join(".git").exists() {
+        let _ = std::process::Command::new("git")
+            .args(["-C", &config_dir_for_git, "add", "-A"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
     // Success message
     tx.send(CommandMessage::Stdout("\n".to_string())).await?;
     tx.send(CommandMessage::Stdout(format!(

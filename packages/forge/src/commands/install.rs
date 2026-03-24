@@ -716,6 +716,13 @@ async fn step_run_disko(
         tracing::error!("passwordFile NOT found in modified disko config");
     }
 
+    // Stage all new and modified files so nix flake evaluation can see them.
+    // Nix ignores untracked files in git repos, so files created by create_host
+    // (host config, hardware config, disko config) and modified by configure_disk
+    // must be staged with git add.
+    runner.out("Staging configuration changes...").await;
+    let _ = run_capture("git", &["-C", &temp_config_str, "add", "-A"]).await;
+
     // Build disko first, then run with sudo to ensure root privileges
     runner.out("Building disko...").await;
     let (build_ok, disko_path, build_err) = run_capture(
