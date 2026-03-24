@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
-use super::executor::{run_capture, run_command_sensitive};
+use super::executor::{run_capture, run_command_sensitive, run_command_with_timeout};
 use super::runner::CommandRunner;
 use super::CommandMessage;
 use crate::app::SwapMode;
@@ -47,7 +47,7 @@ const NIX_CONFIG_VALUE: &str = "experimental-features = nix-command flakes\nsand
 /// Securely overwrite a file with zeros and 0xFF before removing it.
 /// This prevents password data from lingering on disk.
 fn shred_and_remove(path: &str) {
-    use std::io::Write;
+    use std::io::{Seek, Write};
     let size = match std::fs::metadata(path) {
         Ok(m) => m.len() as usize,
         Err(_) => {
@@ -59,6 +59,8 @@ fn shred_and_remove(path: &str) {
         // Overwrite with zeros
         let _ = file.write_all(&vec![0u8; size]);
         let _ = file.sync_all();
+        // Seek back to start before second pass
+        let _ = file.rewind();
         // Overwrite with 0xFF
         let _ = file.write_all(&vec![0xFFu8; size]);
         let _ = file.sync_all();
@@ -262,10 +264,17 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
         // Remove any partial clone
         let _ = std::fs::remove_dir_all(&temp_config);
 
-        // Clone repository
+        // Clone repository (streaming output with 5-minute timeout)
         let clone_cmd = format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str);
-        let (success, stdout, stderr) =
-            match run_capture("nix-shell", &["-p", "git", "--run", &clone_cmd]).await {
+        let success =
+            match run_command_with_timeout(
+                &tx,
+                "nix-shell",
+                &["-p", "git", "--run", &clone_cmd],
+                Some(300),
+            )
+            .await
+            {
                 Ok(result) => result,
                 Err(e) => {
                     let _ = tx
@@ -280,13 +289,6 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
                     return;
                 }
             };
-
-        if !stdout.is_empty() {
-            let _ = tx.send(CommandMessage::Stdout(stdout)).await;
-        }
-        if !stderr.is_empty() && !success {
-            let _ = tx.send(CommandMessage::Stderr(stderr)).await;
-        }
 
         if success {
             let _ = tx
@@ -723,9 +725,33 @@ async fn step_run_disko(
     runner.out("Staging configuration changes...").await;
     let _ = run_capture("git", &["-C", &temp_config_str, "add", "-A"]).await;
 
-    // Build disko first, then run with sudo to ensure root privileges
-    runner.out("Building disko...").await;
-    let (build_ok, disko_path, build_err) = run_capture(
+    // Build disko with streaming output and timeout (fetches all flake inputs on first run)
+    runner
+        .out("Building disko (fetching dependencies, this may take a few minutes)...")
+        .await;
+    let build_ok = runner
+        .run_with_timeout(
+            "nix",
+            &[
+                "build",
+                &format!("{}#disko", temp_config_str),
+                "--no-link",
+            ],
+            900, // 15 minutes — first run fetches all flake inputs
+        )
+        .await?;
+
+    if !build_ok {
+        shred_and_remove(LUKS_PASSWORD_FILE);
+        runner
+            .step_failed("disko", "Failed to build disko", "Disko build")
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    // Get the store path (instant — everything is cached from the build above)
+    let (path_ok, disko_path, path_err) = run_capture(
         "nix",
         &[
             "build",
@@ -736,13 +762,13 @@ async fn step_run_disko(
     )
     .await?;
 
-    if !build_ok || disko_path.trim().is_empty() {
+    if !path_ok || disko_path.trim().is_empty() {
         shred_and_remove(LUKS_PASSWORD_FILE);
         runner
-            .err(&format!("Failed to build disko: {}", build_err))
+            .err(&format!("Failed to resolve disko path: {}", path_err))
             .await;
         runner
-            .step_failed("disko", "Failed to build disko", "Disko build")
+            .step_failed("disko", "Failed to resolve disko path", "Disko build")
             .await?;
         runner.done(false).await?;
         return Ok(false);
@@ -1243,7 +1269,7 @@ async fn step_set_user_password(
         runner.out("Warning: Failed to set user password. You can set it after first boot with 'passwd'.").await;
     }
 
-    runner.step_complete("user").await?;
+    runner.step_complete(super::steps::INSTALL).await?;
     Ok(true)
 }
 
