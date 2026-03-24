@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -112,10 +112,29 @@ where
 
     // Apply timeout
     let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS));
-    let status = tokio::time::timeout(timeout, child.wait())
-        .await
-        .with_context(|| format!("Command timed out after {}s: {}", timeout.as_secs(), cmd))?
-        .with_context(|| format!("Failed to wait for command: {}", cmd))?;
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(status) => status.with_context(|| format!("Failed to wait for command: {}", cmd))?,
+        Err(_) => {
+            tracing::warn!("Command timed out after {}s: {}", timeout.as_secs(), cmd);
+            if let Err(e) = child.kill().await {
+                tracing::warn!("Failed to kill timed out command {}: {}", cmd, e);
+            }
+            let _ = child.wait().await;
+
+            match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("stdout reader task panicked: {}", e),
+                Err(_) => tracing::warn!("stdout reader task timed out for command: {}", cmd),
+            }
+            match tokio::time::timeout(Duration::from_secs(5), stderr_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("stderr reader task panicked: {}", e),
+                Err(_) => tracing::warn!("stderr reader task timed out for command: {}", cmd),
+            }
+
+            anyhow::bail!("Command timed out after {}s: {}", timeout.as_secs(), cmd);
+        }
+    };
 
     // Wait for output tasks with short timeout (they should complete quickly after process exits)
     match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
@@ -182,10 +201,29 @@ pub async fn run_command_sensitive(
     });
 
     let timeout = Duration::from_secs(DEFAULT_COMMAND_TIMEOUT_SECS);
-    let status = tokio::time::timeout(timeout, child.wait())
-        .await
-        .with_context(|| format!("Command timed out after {}s: {}", timeout.as_secs(), cmd))?
-        .with_context(|| format!("Failed to wait for command: {}", cmd))?;
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(status) => status.with_context(|| format!("Failed to wait for command: {}", cmd))?,
+        Err(_) => {
+            tracing::warn!("Command timed out after {}s: {}", timeout.as_secs(), cmd);
+            if let Err(e) = child.kill().await {
+                tracing::warn!("Failed to kill timed out command {}: {}", cmd, e);
+            }
+            let _ = child.wait().await;
+
+            match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("stdout reader task panicked: {}", e),
+                Err(_) => tracing::warn!("stdout reader task timed out for command: {}", cmd),
+            }
+            match tokio::time::timeout(Duration::from_secs(5), stderr_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("stderr reader task panicked: {}", e),
+                Err(_) => tracing::warn!("stderr reader task timed out for command: {}", cmd),
+            }
+
+            anyhow::bail!("Command timed out after {}s: {}", timeout.as_secs(), cmd);
+        }
+    };
 
     match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
         Ok(Ok(())) => {}
@@ -213,18 +251,77 @@ pub async fn run_sudo(tx: &mpsc::Sender<CommandMessage>, cmd: &str, args: &[&str
 
 /// Execute a command and capture output (no streaming)
 pub async fn run_capture(cmd: &str, args: &[&str]) -> Result<(bool, String, String)> {
+    run_capture_with_timeout(cmd, args, None).await
+}
+
+/// Execute a command and capture output (no streaming) with an optional timeout
+pub async fn run_capture_with_timeout(
+    cmd: &str,
+    args: &[&str],
+    timeout_secs: Option<u64>,
+) -> Result<(bool, String, String)> {
     tracing::info!("Capturing command: {} {:?}", cmd, args);
 
-    let output = Command::new(cmd)
+    let mut child = Command::new(cmd)
         .args(args)
-        .output()
-        .await
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .with_context(|| format!("Failed to execute command: {}", cmd))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout for command: {}", cmd))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture stderr for command: {}", cmd))?;
 
-    Ok((output.status.success(), stdout, stderr))
+    let stdout_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        stdout.read_to_end(&mut buf).await.map(|_| buf)
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        stderr.read_to_end(&mut buf).await.map(|_| buf)
+    });
+
+    let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS));
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(status) => status.with_context(|| format!("Failed to wait for command: {}", cmd))?,
+        Err(_) => {
+            tracing::warn!("Command timed out after {}s: {}", timeout.as_secs(), cmd);
+            if let Err(e) = child.kill().await {
+                tracing::warn!("Failed to kill timed out command {}: {}", cmd, e);
+            }
+            let _ = child.wait().await;
+
+            let _ = tokio::time::timeout(Duration::from_secs(5), stdout_task).await;
+            let _ = tokio::time::timeout(Duration::from_secs(5), stderr_task).await;
+
+            anyhow::bail!("Command timed out after {}s: {}", timeout.as_secs(), cmd);
+        }
+    };
+
+    let stdout = match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
+        Ok(Ok(Ok(buf))) => String::from_utf8_lossy(&buf).to_string(),
+        Ok(Ok(Err(e))) => {
+            return Err(e).with_context(|| format!("Failed to read stdout for {}", cmd))
+        }
+        Ok(Err(e)) => anyhow::bail!("stdout reader task panicked for {}: {}", cmd, e),
+        Err(_) => anyhow::bail!("stdout reader task timed out for {}", cmd),
+    };
+    let stderr = match tokio::time::timeout(Duration::from_secs(5), stderr_task).await {
+        Ok(Ok(Ok(buf))) => String::from_utf8_lossy(&buf).to_string(),
+        Ok(Ok(Err(e))) => {
+            return Err(e).with_context(|| format!("Failed to read stderr for {}", cmd))
+        }
+        Ok(Err(e)) => anyhow::bail!("stderr reader task panicked for {}: {}", cmd, e),
+        Err(_) => anyhow::bail!("stderr reader task timed out for {}", cmd),
+    };
+
+    Ok((status.success(), stdout, stderr))
 }
 
 /// Check if a command exists

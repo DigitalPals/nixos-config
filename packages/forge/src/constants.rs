@@ -12,6 +12,15 @@ pub const OUTPUT_BUFFER_SIZE: usize = 1000;
 /// Default command timeout in seconds (5 minutes)
 pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 300;
 
+/// Timeout for quick connectivity checks
+pub const NETWORK_CHECK_TIMEOUT_SECS: u64 = 15;
+
+/// Timeout for repository bootstrap/clone operations on a fresh ISO
+pub const REPOSITORY_COMMAND_TIMEOUT_SECS: u64 = 1800;
+
+/// Timeout for build operations that may need to fetch large dependency graphs
+pub const BUILD_COMMAND_TIMEOUT_SECS: u64 = 1800;
+
 /// Event poll timeout in milliseconds
 pub const EVENT_POLL_TIMEOUT_MS: u64 = 100;
 

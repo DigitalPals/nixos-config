@@ -10,12 +10,13 @@
 //! 7. Set user password
 
 use anyhow::{Context, Result};
-use std::os::unix::fs::PermissionsExt;
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
-use super::executor::{run_capture, run_command_sensitive, run_command_with_timeout};
+use super::executor::{
+    run_capture, run_capture_with_timeout, run_command_sensitive, run_command_with_timeout,
+};
 use super::runner::CommandRunner;
 use super::CommandMessage;
 use crate::app::SwapMode;
@@ -198,6 +199,18 @@ pub async fn start_install(
     Ok(())
 }
 
+/// Check GitHub connectivity using HTTPS rather than ICMP.
+async fn check_github_connectivity() -> Result<bool> {
+    let (success, _, _) = run_capture_with_timeout(
+        "curl",
+        &["-sfL", "--max-time", "10", "https://github.com"],
+        Some(constants::NETWORK_CHECK_TIMEOUT_SECS),
+    )
+    .await?;
+
+    Ok(success)
+}
+
 /// Clone the repository to /tmp/nixos-config for host discovery
 /// This is called before the install wizard to populate the host list
 pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
@@ -226,8 +239,7 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
             .await;
 
         // Check network
-        let (net_ok, _, _) = match run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await
-        {
+        let net_ok = match check_github_connectivity().await {
             Ok(result) => result,
             Err(_) => {
                 let _ = tx
@@ -266,29 +278,28 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
 
         // Clone repository (streaming output with 5-minute timeout)
         let clone_cmd = format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str);
-        let success =
-            match run_command_with_timeout(
-                &tx,
-                "nix-shell",
-                &["-p", "git", "--run", &clone_cmd],
-                Some(300),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(e) => {
-                    let _ = tx
-                        .send(CommandMessage::Stderr(format!(
-                            "Clone command failed: {}",
-                            e
-                        )))
-                        .await;
-                    let _ = tx
-                        .send(CommandMessage::CloneComplete { success: false })
-                        .await;
-                    return;
-                }
-            };
+        let success = match run_command_with_timeout(
+            &tx,
+            "nix-shell",
+            &["-p", "git", "--run", &clone_cmd],
+            Some(constants::REPOSITORY_COMMAND_TIMEOUT_SECS),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                let _ = tx
+                    .send(CommandMessage::Stderr(format!(
+                        "Clone command failed: {}",
+                        e
+                    )))
+                    .await;
+                let _ = tx
+                    .send(CommandMessage::CloneComplete { success: false })
+                    .await;
+                return;
+            }
+        };
 
         if success {
             let _ = tx
@@ -312,8 +323,7 @@ pub async fn start_clone_repository(tx: mpsc::Sender<CommandMessage>) -> Result<
 async fn step_check_network(runner: &CommandRunner<'_>) -> Result<bool> {
     runner.out("Checking network connectivity...").await;
 
-    let (success, _, _) = run_capture("ping", &["-c", "1", "-W", "5", "github.com"]).await?;
-    if !success {
+    if !check_github_connectivity().await? {
         runner
             .step_failed("network", "No network connection", "Network check")
             .await?;
@@ -355,7 +365,7 @@ async fn step_prepare_repository(
         let _ = std::fs::remove_dir_all(&temp_config);
 
         let success = runner
-            .run(
+            .run_with_timeout(
                 "nix-shell",
                 &[
                     "-p",
@@ -363,6 +373,7 @@ async fn step_prepare_repository(
                     "--run",
                     &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
                 ],
+                constants::REPOSITORY_COMMAND_TIMEOUT_SECS,
             )
             .await?;
 
@@ -725,50 +736,37 @@ async fn step_run_disko(
     runner.out("Staging configuration changes...").await;
     let _ = run_capture("git", &["-C", &temp_config_str, "add", "-A"]).await;
 
-    // Build disko with streaming output and timeout (fetches all flake inputs on first run)
+    // Build disko with streaming output and a long timeout (first run may fetch a lot)
     runner
         .out("Building disko (fetching dependencies, this may take a few minutes)...")
         .await;
+    let disko_link = format!("/tmp/forge-disko-{}", std::process::id());
+    let _ = std::fs::remove_file(&disko_link);
+    let _ = std::fs::remove_dir_all(&disko_link);
     let build_ok = runner
         .run_with_timeout(
             "nix",
             &[
                 "build",
                 &format!("{}#disko", temp_config_str),
-                "--no-link",
+                "--out-link",
+                &disko_link,
             ],
-            900, // 15 minutes — first run fetches all flake inputs
+            constants::BUILD_COMMAND_TIMEOUT_SECS,
         )
         .await?;
 
-    if !build_ok {
+    let disko_path = std::fs::read_link(&disko_link)
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let _ = std::fs::remove_file(&disko_link);
+
+    if !build_ok || disko_path.trim().is_empty() {
         shred_and_remove(LUKS_PASSWORD_FILE);
+        runner.err("Failed to build disko").await;
         runner
             .step_failed("disko", "Failed to build disko", "Disko build")
-            .await?;
-        runner.done(false).await?;
-        return Ok(false);
-    }
-
-    // Get the store path (instant — everything is cached from the build above)
-    let (path_ok, disko_path, path_err) = run_capture(
-        "nix",
-        &[
-            "build",
-            &format!("{}#disko", temp_config_str),
-            "--no-link",
-            "--print-out-paths",
-        ],
-    )
-    .await?;
-
-    if !path_ok || disko_path.trim().is_empty() {
-        shred_and_remove(LUKS_PASSWORD_FILE);
-        runner
-            .err(&format!("Failed to resolve disko path: {}", path_err))
-            .await;
-        runner
-            .step_failed("disko", "Failed to resolve disko path", "Disko build")
             .await?;
         runner.done(false).await?;
         return Ok(false);
@@ -1128,6 +1126,20 @@ async fn step_install_nixos(
     runner
         .out(&format!("  Created: {}", config_parent.display()))
         .await;
+
+    runner.out("  Cleaning target configuration...").await;
+    let clean_target_ok = runner.run("sudo", &["rm", "-rf", &config_dir]).await?;
+    if !clean_target_ok {
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to remove previous target configuration",
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
 
     // Copy configuration using sudo cp -r
     runner.out("  Copying configuration...").await;
@@ -1536,40 +1548,46 @@ fn inject_swap_subvolume(content: &str, swap_size_gb: u64) -> String {
 /// Add hibernate boot configuration to host's default.nix
 /// Adds boot.resumeDevice, boot.kernelParams with resume_offset, and disables zram
 fn inject_hibernate_config(content: &str, resume_offset: u64) -> String {
-    let cleaned = HIBERNATE_BLOCK_RE.replace(content, "").to_string();
+    let mut cleaned = HIBERNATE_BLOCK_RE.replace(content, "").to_string();
     let resume_param = format!("resume_offset={}", resume_offset);
 
     // If boot.kernelParams already exists, append resume_offset inside that list.
     if cleaned.contains("boot.kernelParams") {
         let pattern = r#"boot\.kernelParams\s*=\s*\[(?s)(.*?)\];"#;
         if let Ok(re) = regex::Regex::new(pattern) {
-            let updated = re.replace(&cleaned, |caps: &regex::Captures| {
-                let body = &caps[1];
-                if body.contains(&resume_param) {
-                    caps[0].to_string()
-                } else {
-                    format!(
-                        "boot.kernelParams = [{}\n    \"{}\"\n  ];",
-                        body, resume_param
-                    )
-                }
-            });
-            return updated.to_string();
+            cleaned = re
+                .replace(&cleaned, |caps: &regex::Captures| {
+                    let body = &caps[1];
+                    if body.contains(&resume_param) {
+                        caps[0].to_string()
+                    } else {
+                        format!(
+                            "boot.kernelParams = [{}\n    \"{}\"\n  ];",
+                            body, resume_param
+                        )
+                    }
+                })
+                .to_string();
         }
     }
 
     // Look for the final closing brace and add hibernate config before it
     // The host default.nix typically ends with a closing brace
     if let Some(pos) = cleaned.rfind('}') {
-        let hibernate_config = format!(
+        let mut hibernate_config = String::from(
             r#"
   # Hibernate support (auto-generated by Forge installer)
   boot.resumeDevice = "/dev/mapper/cryptroot";
-  boot.kernelParams = [ "{}" ];
   zramSwap.enable = lib.mkForce false;
 "#,
-            resume_param
         );
+        if !cleaned.contains("boot.kernelParams") {
+            hibernate_config.push_str(&format!(
+                r#"  boot.kernelParams = [ "{}" ];
+"#,
+                resume_param
+            ));
+        }
         let mut result = cleaned[..pos].to_string();
         result.push_str(&hibernate_config);
         result.push_str(&cleaned[pos..]);

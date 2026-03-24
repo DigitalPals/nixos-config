@@ -6,7 +6,7 @@ use std::path::Path;
 use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
-use super::executor::run_command;
+use super::executor::{run_command, run_command_with_timeout};
 use super::steps;
 use super::CommandMessage;
 use crate::app::{AppMode, CreateHostState, NewHostConfig};
@@ -71,7 +71,7 @@ async fn run_create_host(tx: &mpsc::Sender<CommandMessage>, config: &NewHostConf
             let temp_config_str = temp_config.to_string_lossy();
             std::env::set_var("NIX_CONFIG", "experimental-features = nix-command flakes");
 
-            let success = run_command(
+            let success = run_command_with_timeout(
                 tx,
                 "nix-shell",
                 &[
@@ -80,6 +80,7 @@ async fn run_create_host(tx: &mpsc::Sender<CommandMessage>, config: &NewHostConf
                     "--run",
                     &format!("git clone --depth 1 {} {}", REPO_URL, temp_config_str),
                 ],
+                Some(crate::constants::REPOSITORY_COMMAND_TIMEOUT_SECS),
             )
             .await?;
 
@@ -220,7 +221,10 @@ async fn run_create_host(tx: &mpsc::Sender<CommandMessage>, config: &NewHostConf
     // Stage new files so nix flake evaluation can see them.
     // Nix ignores untracked files in git repos.
     let config_dir_for_git = get_config_dir()?;
-    if std::path::Path::new(&config_dir_for_git).join(".git").exists() {
+    if std::path::Path::new(&config_dir_for_git)
+        .join(".git")
+        .exists()
+    {
         let _ = std::process::Command::new("git")
             .args(["-C", &config_dir_for_git, "add", "-A"])
             .stdout(std::process::Stdio::null())
