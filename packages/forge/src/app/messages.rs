@@ -86,6 +86,15 @@ impl App {
                 // Store the summary for use when Done arrives
                 self.update_summary = Some(summary);
             }
+            CommandMessage::UpdatePreflightReady { report } => {
+                self.handle_update_preflight_ready(report).await?;
+            }
+            CommandMessage::UpdatePreflightFailed { error } => {
+                if let AppMode::Update(UpdateState::Preparing { options, .. }) = &self.mode {
+                    self.mode = AppMode::Update(UpdateState::preflight(options.clone(), false));
+                }
+                self.error = Some(error);
+            }
         }
         Ok(())
     }
@@ -122,6 +131,7 @@ impl App {
 
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { output, .. })
+            | AppMode::Update(UpdateState::Preparing { output, .. })
             | AppMode::Update(UpdateState::Complete { output, .. }) => {
                 output.push_back(clean_line);
                 while output.len() > OUTPUT_BUFFER_SIZE {
@@ -173,6 +183,20 @@ impl App {
         self.log_to_screen(&format!("[✓] Step complete: {}", step_id));
 
         match &mut self.mode {
+            AppMode::Update(UpdateState::Preparing { steps, .. }) => {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
+                    s.status = StepState::Complete;
+                    s.detail = None;
+                }
+                if let Some(next_index) = steps
+                    .iter()
+                    .position(|step| step.id == step_id)
+                    .and_then(|index| (index + 1 < steps.len()).then_some(index + 1))
+                {
+                    steps[next_index].status = StepState::Running;
+                    steps[next_index].started_at = Some(Instant::now());
+                }
+            }
             AppMode::Update(UpdateState::Running { steps, step, .. }) => {
                 if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Complete;
@@ -224,6 +248,13 @@ impl App {
         self.log_to_screen(&format!("  Suggestion: {}", error.suggestion));
 
         match &mut self.mode {
+            AppMode::Update(UpdateState::Preparing { steps, .. }) => {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
+                    s.status = StepState::Failed;
+                    s.detail = error.detail.clone();
+                }
+                self.error = Some(error.summary);
+            }
             AppMode::Update(UpdateState::Running { steps, .. }) => {
                 if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Failed;
@@ -250,7 +281,20 @@ impl App {
         self.log_to_screen(&format!("[!] Step warning: {}", step_id));
         self.log_to_screen(&format!("  {}", detail));
 
-        if let AppMode::Update(UpdateState::Running { steps, step, .. }) = &mut self.mode {
+        if let AppMode::Update(UpdateState::Preparing { steps, .. }) = &mut self.mode {
+            if let Some(s) = Self::find_step_mut(steps, step_id) {
+                s.status = StepState::Warning;
+                s.detail = Some(detail.to_string());
+            }
+            if let Some(next_index) = steps
+                .iter()
+                .position(|step| step.id == step_id)
+                .and_then(|index| (index + 1 < steps.len()).then_some(index + 1))
+            {
+                steps[next_index].status = StepState::Running;
+                steps[next_index].started_at = Some(Instant::now());
+            }
+        } else if let AppMode::Update(UpdateState::Running { steps, step, .. }) = &mut self.mode {
             if let Some(s) = Self::find_step_mut(steps, step_id) {
                 s.status = StepState::Warning;
                 s.detail = Some(detail.to_string());
@@ -265,6 +309,11 @@ impl App {
 
     fn set_step_detail(&mut self, step_id: &str, detail: &str) {
         match &mut self.mode {
+            AppMode::Update(UpdateState::Preparing { steps, .. }) => {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
+                    s.detail = Some(detail.to_string());
+                }
+            }
             AppMode::Update(UpdateState::Running { steps, .. })
             | AppMode::Install(InstallState::Running { steps, .. })
             | AppMode::CreateHost(CreateHostState::Generating { steps, .. }) => {
@@ -280,6 +329,20 @@ impl App {
         self.log_to_screen(&format!("[-] Step skipped: {}", step_id));
 
         match &mut self.mode {
+            AppMode::Update(UpdateState::Preparing { steps, .. }) => {
+                if let Some(s) = Self::find_step_mut(steps, step_id) {
+                    s.status = StepState::Skipped;
+                    s.detail = None;
+                }
+                if let Some(next_index) = steps
+                    .iter()
+                    .position(|step| step.id == step_id)
+                    .and_then(|index| (index + 1 < steps.len()).then_some(index + 1))
+                {
+                    steps[next_index].status = StepState::Running;
+                    steps[next_index].started_at = Some(Instant::now());
+                }
+            }
             AppMode::Update(UpdateState::Running { steps, step, .. }) => {
                 if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Skipped;
@@ -435,6 +498,13 @@ impl App {
         self.cancel_token = None;
 
         match &mut self.mode {
+            AppMode::Update(UpdateState::Preparing {
+                output, options, ..
+            }) => {
+                let options = options.clone();
+                output.push_back("Operation cancelled by user.".to_string());
+                self.mode = AppMode::Update(UpdateState::preflight(options, false));
+            }
             AppMode::Apps(AppProfileState::Running { output, .. }) => {
                 output.push_back("Operation cancelled by user.".to_string());
                 self.mode = AppMode::Apps(AppProfileState::Complete {

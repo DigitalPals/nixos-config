@@ -393,6 +393,14 @@ pub enum UpdateState {
         editing_inputs: bool,
         auto_start: bool,
     },
+    /// Running non-mutating checks before update starts
+    Preparing {
+        options: UpdateOptions,
+        pending_resolution: Option<LocalChangesResolution>,
+        steps: Vec<StepStatus>,
+        output: VecDeque<String>,
+        scroll_offset: Option<usize>,
+    },
     /// Prompt user about local changes before updating
     LocalChangesPrompt {
         changes: Vec<LocalChange>,
@@ -563,6 +571,29 @@ impl UpdateState {
             scroll_offset: None,
             stash,
             options,
+        }
+    }
+
+    pub fn preparing(
+        options: UpdateOptions,
+        pending_resolution: Option<LocalChangesResolution>,
+    ) -> Self {
+        let mut steps = vec![
+            StepStatus::new_with_id("update.preflight.health", "Checking required tools"),
+            StepStatus::new_with_id("update.preflight.remote", "Checking repository status"),
+            StepStatus::new_with_id("update.preflight.dryrun", "Running dry-run build"),
+        ];
+        if let Some(first) = steps.first_mut() {
+            first.status = StepState::Running;
+            first.started_at = Some(Instant::now());
+        }
+
+        UpdateState::Preparing {
+            options,
+            pending_resolution,
+            steps,
+            output: VecDeque::new(),
+            scroll_offset: None,
         }
     }
 }

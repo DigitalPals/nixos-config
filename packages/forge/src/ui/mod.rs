@@ -133,6 +133,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     *editing_inputs,
                 );
             }
+            UpdateState::Preparing {
+                steps,
+                output,
+                scroll_offset,
+                ..
+            } => {
+                let output_vec: Vec<String> = output.iter().cloned().collect();
+                screens::update::draw_preparing(frame, steps, &output_vec, *scroll_offset, app);
+            }
             UpdateState::LocalChangesPrompt {
                 changes,
                 tracked_count,

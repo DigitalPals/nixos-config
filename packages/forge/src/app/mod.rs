@@ -210,6 +210,31 @@ impl App {
         Ok(())
     }
 
+    pub(crate) async fn handle_update_preflight_ready(
+        &mut self,
+        report: UpdatePreflightReport,
+    ) -> Result<()> {
+        if let AppMode::Update(UpdateState::Preparing {
+            options,
+            ..
+        }) = &self.mode
+        {
+            let options = options.clone();
+
+            if report.should_auto_continue() {
+                self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
+                self.launch_update_command().await?;
+            } else {
+                self.mode = AppMode::Update(UpdateState::ReviewPreflight {
+                    options,
+                    report,
+                    selected: 0,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Start initial command if mode requires it
     pub async fn start_initial_command(&mut self) -> Result<()> {
         match &mut self.mode {

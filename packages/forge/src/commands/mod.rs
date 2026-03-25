@@ -46,7 +46,7 @@ pub mod steps {
     pub const FLAKE_NIX: &str = "flake";
 }
 
-use crate::app::UpdateSummary;
+use crate::app::{UpdatePreflightReport, UpdateSummary};
 
 /// Messages sent from command execution to UI
 #[derive(Debug, Clone)]
@@ -82,6 +82,10 @@ pub enum CommandMessage {
     CloneComplete { success: bool },
     /// Update summary data (sent before Done for update command)
     UpdateSummaryData { summary: UpdateSummary },
+    /// Update preflight checks finished and are ready for next UI step
+    UpdatePreflightReady { report: UpdatePreflightReport },
+    /// Update preflight checks failed unexpectedly
+    UpdatePreflightFailed { error: String },
     /// Rollback available after rebuild failure
     RollbackAvailable { generation: u32 },
 }

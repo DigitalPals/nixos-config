@@ -86,6 +86,7 @@ pub fn draw_help(frame: &mut Frame, mode: &AppMode) {
             " Help - Credentials "
         }
         AppMode::Install(InstallState::Running { .. })
+        | AppMode::Update(UpdateState::Preparing { .. })
         | AppMode::Apps(AppProfileState::Running { .. })
         | AppMode::Keys(KeysState::Running { .. }) => {
             add_section(&mut lines, "Keys", &[("Ctrl+C", "Cancel the operation")]);

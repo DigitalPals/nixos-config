@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::{
     LocalChange, StashInfo, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
-    UpdateRemoteStatus, UpdateSummary,
+    UpdatePreflightReport, UpdateRemoteStatus, UpdateSummary,
 };
 use crate::commands::errors::{ErrorContext, ParsedError};
 use crate::commands::executor::{
@@ -40,6 +40,9 @@ const STEP_PULL: &str = "update.pull";
 const STEP_FLAKE: &str = "update.flake";
 const STEP_REBUILD: &str = "update.rebuild";
 const STEP_PACKAGES: &str = "update.packages";
+const STEP_PREFLIGHT_HEALTH: &str = "update.preflight.health";
+const STEP_PREFLIGHT_REMOTE: &str = "update.preflight.remote";
+const STEP_PREFLIGHT_DRYRUN: &str = "update.preflight.dryrun";
 const STEP_CLAUDE: &str = "update.claude";
 const STEP_CODEX: &str = "update.codex";
 const STEP_BROWSER: &str = "update.browser";
@@ -189,14 +192,24 @@ pub async fn inspect_remote_status(config_path: &str) -> UpdateRemoteStatus {
 }
 
 /// Run a non-mutating system build check before update starts.
-pub async fn run_preflight_dry_run(options: &UpdateOptions) -> UpdateDryRunStatus {
+async fn run_preflight_dry_run(
+    tx: &mpsc::Sender<CommandMessage>,
+    cancel: CancellationToken,
+    options: &UpdateOptions,
+) -> Result<Option<UpdateDryRunStatus>> {
     if options.flake_only {
-        return UpdateDryRunStatus::Skipped("Not needed in flake-input-only mode".to_string());
+        return Ok(Some(UpdateDryRunStatus::Skipped(
+            "Not needed in flake-input-only mode".to_string(),
+        )));
     }
 
     let hostname = match get_output("hostname", &[]).await {
         Ok(name) if !name.trim().is_empty() => name,
-        _ => return UpdateDryRunStatus::Failed("Could not determine hostname".to_string()),
+        _ => {
+            return Ok(Some(UpdateDryRunStatus::Failed(
+                "Could not determine hostname".to_string(),
+            )));
+        }
     };
 
     let flake_dir = crate::constants::nixos_config_dir();
@@ -206,15 +219,219 @@ pub async fn run_preflight_dry_run(options: &UpdateOptions) -> UpdateDryRunStatu
         flake_path, hostname
     );
 
-    match run_capture("nix", &["build", "--no-link", &target]).await {
-        Ok((true, _, _)) => UpdateDryRunStatus::Passed,
-        Ok((false, _, stderr)) => UpdateDryRunStatus::Failed(if stderr.trim().is_empty() {
-            "Dry-run build failed".to_string()
-        } else {
-            stderr.trim().to_string()
-        }),
-        Err(error) => UpdateDryRunStatus::Failed(error.to_string()),
+    let _ = tx
+        .send(CommandMessage::StepDetail {
+            step: STEP_PREFLIGHT_DRYRUN.to_string(),
+            detail: format!("Building {}", hostname),
+        })
+        .await;
+    out(tx, &format!("Checking target {}", hostname)).await;
+
+    let result = run_command_cancellable_transformed(
+        tx,
+        "nix",
+        &["build", "--no-link", &target],
+        cancel,
+        transform_nix_output,
+    )
+    .await?;
+
+    Ok(match result {
+        CommandResult::Cancelled => None,
+        CommandResult::Completed(true) => Some(UpdateDryRunStatus::Passed),
+        CommandResult::Completed(false) => Some(UpdateDryRunStatus::Failed(
+            "Dry-run build failed. See output above for details.".to_string(),
+        )),
+    })
+}
+
+pub async fn start_preflight(
+    tx: mpsc::Sender<CommandMessage>,
+    cancel: CancellationToken,
+    options: UpdateOptions,
+    changes: Vec<LocalChange>,
+    pending_resolution: Option<crate::app::LocalChangesResolution>,
+) -> Result<()> {
+    tokio::spawn(async move {
+        if let Err(error) =
+            run_preflight(&tx, cancel, &options, &changes, pending_resolution).await
+        {
+            tracing::error!("Update preflight failed: {}", error);
+            let _ = tx
+                .send(CommandMessage::UpdatePreflightFailed {
+                    error: error.to_string(),
+                })
+                .await;
+        }
+    });
+    Ok(())
+}
+
+async fn run_preflight(
+    tx: &mpsc::Sender<CommandMessage>,
+    cancel: CancellationToken,
+    options: &UpdateOptions,
+    changes: &[LocalChange],
+    pending_resolution: Option<crate::app::LocalChangesResolution>,
+) -> Result<()> {
+    out(tx, "").await;
+    out(tx, "Preparing update checks...").await;
+    out(tx, &format!("Mode: {}", options.mode_label())).await;
+    out(
+        tx,
+        &format!(
+            "Local changes: {} tracked, {} untracked",
+            changes.iter().filter(|change| change.tracked).count(),
+            changes.iter().filter(|change| !change.tracked).count()
+        ),
+    )
+    .await;
+
+    let health = crate::commands::health::check_health(crate::commands::health::Operation::Update)
+        .await;
+    if health.is_ok() {
+        out(tx, "Required tools are available").await;
+        tx.send(CommandMessage::StepComplete {
+            step: STEP_PREFLIGHT_HEALTH.to_string(),
+        })
+        .await?;
+    } else {
+        out(tx, "Required tools are missing; review will explain").await;
+        tx.send(CommandMessage::StepWarning {
+            step: STEP_PREFLIGHT_HEALTH.to_string(),
+            detail: "Required tools missing".to_string(),
+        })
+        .await?;
     }
+
+    let config_path = crate::constants::nixos_config_dir();
+    let config_str = config_path.to_string_lossy().to_string();
+    let remote = if config_path.join(".git").exists() {
+        inspect_remote_status(&config_str).await
+    } else {
+        UpdateRemoteStatus {
+            checked: false,
+            error: Some("Not a git repository".to_string()),
+            ..UpdateRemoteStatus::default()
+        }
+    };
+
+    match &remote.error {
+        Some(error) => {
+            out(tx, &format!("Remote status unavailable: {}", error)).await;
+            tx.send(CommandMessage::StepWarning {
+                step: STEP_PREFLIGHT_REMOTE.to_string(),
+                detail: "Remote status unavailable".to_string(),
+            })
+            .await?;
+        }
+        None if remote.checked => {
+            out(
+                tx,
+                &format!(
+                    "Remote status: {} ahead, {} behind on {}",
+                    remote.ahead,
+                    remote.behind,
+                    remote.upstream.as_deref().unwrap_or("upstream")
+                ),
+            )
+            .await;
+            if remote.ahead > 0 || remote.behind > 0 {
+                tx.send(CommandMessage::StepWarning {
+                    step: STEP_PREFLIGHT_REMOTE.to_string(),
+                    detail: "Repository differs from upstream".to_string(),
+                })
+                .await?;
+            } else {
+                tx.send(CommandMessage::StepComplete {
+                    step: STEP_PREFLIGHT_REMOTE.to_string(),
+                })
+                .await?;
+            }
+        }
+        None => {
+            out(tx, "Remote status not available").await;
+            tx.send(CommandMessage::StepSkipped {
+                step: STEP_PREFLIGHT_REMOTE.to_string(),
+            })
+            .await?;
+        }
+    }
+
+    let dry_run = if !health.is_ok() {
+        out(tx, "Skipping dry-run build because required tools are missing").await;
+        tx.send(CommandMessage::StepSkipped {
+            step: STEP_PREFLIGHT_DRYRUN.to_string(),
+        })
+        .await?;
+        UpdateDryRunStatus::Skipped("Required tools missing".to_string())
+    } else if matches!(
+        pending_resolution,
+        Some(crate::app::LocalChangesResolution::Overwrite)
+    ) {
+        out(tx, "Skipping dry-run build until local changes are resolved").await;
+        tx.send(CommandMessage::StepSkipped {
+            step: STEP_PREFLIGHT_DRYRUN.to_string(),
+        })
+        .await?;
+        UpdateDryRunStatus::Skipped(
+            "Dry run deferred because local changes will be discarded".to_string(),
+        )
+    } else {
+        match run_preflight_dry_run(tx, cancel, options).await? {
+            None => {
+                out(tx, "Update preflight cancelled").await;
+                tx.send(CommandMessage::Cancelled).await?;
+                return Ok(());
+            }
+            Some(UpdateDryRunStatus::Passed) => {
+                out(tx, "Dry-run build passed").await;
+                tx.send(CommandMessage::StepComplete {
+                    step: STEP_PREFLIGHT_DRYRUN.to_string(),
+                })
+                .await?;
+                UpdateDryRunStatus::Passed
+            }
+            Some(UpdateDryRunStatus::Skipped(reason)) => {
+                out(tx, &format!("Dry-run build skipped: {}", reason)).await;
+                tx.send(CommandMessage::StepSkipped {
+                    step: STEP_PREFLIGHT_DRYRUN.to_string(),
+                })
+                .await?;
+                UpdateDryRunStatus::Skipped(reason)
+            }
+            Some(UpdateDryRunStatus::Failed(reason)) => {
+                out(tx, &format!("Dry-run build failed: {}", reason)).await;
+                tx.send(CommandMessage::StepWarning {
+                    step: STEP_PREFLIGHT_DRYRUN.to_string(),
+                    detail: "Dry-run build failed".to_string(),
+                })
+                .await?;
+                UpdateDryRunStatus::Failed(reason)
+            }
+        }
+    };
+
+    let report = UpdatePreflightReport {
+        missing_required_tools: health
+            .missing_required
+            .iter()
+            .map(|tool| format!("{} ({})", tool.name, tool.install_hint))
+            .collect(),
+        missing_optional_tools: health
+            .missing_optional
+            .iter()
+            .map(|tool| format!("{} ({})", tool.name, tool.install_hint))
+            .collect(),
+        tracked_count: changes.iter().filter(|change| change.tracked).count(),
+        untracked_count: changes.iter().filter(|change| !change.tracked).count(),
+        pending_resolution,
+        remote,
+        dry_run,
+    };
+
+    tx.send(CommandMessage::UpdatePreflightReady { report }).await?;
+    Ok(())
 }
 
 pub async fn find_stash_reference(config_path: &str, message: &str) -> Option<StashInfo> {

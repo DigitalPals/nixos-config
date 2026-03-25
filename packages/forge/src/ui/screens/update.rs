@@ -114,6 +114,55 @@ pub fn draw_preflight(
 }
 
 /// Draw final preflight review before update starts.
+pub fn draw_preparing(
+    frame: &mut Frame,
+    steps: &[StepStatus],
+    output: &[String],
+    scroll_offset: Option<usize>,
+    app: &App,
+) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(2),
+        ])
+        .split(area);
+
+    let header = Paragraph::new(Line::from(Span::styled(
+        " Preparing Update ",
+        theme::title(),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border_active()),
+    );
+    frame.render_widget(header, chunks[0]);
+
+    let (steps_area, output_area) = progress_layout(chunks[1]);
+    let progress = ProgressSteps::new(steps, app.spinner_state).title(" Checks ");
+    frame.render_widget(progress, steps_area);
+
+    let mut log = LogView::new(output).title(" Details ");
+    if let Some(offset) = scroll_offset {
+        log = log.scroll_offset(offset);
+    }
+    frame.render_widget(log, output_area);
+
+    let footer = Paragraph::new(footer_hints(&[
+        ("↑↓/jk", "Scroll"),
+        ("f", "Follow"),
+        ("Ctrl+C", "Cancel"),
+    ]))
+    .alignment(Alignment::Center);
+    frame.render_widget(footer, chunks[2]);
+}
+
+/// Draw final preflight review before update starts.
 pub fn draw_review_preflight(
     frame: &mut Frame,
     options: &UpdateOptions,

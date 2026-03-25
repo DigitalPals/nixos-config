@@ -10,7 +10,6 @@ use crate::commands;
 use crate::commands::executor::run_capture;
 use crate::commands::update::{
     check_local_changes, find_stash_reference, get_default_branch, get_upstream_ref,
-    inspect_remote_status, run_preflight_dry_run,
 };
 use crate::constants::nixos_config_dir;
 use crate::constants::MAX_INPUT_LENGTH;
@@ -53,74 +52,29 @@ fn parse_update_inputs(input: &str) -> Vec<String> {
         .collect()
 }
 
-fn format_tool_requirement(tool: &commands::health::ToolRequirement) -> String {
-    format!("{} ({})", tool.name, tool.install_hint)
-}
-
 impl App {
-    async fn collect_update_preflight_report(
-        &self,
-        options: &UpdateOptions,
-        changes: &[LocalChange],
-        pending_resolution: Option<LocalChangesResolution>,
-    ) -> Result<UpdatePreflightReport> {
-        let health = commands::health::check_health(commands::health::Operation::Update).await;
-        let config_path = nixos_config_dir();
-        let config_str = config_path.to_string_lossy().to_string();
-
-        let remote = if config_path.join(".git").exists() {
-            inspect_remote_status(&config_str).await
-        } else {
-            UpdateRemoteStatus {
-                checked: false,
-                error: Some("Not a git repository".to_string()),
-                ..UpdateRemoteStatus::default()
-            }
-        };
-
-        let dry_run = if !health.is_ok() {
-            UpdateDryRunStatus::Skipped("Required tools missing".to_string())
-        } else if matches!(pending_resolution, Some(LocalChangesResolution::Overwrite)) {
-            UpdateDryRunStatus::Skipped(
-                "Dry run deferred because local changes will be discarded".to_string(),
-            )
-        } else {
-            run_preflight_dry_run(options).await
-        };
-
-        Ok(UpdatePreflightReport {
-            missing_required_tools: health
-                .missing_required
-                .iter()
-                .map(format_tool_requirement)
-                .collect(),
-            missing_optional_tools: health
-                .missing_optional
-                .iter()
-                .map(format_tool_requirement)
-                .collect(),
-            tracked_count: changes.iter().filter(|change| change.tracked).count(),
-            untracked_count: changes.iter().filter(|change| !change.tracked).count(),
-            pending_resolution,
-            remote,
-            dry_run,
-        })
-    }
-
-    async fn show_update_review(
+    async fn start_update_preflight(
         &mut self,
-        options: UpdateOptions,
+        options: &UpdateOptions,
         changes: Vec<LocalChange>,
         pending_resolution: Option<LocalChangesResolution>,
     ) -> Result<()> {
-        let report = self
-            .collect_update_preflight_report(&options, &changes, pending_resolution)
+        self.mode = AppMode::Update(UpdateState::preparing(
+            options.clone(),
+            pending_resolution,
+        ));
+
+        if let Some(tx) = self.cmd_tx.clone() {
+            let cancel = self.new_cancel_token();
+            commands::update::start_preflight(
+                tx,
+                cancel,
+                options.clone(),
+                changes,
+                pending_resolution,
+            )
             .await?;
-        self.mode = AppMode::Update(UpdateState::ReviewPreflight {
-            options,
-            report,
-            selected: 0,
-        });
+        }
         Ok(())
     }
 
@@ -433,6 +387,7 @@ impl App {
             if matches!(
                 self.mode,
                 AppMode::Update(UpdateState::Running { .. })
+                    | AppMode::Update(UpdateState::Preparing { .. })
                     | AppMode::Install(InstallState::Running { .. })
                     | AppMode::Apps(AppProfileState::Running { .. })
                     | AppMode::Keys(KeysState::Running { .. })
@@ -443,7 +398,11 @@ impl App {
             }
         }
 
-        if matches!(self.mode, AppMode::Update(UpdateState::Running { .. })) {
+        if matches!(
+            self.mode,
+            AppMode::Update(UpdateState::Running { .. })
+                | AppMode::Update(UpdateState::Preparing { .. })
+        ) {
             match key.code {
                 KeyCode::Up | KeyCode::Down | KeyCode::Char('k') | KeyCode::Char('j') => {
                     self.handle_scroll(key);
@@ -586,7 +545,7 @@ impl App {
                     self.mode = AppMode::Update(UpdateState::preflight(options, false));
                 }
                 LocalPromptAction::Review(options, changes, resolution) => {
-                    self.show_update_review(options, changes, resolution)
+                    self.start_update_preflight(&options, changes, resolution)
                         .await?;
                 }
                 LocalPromptAction::ConfirmOverwrite(options, changes) => {
@@ -662,8 +621,8 @@ impl App {
                     });
                 }
                 OverwriteAction::Review(options, changes) => {
-                    self.show_update_review(
-                        options,
+                    self.start_update_preflight(
+                        &options,
                         changes,
                         Some(LocalChangesResolution::Overwrite),
                     )
@@ -714,6 +673,13 @@ impl App {
             },
             AppMode::Update(UpdateState::Preflight { .. }) => match key.code {
                 KeyCode::Enter => Some(("complete", 0, None, None)),
+                _ => None,
+            },
+            AppMode::Update(UpdateState::Preparing { .. }) => match key.code {
+                KeyCode::Up | KeyCode::Down | KeyCode::Char('k') | KeyCode::Char('j') => {
+                    Some(("scroll", 0, None, None))
+                }
+                KeyCode::Char('f') | KeyCode::Char('F') => Some(("follow", 0, None, None)),
                 _ => None,
             },
             AppMode::Update(UpdateState::Complete { .. })
@@ -1025,20 +991,7 @@ impl App {
 
         let changes = check_local_changes();
         if changes.is_empty() {
-            let report = self
-                .collect_update_preflight_report(&options, &changes, None)
-                .await?;
-
-            if report.should_auto_continue() {
-                self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
-                self.launch_update_command().await?;
-            } else {
-                self.mode = AppMode::Update(UpdateState::ReviewPreflight {
-                    options,
-                    report,
-                    selected: 0,
-                });
-            }
+            self.start_update_preflight(&options, changes, None).await?;
         } else {
             self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {
                 tracked_count: changes.iter().filter(|change| change.tracked).count(),
@@ -1150,6 +1103,11 @@ impl App {
                 scroll_offset,
                 ..
             })
+            | AppMode::Update(UpdateState::Preparing {
+                output,
+                scroll_offset,
+                ..
+            })
             | AppMode::Update(UpdateState::Running {
                 output,
                 scroll_offset,
@@ -1199,6 +1157,7 @@ impl App {
     fn handle_follow_log(&mut self) {
         match &mut self.mode {
             AppMode::Install(InstallState::Complete { scroll_offset, .. })
+            | AppMode::Update(UpdateState::Preparing { scroll_offset, .. })
             | AppMode::Update(UpdateState::Running { scroll_offset, .. })
             | AppMode::Update(UpdateState::Complete { scroll_offset, .. })
             | AppMode::Apps(AppProfileState::Complete { scroll_offset, .. })
