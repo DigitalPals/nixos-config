@@ -43,9 +43,18 @@
       });
     };
 
+    xpsHardwareOverlay = final: prev: {
+      intelLpmd = final.callPackage ./packages/intel-lpmd { };
+      ipu7CameraBins = final.callPackage ./packages/ipu7-camera-bins { };
+      ipu7CameraHal = final.callPackage ./packages/ipu7-camera-hal { };
+      icamerasrcIpu75xa = final.callPackage ./packages/icamerasrc-ipu75xa {
+        ipu7CameraHal = final.ipu7CameraHal;
+      };
+    };
+
     pkgs = import nixpkgs {
       inherit system;
-      overlays = [ gtkPortalOverlay ];
+      overlays = [ gtkPortalOverlay xpsHardwareOverlay ];
     };
 
     # Custom packages
@@ -70,7 +79,7 @@
         specialArgs = { inherit inputs plymouth-cybex forge username; };
         modules = [
           # Apply overlays to NixOS (for patched xdg-desktop-portal-gtk)
-          { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ gtkPortalOverlay ]; }
+          { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ gtkPortalOverlay xpsHardwareOverlay ]; }
         ]
         # Disko for declarative disk partitioning (optional)
         ++ (if useDisko then [
@@ -143,6 +152,10 @@
     packages.${system} = {
       disko = disko.packages.${system}.disko;
       forge = forge;
+      intelLpmd = pkgs.intelLpmd;
+      ipu7CameraBins = pkgs.ipu7CameraBins;
+      ipu7CameraHal = pkgs.ipu7CameraHal;
+      icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
       default = forge;
     };
   };

@@ -4,7 +4,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use super::out;
-use crate::commands::executor::{get_output, run_capture};
+use crate::commands::executor::run_capture;
 use crate::commands::CommandMessage;
 
 /// Result of package comparison containing version changes and closure summary
@@ -26,90 +26,35 @@ impl Default for PackageCompareResult {
     }
 }
 
-/// Compare current system generation to previous generation using nvd
-pub async fn parse_package_changes_from_history(
-    tx: &mpsc::Sender<CommandMessage>,
-) -> Result<PackageCompareResult> {
-    // Get current generation number from /nix/var/nix/profiles/system
-    let current_gen = match get_output("readlink", &["/nix/var/nix/profiles/system"]).await {
-        Ok(s) => s.trim().to_string(),
-        Err(_) => {
-            out(tx, "    Could not read current generation").await;
-            return Ok(PackageCompareResult::default());
-        }
-    };
-
-    // Extract generation number (format: system-N-link -> we want N)
-    let gen_num: u32 = current_gen
-        .split('-')
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    if gen_num <= 1 {
-        out(tx, "    No previous generation to compare").await;
-        return Ok(PackageCompareResult::default());
-    }
-
-    let prev_gen = gen_num - 1;
-    let current_path = format!("/nix/var/nix/profiles/system-{}-link", gen_num);
-    let prev_path = format!("/nix/var/nix/profiles/system-{}-link", prev_gen);
-
-    // Check if previous generation exists
-    if !std::path::Path::new(&prev_path).exists() {
-        out(tx, "    Previous generation not found").await;
-        return Ok(PackageCompareResult::default());
-    }
-
-    out(
-        tx,
-        &format!("    Comparing generation {} → {}", prev_gen, gen_num),
-    )
-    .await;
-
-    // Run nvd diff
-    let (success, stdout, _stderr) =
-        run_capture("nvd", &["diff", &prev_path, &current_path]).await?;
-
-    if !success {
-        out(tx, "    nvd diff failed").await;
-        return Ok(PackageCompareResult::default());
-    }
-
-    parse_nvd_output(&stdout, tx).await
-}
-
 /// Compare two specific system paths using nvd
-#[allow(dead_code)]
 pub async fn parse_package_changes(
     old_system: Option<&str>,
+    new_system: Option<&str>,
     tx: &mpsc::Sender<CommandMessage>,
 ) -> Result<PackageCompareResult> {
     let old_path = match old_system {
-        Some(p) if !p.is_empty() => p,
+        Some(path) if !path.is_empty() => path,
         _ => {
             tracing::debug!("parse_package_changes: no old system path provided");
             return Ok(PackageCompareResult::default());
         }
     };
-
-    // Get new system path
-    let new_system = match get_output("readlink", &["/run/current-system"]).await {
-        Ok(s) => s.trim().to_string(),
-        Err(_) => {
-            tracing::debug!("parse_package_changes: could not read new system path");
+    let new_path = match new_system {
+        Some(path) if !path.is_empty() => path,
+        _ => {
+            tracing::debug!("parse_package_changes: no new system path provided");
             return Ok(PackageCompareResult::default());
         }
     };
 
-    // Skip if paths are the same (no actual change)
-    if old_path == new_system {
-        tracing::debug!("parse_package_changes: system paths unchanged");
+    if old_path == new_path {
+        out(tx, "    System path unchanged").await;
         return Ok(PackageCompareResult::default());
     }
 
-    // Run nvd diff
-    let (success, stdout, _stderr) = run_capture("nvd", &["diff", old_path, &new_system]).await?;
+    out(tx, "    Comparing explicit before/after system paths").await;
+
+    let (success, stdout, _stderr) = run_capture("nvd", &["diff", old_path, new_path]).await?;
 
     if !success {
         out(tx, "    nvd diff failed").await;

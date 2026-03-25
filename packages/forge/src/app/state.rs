@@ -320,6 +320,46 @@ pub struct StashInfo {
     pub message: String,
 }
 
+/// Status of the local upstream branch before update begins
+#[derive(Debug, Clone, Default)]
+pub struct UpdateRemoteStatus {
+    pub upstream: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
+    pub checked: bool,
+    pub error: Option<String>,
+}
+
+/// Result of a non-mutating preflight dry run
+#[derive(Debug, Clone)]
+pub enum UpdateDryRunStatus {
+    Passed,
+    Failed(String),
+    Skipped(String),
+}
+
+/// Review data collected before the update starts mutating state
+#[derive(Debug, Clone)]
+pub struct UpdatePreflightReport {
+    pub missing_required_tools: Vec<String>,
+    pub missing_optional_tools: Vec<String>,
+    pub tracked_count: usize,
+    pub untracked_count: usize,
+    pub pending_resolution: Option<LocalChangesResolution>,
+    pub remote: UpdateRemoteStatus,
+    pub dry_run: UpdateDryRunStatus,
+}
+
+impl UpdatePreflightReport {
+    pub fn can_continue(&self) -> bool {
+        self.missing_required_tools.is_empty()
+            && matches!(
+                self.dry_run,
+                UpdateDryRunStatus::Passed | UpdateDryRunStatus::Skipped(_)
+            )
+    }
+}
+
 /// Which row is selected in the update preflight screen
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UpdatePreflightField {
@@ -347,6 +387,20 @@ pub enum UpdateState {
         untracked_count: usize,
         selected: usize, // 0=Overwrite, 1=Stash, 2=Cancel
         options: UpdateOptions,
+    },
+    /// Final safety check before anything mutates
+    ReviewPreflight {
+        options: UpdateOptions,
+        report: UpdatePreflightReport,
+        selected: usize, // 0=Continue, 1=Back
+    },
+    /// Extra confirmation before discarding local changes
+    OverwriteConfirm {
+        changes: Vec<LocalChange>,
+        tracked_count: usize,
+        untracked_count: usize,
+        options: UpdateOptions,
+        selected: usize, // 0=Discard, 1=Back
     },
     Running {
         step: usize,
@@ -473,19 +527,19 @@ impl UpdateState {
         if !options.rebuild_only && !options.flake_only {
             steps.push(StepStatus::new_with_id(
                 "update.claude",
-                "Updating Claude Code",
+                "Claude Code follow-up",
             ));
             steps.push(StepStatus::new_with_id(
                 "update.codex",
-                "Updating Codex CLI",
+                "Codex CLI follow-up",
             ));
             steps.push(StepStatus::new_with_id(
                 "update.browser",
-                "Checking browser profiles",
+                "Browser profile follow-up",
             ));
             steps.push(StepStatus::new_with_id(
                 "update.firmware",
-                "Checking firmware updates",
+                "Firmware follow-up",
             ));
         }
 
@@ -700,6 +754,7 @@ pub enum StepState {
     Running,
     Complete,
     Failed,
+    Warning,
     Skipped,
 }
 
@@ -720,6 +775,21 @@ pub struct UpdateSummary {
     pub rebuild_skipped: bool,
     pub rebuild_failed: bool,
     pub reboot_reasons: Vec<String>,
+    pub core_status: UpdateCoreStatus,
+    pub partial_state: Option<String>,
+    pub follow_up_warnings: Vec<String>,
+    pub system_before: Option<String>,
+    pub system_after: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum UpdateCoreStatus {
+    #[default]
+    Pending,
+    Success,
+    UpToDate,
+    Partial,
+    Cancelled,
 }
 
 /// Information about a pending commit

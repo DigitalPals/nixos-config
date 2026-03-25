@@ -37,6 +37,9 @@ impl App {
             CommandMessage::StepFailed { step, error } => {
                 self.mark_step_failed(&step, error);
             }
+            CommandMessage::StepWarning { step, detail } => {
+                self.mark_step_warning(&step, &detail);
+            }
             CommandMessage::StepSkipped { step } => {
                 self.mark_step_skipped(&step);
             }
@@ -243,6 +246,23 @@ impl App {
         }
     }
 
+    fn mark_step_warning(&mut self, step_id: &str, detail: &str) {
+        self.log_to_screen(&format!("[!] Step warning: {}", step_id));
+        self.log_to_screen(&format!("  {}", detail));
+
+        if let AppMode::Update(UpdateState::Running { steps, step, .. }) = &mut self.mode {
+            if let Some(s) = Self::find_step_mut(steps, step_id) {
+                s.status = StepState::Warning;
+                s.detail = Some(detail.to_string());
+            }
+            *step = (*step + 1).min(steps.len());
+            if *step < steps.len() {
+                steps[*step].status = StepState::Running;
+                steps[*step].started_at = Some(Instant::now());
+            }
+        }
+    }
+
     fn set_step_detail(&mut self, step_id: &str, detail: &str) {
         match &mut self.mode {
             AppMode::Update(UpdateState::Running { steps, .. })
@@ -439,14 +459,44 @@ impl App {
                     scroll_offset: None,
                 });
             }
-            AppMode::Update(UpdateState::Running { steps, output, .. }) => {
-                output.push_back("Operation cancelled by user.".to_string());
-                self.mode = AppMode::Update(UpdateState::Complete {
-                    success: false,
-                    steps: steps.clone(),
-                    output: output.clone(),
-                    scroll_offset: None,
-                });
+            AppMode::Update(UpdateState::Running {
+                steps,
+                output,
+                stash,
+                ..
+            }) => {
+                let mut final_output = output.clone();
+                final_output.push_back("Operation cancelled by user.".to_string());
+
+                if let Some(stash) = stash.clone() {
+                    final_output.push_back("".to_string());
+                    final_output.push_back(format!(
+                        "Autostash preserved at {} ({})",
+                        stash.reference, stash.message
+                    ));
+                    final_output.push_back(format!(
+                        "  Run 'git stash pop {}' after resolving the cancellation.",
+                        stash.reference
+                    ));
+                }
+
+                if let Some(summary) = self.update_summary.take() {
+                    self.mode = AppMode::Update(UpdateState::ShowingSummary {
+                        success: false,
+                        steps: steps.clone(),
+                        output: final_output,
+                        summary,
+                        scroll_offset: None,
+                        summary_scroll: 0,
+                    });
+                } else {
+                    self.mode = AppMode::Update(UpdateState::Complete {
+                        success: false,
+                        steps: steps.clone(),
+                        output: final_output,
+                        scroll_offset: None,
+                    });
+                }
             }
             AppMode::CreateHost(CreateHostState::Generating { config, output, .. }) => {
                 output.push_back("Operation cancelled by user.".to_string());

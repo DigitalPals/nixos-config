@@ -8,7 +8,8 @@ use ratatui::{
 };
 
 use crate::app::{
-    App, LocalChange, StepStatus, UpdateOptions, UpdatePreflightField, UpdateSummary,
+    App, LocalChange, LocalChangesResolution, StepStatus, UpdateCoreStatus, UpdateDryRunStatus,
+    UpdateOptions, UpdatePreflightField, UpdatePreflightReport, UpdateSummary,
 };
 use crate::ui::layout::{centered_fixed, footer_hints, progress_layout};
 use crate::ui::theme;
@@ -108,6 +109,246 @@ pub fn draw_preflight(
     );
     frame.render_widget(
         Paragraph::new(hints).alignment(Alignment::Center),
+        footer_area,
+    );
+}
+
+/// Draw final preflight review before update starts.
+pub fn draw_review_preflight(
+    frame: &mut Frame,
+    options: &UpdateOptions,
+    report: &UpdatePreflightReport,
+    selected: usize,
+) {
+    let area = centered_fixed(
+        78.min(frame.area().width.saturating_sub(2)),
+        24.min(frame.area().height.saturating_sub(2)),
+        frame.area(),
+    );
+    frame.render_widget(Clear, area);
+
+    let inputs_line = if options.inputs.is_empty() {
+        "all flake inputs".to_string()
+    } else {
+        options.inputs.join(", ")
+    };
+    let local_resolution = match report.pending_resolution {
+        Some(LocalChangesResolution::Overwrite) => "discard local changes",
+        Some(LocalChangesResolution::Stash) => "stash local changes",
+        Some(LocalChangesResolution::Cancel) => "cancel",
+        None => "no local resolution needed",
+    };
+    let remote_line = if let Some(error) = &report.remote.error {
+        format!("Remote status: unavailable ({})", error)
+    } else if report.remote.checked {
+        format!(
+            "Remote status: {} ahead, {} behind on {}",
+            report.remote.ahead,
+            report.remote.behind,
+            report.remote.upstream.as_deref().unwrap_or("upstream")
+        )
+    } else {
+        "Remote status: not available".to_string()
+    };
+    let dry_run_line = match &report.dry_run {
+        UpdateDryRunStatus::Passed => "Dry run: passed".to_string(),
+        UpdateDryRunStatus::Failed(message) => format!("Dry run: failed ({})", message),
+        UpdateDryRunStatus::Skipped(message) => format!("Dry run: skipped ({})", message),
+    };
+
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Review the update before anything changes on disk.",
+            theme::text(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Mode: {}", options.mode_label()),
+            theme::text(),
+        )),
+        Line::from(Span::styled(
+            format!("Inputs: {}", inputs_line),
+            theme::text(),
+        )),
+        Line::from(Span::styled(
+            format!(
+                "Local changes: {} tracked, {} untracked",
+                report.tracked_count, report.untracked_count
+            ),
+            theme::text(),
+        )),
+        Line::from(Span::styled(
+            format!("Resolution: {}", local_resolution),
+            theme::text(),
+        )),
+        Line::from(Span::styled(remote_line, theme::text())),
+        Line::from(Span::styled(dry_run_line, theme::text())),
+        Line::from(""),
+    ];
+
+    if !report.missing_required_tools.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Required tools missing:",
+            theme::warning(),
+        )));
+        for tool in &report.missing_required_tools {
+            lines.push(Line::from(Span::styled(
+                format!("  - {}", tool),
+                theme::warning(),
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+
+    if !report.missing_optional_tools.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Optional tools missing:",
+            theme::dim(),
+        )));
+        for tool in &report.missing_optional_tools {
+            lines.push(Line::from(Span::styled(
+                format!("  - {}", tool),
+                theme::dim(),
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+
+    let status_style = if report.can_continue() {
+        theme::success()
+    } else {
+        theme::warning()
+    };
+    let status_text = if report.can_continue() {
+        "Ready to continue"
+    } else {
+        "Resolve the preflight blockers before continuing"
+    };
+    lines.push(Line::from(Span::styled(status_text, status_style)));
+    lines.push(Line::from(""));
+
+    for (index, label) in ["Continue update", "Back to setup"].iter().enumerate() {
+        let is_selected = index == selected;
+        let prefix = if is_selected { "▶ " } else { "  " };
+        let style = if is_selected {
+            theme::selected()
+        } else {
+            theme::text()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", prefix, label),
+            style,
+        )));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::border_active())
+        .title(Span::styled(" Update Review ", theme::title()));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+
+    let footer_area = Rect::new(
+        area.x,
+        area.y + area.height.saturating_sub(2),
+        area.width,
+        1,
+    );
+    frame.render_widget(
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Navigate"),
+            ("Enter", "Select"),
+            ("Esc", "Back"),
+        ]))
+        .alignment(Alignment::Center),
+        footer_area,
+    );
+}
+
+/// Draw the destructive overwrite confirmation.
+pub fn draw_overwrite_confirm(
+    frame: &mut Frame,
+    changes: &[LocalChange],
+    tracked_count: usize,
+    untracked_count: usize,
+    selected: usize,
+) {
+    let area = centered_fixed(
+        64.min(frame.area().width.saturating_sub(2)),
+        18.min(frame.area().height.saturating_sub(2)),
+        frame.area(),
+    );
+    frame.render_widget(Clear, area);
+
+    let preview_count = changes.len().min(5);
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "This will permanently discard local tracked and untracked changes.",
+            theme::warning(),
+        )),
+        Line::from(Span::styled(
+            format!(
+                "{} tracked, {} untracked changes will be removed.",
+                tracked_count, untracked_count
+            ),
+            theme::text(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled("Preview:", theme::title())),
+    ];
+
+    for change in changes.iter().take(preview_count) {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "  {} {}",
+                if change.tracked { "[tracked]" } else { "[new]" },
+                change.path
+            ),
+            theme::dim(),
+        )));
+    }
+    if changes.len() > preview_count {
+        lines.push(Line::from(Span::styled(
+            format!("  ... and {} more", changes.len() - preview_count),
+            theme::dim(),
+        )));
+    }
+    lines.push(Line::from(""));
+
+    for (index, label) in ["Discard changes and continue", "Back"].iter().enumerate() {
+        let is_selected = index == selected;
+        let prefix = if is_selected { "▶ " } else { "  " };
+        let style = if is_selected {
+            theme::selected()
+        } else {
+            theme::text()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", prefix, label),
+            style,
+        )));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::warning())
+        .title(Span::styled(" Confirm Discard ", theme::warning()));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+
+    let footer_area = Rect::new(
+        area.x,
+        area.y + area.height.saturating_sub(2),
+        area.width,
+        1,
+    );
+    frame.render_widget(
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Navigate"),
+            ("Enter", "Select"),
+            ("Esc", "Back"),
+        ]))
+        .alignment(Alignment::Center),
         footer_area,
     );
 }
@@ -489,16 +730,25 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         all_lines.push(Line::from(""));
     }
 
-    // Status
-    if summary.rebuild_skipped {
+    let (system_text, system_style) = match summary.core_status {
+        UpdateCoreStatus::Pending => ("System status pending".to_string(), theme::dim()),
+        UpdateCoreStatus::Success => ("System updated successfully".to_string(), theme::success()),
+        UpdateCoreStatus::UpToDate => ("System already up to date".to_string(), theme::dim()),
+        UpdateCoreStatus::Partial => (
+            "System update only partially completed".to_string(),
+            theme::warning(),
+        ),
+        UpdateCoreStatus::Cancelled => ("System update cancelled".to_string(), theme::warning()),
+    };
+    all_lines.push(Line::from(Span::styled(
+        format!("  {}", system_text),
+        system_style,
+    )));
+
+    if let Some(partial_state) = &summary.partial_state {
         all_lines.push(Line::from(Span::styled(
-            "  System already up to date".to_string(),
-            theme::dim(),
-        )));
-    } else if summary.rebuild_failed {
-        all_lines.push(Line::from(Span::styled(
-            "  ✗ System rebuild failed".to_string(),
-            theme::error(),
+            format!("  {}", partial_state),
+            theme::warning(),
         )));
     }
 
@@ -512,6 +762,20 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         )));
     }
 
+    if !summary.follow_up_warnings.is_empty() {
+        all_lines.push(Line::from(""));
+        all_lines.push(Line::from(Span::styled(
+            "Follow-up Warnings:".to_string(),
+            theme::title(),
+        )));
+        for warning in &summary.follow_up_warnings {
+            all_lines.push(Line::from(Span::styled(
+                format!("  ! {}", warning),
+                theme::warning(),
+            )));
+        }
+    }
+
     // "Nothing changed" case
     if summary.flake_changes.is_empty()
         && summary.package_changes.is_empty()
@@ -519,7 +783,8 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         && summary.packages_removed.is_empty()
         && !claude_changed
         && !codex_changed
-        && !summary.rebuild_failed
+        && summary.follow_up_warnings.is_empty()
+        && summary.core_status != UpdateCoreStatus::Partial
     {
         all_lines.push(Line::from(""));
         all_lines.push(Line::from(Span::styled(

@@ -27,9 +27,10 @@ use crate::system::hardware::{CpuVendor, GpuInfo, GpuVendor};
 pub use state::{
     AppMode, AppOp, AppProfileState, CreateHostState, CredentialField, InstallCredentials,
     InstallState, Keybinding, KeybindingsPanel, KeybindingsState, KeysOp, KeysState, LocalChange,
-    ModalDialog, NewHostConfig, PendingUpdates, StashInfo, StepState, StepStatus, SwapMode,
-    UpdateOptions, UpdatePreflightField, UpdateState, UpdateSummary, APP_MENU_ITEMS,
-    MAIN_MENU_ITEMS,
+    LocalChangesResolution, ModalDialog, NewHostConfig, PendingUpdates, StashInfo, StepState,
+    StepStatus, SwapMode, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
+    UpdatePreflightField, UpdatePreflightReport, UpdateRemoteStatus, UpdateState, UpdateSummary,
+    APP_MENU_ITEMS, MAIN_MENU_ITEMS,
 };
 
 /// Main application state

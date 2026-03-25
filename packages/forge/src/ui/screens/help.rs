@@ -8,8 +8,7 @@ use ratatui::{
 };
 
 use crate::app::{
-    AppMode, AppProfileState, CreateHostState, InstallState, KeybindingsState, KeysState,
-    UpdateState,
+    AppMode, AppProfileState, InstallState, KeybindingsState, KeysState, UpdateState,
 };
 use crate::ui::theme;
 
@@ -148,6 +147,21 @@ pub fn draw_help(frame: &mut Frame, mode: &AppMode) {
                 );
             }
             " Help - Update Preflight "
+        }
+        AppMode::Update(UpdateState::ReviewPreflight { .. })
+        | AppMode::Update(UpdateState::LocalChangesPrompt { .. })
+        | AppMode::Update(UpdateState::OverwriteConfirm { .. }) => {
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter", "Select option"),
+                    ("Esc", "Back"),
+                ],
+            );
+            " Help - Update Review "
         }
         AppMode::Apps(AppProfileState::Menu { .. }) => {
             add_section(

@@ -19,7 +19,10 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::{LocalChange, StashInfo, UpdateSummary};
+use crate::app::{
+    LocalChange, StashInfo, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
+    UpdateRemoteStatus, UpdateSummary,
+};
 use crate::commands::errors::{ErrorContext, ParsedError};
 use crate::commands::executor::{
     command_exists, get_output, run_capture, run_command_cancellable_transformed,
@@ -28,7 +31,7 @@ use crate::commands::executor::{
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
-use packages::{parse_package_changes_from_history, PackageCompareResult};
+use packages::{parse_package_changes, PackageCompareResult};
 use tools::{check_browser_status, clean_version, get_npm_package_version};
 
 use crate::constants::nixos_config_dir;
@@ -50,6 +53,15 @@ pub async fn get_current_generation() -> Option<u32> {
     let gen_str = output.trim();
     // Format: system-N-link
     gen_str.split('-').nth(1)?.parse().ok()
+}
+
+/// Get the current system symlink target.
+pub async fn get_current_system_path() -> Option<String> {
+    get_output("readlink", &["/run/current-system"])
+        .await
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// Check for local uncommitted changes in the NixOS config directory.
@@ -117,6 +129,92 @@ pub fn get_upstream_ref(config_path: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Inspect local remote-tracking state without mutating git refs.
+pub async fn inspect_remote_status(config_path: &str) -> UpdateRemoteStatus {
+    let upstream =
+        get_upstream_ref(config_path).unwrap_or_else(|| format!("origin/{}", get_default_branch()));
+
+    let (success, stdout, stderr) = match run_capture(
+        "git",
+        &[
+            "-C",
+            config_path,
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("HEAD...{}", upstream),
+        ],
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            return UpdateRemoteStatus {
+                upstream: Some(upstream),
+                checked: true,
+                error: Some(error.to_string()),
+                ..UpdateRemoteStatus::default()
+            };
+        }
+    };
+
+    if !success {
+        return UpdateRemoteStatus {
+            upstream: Some(upstream),
+            checked: true,
+            error: Some(stderr.trim().to_string()),
+            ..UpdateRemoteStatus::default()
+        };
+    }
+
+    let counts: Vec<&str> = stdout.split_whitespace().collect();
+    let ahead = counts
+        .first()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let behind = counts
+        .get(1)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+
+    UpdateRemoteStatus {
+        upstream: Some(upstream),
+        ahead,
+        behind,
+        checked: true,
+        error: None,
+    }
+}
+
+/// Run a non-mutating system build check before update starts.
+pub async fn run_preflight_dry_run(options: &UpdateOptions) -> UpdateDryRunStatus {
+    if options.flake_only {
+        return UpdateDryRunStatus::Skipped("Not needed in flake-input-only mode".to_string());
+    }
+
+    let hostname = match get_output("hostname", &[]).await {
+        Ok(name) if !name.trim().is_empty() => name,
+        _ => return UpdateDryRunStatus::Failed("Could not determine hostname".to_string()),
+    };
+
+    let flake_dir = crate::constants::nixos_config_dir();
+    let flake_path = flake_dir.to_string_lossy().to_string();
+    let target = format!(
+        "{}#nixosConfigurations.{}.config.system.build.toplevel",
+        flake_path, hostname
+    );
+
+    match run_capture("nix", &["build", "--no-link", &target]).await {
+        Ok((true, _, _)) => UpdateDryRunStatus::Passed,
+        Ok((false, _, stderr)) => UpdateDryRunStatus::Failed(if stderr.trim().is_empty() {
+            "Dry-run build failed".to_string()
+        } else {
+            stderr.trim().to_string()
+        }),
+        Err(error) => UpdateDryRunStatus::Failed(error.to_string()),
+    }
 }
 
 pub async fn find_stash_reference(config_path: &str, message: &str) -> Option<StashInfo> {
@@ -311,11 +409,9 @@ async fn run_update(
     options: &crate::app::UpdateOptions,
 ) -> Result<()> {
     let mut summary = UpdateSummary::default();
+    summary.system_before = get_current_system_path().await;
 
-    // Find the flake directory
     let flake_dir = crate::constants::nixos_config_dir();
-
-    // Get hostname
     let hostname = match get_output("hostname", &[]).await {
         Ok(h) if !h.is_empty() => h,
         _ => {
@@ -335,20 +431,30 @@ async fn run_update(
 
     let skip_flake = options.rebuild_only;
     let skip_rebuild = options.flake_only;
+    let mut core_mutated = false;
 
-    // Step 1: Pull configuration updates
     if !skip_flake {
-        let pull_result = pull_config_updates(tx, flake_path).await;
-        if let Err(e) = pull_result {
-            tracing::warn!("Failed to check for config updates: {}", e);
+        match pull_config_updates(tx, flake_path).await {
+            Ok(pulled_commits) => {
+                if pulled_commits > 0 {
+                    core_mutated = true;
+                }
+            }
+            Err(error) => {
+                tracing::warn!("Failed to pull configuration updates: {}", error);
+                summary.core_status = UpdateCoreStatus::Partial;
+                summary.partial_state =
+                    Some("Configuration sync failed before the system was rebuilt.".to_string());
+                finalize_update(tx, &summary).await?;
+                tx.send(CommandMessage::Done { success: false }).await?;
+                return Ok(());
+            }
         }
     }
 
-    // Save flake.lock hash and backup before update
     let lock_before = get_flake_lock_hash(&flake_dir).await;
     let lock_backup = save_flake_lock_backup(&flake_dir).await;
 
-    // Step 2: Flake update (with streaming output)
     let needs_rebuild = if !skip_flake {
         out(tx, "").await;
         out(tx, "══════════════════════════════════════════════").await;
@@ -402,11 +508,23 @@ async fn run_update(
         match result {
             CommandResult::Cancelled => {
                 out(tx, "  ⊘ Flake update cancelled").await;
+                summary.core_status = UpdateCoreStatus::Partial;
+                summary.partial_state = Some(
+                    "Flake inputs may have changed before the update was cancelled.".to_string(),
+                );
+                if let Some(backup_path) = lock_backup.as_ref() {
+                    let _ = tokio::fs::remove_file(backup_path).await;
+                }
+                finalize_update(tx, &summary).await?;
                 tx.send(CommandMessage::Cancelled).await?;
                 return Ok(());
             }
             CommandResult::Completed(false) => {
                 out(tx, "  ✗ Flake update failed").await;
+                summary.core_status = UpdateCoreStatus::Partial;
+                summary.partial_state = Some(
+                    "Flake input mutation failed before the system switch completed.".to_string(),
+                );
                 let error = ParsedError::from_stderr(
                     "Flake update failed - see output above for details",
                     ErrorContext {
@@ -418,6 +536,10 @@ async fn run_update(
                     error,
                 })
                 .await?;
+                if let Some(backup_path) = lock_backup.as_ref() {
+                    let _ = tokio::fs::remove_file(backup_path).await;
+                }
+                finalize_update(tx, &summary).await?;
                 tx.send(CommandMessage::Done { success: false }).await?;
                 return Ok(());
             }
@@ -434,6 +556,7 @@ async fn run_update(
         let changed = lock_before != lock_after;
 
         if changed {
+            core_mutated = true;
             if let Some(ref backup_path) = lock_backup {
                 summary.flake_changes = parse_flake_changes(&flake_dir, backup_path)
                     .await
@@ -445,11 +568,9 @@ async fn run_update(
         }
         changed
     } else {
-        // rebuild_only mode: always rebuild
         true
     };
 
-    // Step 3: Rebuild (only if needed)
     if needs_rebuild && !skip_rebuild {
         out(tx, "").await;
         out(tx, "══════════════════════════════════════════════").await;
@@ -486,11 +607,20 @@ async fn run_update(
         match result {
             CommandResult::Cancelled => {
                 out(tx, "  ⊘ System rebuild cancelled").await;
+                summary.core_status = UpdateCoreStatus::Partial;
+                summary.partial_state = Some(
+                    "The system switch was cancelled after update changes were prepared."
+                        .to_string(),
+                );
+                summary.system_after = get_current_system_path().await;
+                finalize_update(tx, &summary).await?;
                 tx.send(CommandMessage::Cancelled).await?;
                 return Ok(());
             }
             CommandResult::Completed(true) => {
                 out(tx, "  ✓ System rebuilt successfully").await;
+                summary.system_after = get_current_system_path().await;
+                core_mutated = true;
                 tx.send(CommandMessage::StepComplete {
                     step: STEP_REBUILD.to_string(),
                 })
@@ -499,6 +629,12 @@ async fn run_update(
             CommandResult::Completed(false) => {
                 out(tx, "  ✗ System rebuild failed").await;
                 summary.rebuild_failed = true;
+                summary.core_status = UpdateCoreStatus::Partial;
+                summary.partial_state = Some(
+                    "Configuration or inputs changed, but the system switch did not complete."
+                        .to_string(),
+                );
+                summary.system_after = get_current_system_path().await;
                 let error = ParsedError::from_stderr(
                     "System rebuild failed - see output above for details",
                     ErrorContext {
@@ -522,19 +658,26 @@ async fn run_update(
         out(tx, "").await;
         out(tx, "  - Skipping rebuild (no changes)").await;
         summary.rebuild_skipped = true;
+        summary.system_after = summary.system_before.clone();
         tx.send(CommandMessage::StepSkipped {
             step: STEP_REBUILD.to_string(),
         })
         .await?;
     }
 
-    // Step 3: Compare packages (skip if flake-only)
     if !skip_rebuild {
         out(tx, "").await;
         out(tx, "  Comparing packages...").await;
-        let pkg_result = parse_package_changes_from_history(tx)
-            .await
-            .unwrap_or_else(|_| PackageCompareResult::default());
+        if summary.system_after.is_none() {
+            summary.system_after = get_current_system_path().await;
+        }
+        let pkg_result = parse_package_changes(
+            summary.system_before.as_deref(),
+            summary.system_after.as_deref(),
+            tx,
+        )
+        .await
+        .unwrap_or_else(|_| PackageCompareResult::default());
         summary.package_changes = pkg_result.changes;
         summary.packages_added = pkg_result.added;
         summary.packages_removed = pkg_result.removed;
@@ -555,41 +698,53 @@ async fn run_update(
         .await?;
     }
 
-    if !summary.rebuild_failed && !summary.rebuild_skipped {
+    if summary.core_status == UpdateCoreStatus::Pending {
+        summary.core_status = if summary.rebuild_failed {
+            UpdateCoreStatus::Partial
+        } else if skip_rebuild {
+            if summary.flake_changes.is_empty() && !core_mutated {
+                UpdateCoreStatus::UpToDate
+            } else {
+                UpdateCoreStatus::Success
+            }
+        } else if summary.rebuild_skipped {
+            if summary.flake_changes.is_empty() && !core_mutated {
+                UpdateCoreStatus::UpToDate
+            } else {
+                UpdateCoreStatus::Success
+            }
+        } else {
+            UpdateCoreStatus::Success
+        };
+    }
+
+    if matches!(
+        summary.core_status,
+        UpdateCoreStatus::Success | UpdateCoreStatus::UpToDate
+    ) && !summary.rebuild_skipped
+    {
         summary.reboot_reasons = detect_reboot_reasons(&summary.package_changes).await;
     }
 
-    // Steps 4-7: Only run in full update mode
-    if !skip_flake && !skip_rebuild {
-        // Step 4: Update Claude Code
+    if !skip_flake
+        && !skip_rebuild
+        && matches!(
+            summary.core_status,
+            UpdateCoreStatus::Success | UpdateCoreStatus::UpToDate
+        )
+    {
         update_claude_code(tx, &mut summary).await?;
-
-        // Step 5: Update Codex CLI
         update_codex_cli(tx, &mut summary).await?;
-
-        // Step 6: Check app profiles
         check_app_profiles(tx, &mut summary).await?;
-
-        // Step 7: Check firmware updates
         check_firmware_updates(tx, &mut summary).await?;
     }
 
-    // Output summary
-    output_summary(tx, &summary).await?;
-
-    // Save to history
-    if let Err(e) = history::save_record(&summary, !summary.rebuild_failed) {
-        tracing::warn!("Failed to save update history: {}", e);
-    }
-
-    // Send summary data to App for ShowingSummary modal
-    tx.send(CommandMessage::UpdateSummaryData {
-        summary: summary.clone(),
-    })
-    .await?;
-
+    finalize_update(tx, &summary).await?;
     tx.send(CommandMessage::Done {
-        success: !summary.rebuild_failed,
+        success: matches!(
+            summary.core_status,
+            UpdateCoreStatus::Success | UpdateCoreStatus::UpToDate
+        ),
     })
     .await?;
 
@@ -618,18 +773,18 @@ async fn update_claude_code(
             })
             .await?;
         } else {
-            out(tx, "  ✗ Updating Claude Code").await;
-            let error = ParsedError::from_stderr(
-                "Claude Code update failed",
-                ErrorContext {
-                    operation: "Claude Code update".to_string(),
-                },
-            );
-            tx.send(CommandMessage::StepFailed {
+            let warning = "Claude Code update failed".to_string();
+            out(
+                tx,
+                "  ! Claude Code update failed (system update still succeeded)",
+            )
+            .await;
+            tx.send(CommandMessage::StepWarning {
                 step: STEP_CLAUDE.to_string(),
-                error,
+                detail: warning.clone(),
             })
             .await?;
+            summary.follow_up_warnings.push(warning);
         }
 
         summary.claude_new = get_output(claude_cmd, &["--version"])
@@ -666,18 +821,18 @@ async fn update_codex_cli(
             })
             .await?;
         } else {
-            out(tx, "  ✗ Updating Codex CLI").await;
-            let error = ParsedError::from_stderr(
-                "Codex CLI update failed",
-                ErrorContext {
-                    operation: "Codex CLI update".to_string(),
-                },
-            );
-            tx.send(CommandMessage::StepFailed {
+            let warning = "Codex CLI update failed".to_string();
+            out(
+                tx,
+                "  ! Codex CLI update failed (system update still succeeded)",
+            )
+            .await;
+            tx.send(CommandMessage::StepWarning {
                 step: STEP_CODEX.to_string(),
-                error,
+                detail: warning.clone(),
             })
             .await?;
+            summary.follow_up_warnings.push(warning);
         }
 
         summary.codex_new = get_npm_package_version("@openai/codex").await;
@@ -711,6 +866,16 @@ async fn check_app_profiles(
                     &format!("  ! Browser profiles status: {}", summary.browser_status),
                 )
                 .await;
+                summary.follow_up_warnings.push(format!(
+                    "Browser profiles need attention: {}",
+                    summary.browser_status
+                ));
+                tx.send(CommandMessage::StepWarning {
+                    step: STEP_BROWSER.to_string(),
+                    detail: summary.browser_status.clone(),
+                })
+                .await?;
+                return Ok(());
             }
         } else {
             summary.browser_status = "not configured".to_string();
@@ -768,20 +933,29 @@ async fn check_firmware_updates(
         out(tx, &format!("  ! {} firmware update(s) available", count)).await;
         out(tx, "    Run 'fwupdmgr update' to apply").await;
         summary.firmware_status = format!("{} update(s) available", count);
-    } else {
-        out(tx, "  ✗ Firmware check failed").await;
-        let error = ParsedError::from_stderr(
-            &stderr,
-            ErrorContext {
-                operation: "Firmware check".to_string(),
-            },
-        );
-        tx.send(CommandMessage::StepFailed {
+        summary
+            .follow_up_warnings
+            .push(format!("{} firmware update(s) available", count));
+        tx.send(CommandMessage::StepWarning {
             step: STEP_FIRMWARE.to_string(),
-            error,
+            detail: summary.firmware_status.clone(),
+        })
+        .await?;
+        return Ok(());
+    } else {
+        let warning = if stderr.trim().is_empty() {
+            "Firmware check failed".to_string()
+        } else {
+            format!("Firmware check failed: {}", stderr.trim())
+        };
+        out(tx, "  ! Firmware check failed").await;
+        tx.send(CommandMessage::StepWarning {
+            step: STEP_FIRMWARE.to_string(),
+            detail: warning.clone(),
         })
         .await?;
         summary.firmware_status = "check failed".to_string();
+        summary.follow_up_warnings.push(warning);
         return Ok(());
     }
 
@@ -834,6 +1008,27 @@ async fn detect_reboot_reasons(package_changes: &[(String, String, String)]) -> 
     }
 
     reasons
+}
+
+async fn finalize_update(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSummary) -> Result<()> {
+    output_summary(tx, summary).await?;
+
+    if let Err(error) = history::save_record(
+        summary,
+        matches!(
+            summary.core_status,
+            UpdateCoreStatus::Success | UpdateCoreStatus::UpToDate
+        ),
+    ) {
+        tracing::warn!("Failed to save update history: {}", error);
+    }
+
+    tx.send(CommandMessage::UpdateSummaryData {
+        summary: summary.clone(),
+    })
+    .await?;
+
+    Ok(())
 }
 
 async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSummary) -> Result<()> {
@@ -987,11 +1182,25 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     out(tx, "  ─────────────────────────────────────────").await;
     out(tx, "").await;
 
-    // System status
-    if summary.rebuild_failed {
-        out(tx, "  System:      Rebuild failed").await;
-    } else if summary.rebuild_skipped {
-        out(tx, "  System:      Already up to date").await;
+    let system_status = match summary.core_status {
+        UpdateCoreStatus::Pending => "Pending".to_string(),
+        UpdateCoreStatus::Success => "Updated successfully".to_string(),
+        UpdateCoreStatus::UpToDate => "Already up to date".to_string(),
+        UpdateCoreStatus::Partial => "Partially updated".to_string(),
+        UpdateCoreStatus::Cancelled => "Cancelled".to_string(),
+    };
+    out(tx, &format!("  System:      {}", system_status)).await;
+
+    if let Some(partial_state) = &summary.partial_state {
+        out(tx, &format!("  State:       {}", partial_state)).await;
+    }
+
+    if let (Some(before), Some(after)) = (&summary.system_before, &summary.system_after) {
+        if before != after {
+            out(tx, "  Snapshot:    before/after system changed").await;
+        } else {
+            out(tx, "  Snapshot:    before/after system unchanged").await;
+        }
     }
 
     // Show versions that weren't updated
@@ -1026,6 +1235,14 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
         out(tx, &format!("  Firmware:    {}", summary.firmware_status)).await;
     }
 
+    if !summary.follow_up_warnings.is_empty() {
+        out(tx, "").await;
+        out(tx, "  Follow-up warnings:").await;
+        for warning in &summary.follow_up_warnings {
+            out(tx, &format!("    ! {}", warning)).await;
+        }
+    }
+
     out(tx, "").await;
     out(tx, "══════════════════════════════════════════════").await;
 
@@ -1033,7 +1250,10 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
 }
 
 /// Pull configuration updates from remote repository
-async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &str) -> Result<()> {
+async fn pull_config_updates(
+    tx: &mpsc::Sender<CommandMessage>,
+    config_path: &str,
+) -> Result<usize> {
     // Check if this is a git repository
     let git_dir = std::path::Path::new(config_path).join(".git");
     if !git_dir.exists() {
@@ -1042,7 +1262,7 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
             step: STEP_PULL.to_string(),
         })
         .await?;
-        return Ok(());
+        return Ok(0);
     }
 
     let upstream =
@@ -1058,7 +1278,7 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
             step: STEP_PULL.to_string(),
         })
         .await?;
-        return Ok(());
+        return Ok(0);
     }
 
     // Check if flake.lock has local modifications
@@ -1092,7 +1312,7 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
             step: STEP_PULL.to_string(),
         })
         .await?;
-        return Ok(());
+        return Ok(0);
     }
 
     // Reset flake.lock to remote version if it has local modifications
@@ -1121,6 +1341,7 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
             step: STEP_PULL.to_string(),
         })
         .await?;
+        return Ok(count);
     } else {
         out(tx, "  ✗ Failed to pull configuration updates").await;
         let error = ParsedError::from_stderr(
@@ -1134,9 +1355,8 @@ async fn pull_config_updates(tx: &mpsc::Sender<CommandMessage>, config_path: &st
             error,
         })
         .await?;
+        anyhow::bail!("git pull failed");
     }
-
-    Ok(())
 }
 
 /// Helper to send stdout message

@@ -148,6 +148,28 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     *selected,
                 );
             }
+            UpdateState::ReviewPreflight {
+                options,
+                report,
+                selected,
+            } => {
+                screens::update::draw_review_preflight(frame, options, report, *selected);
+            }
+            UpdateState::OverwriteConfirm {
+                changes,
+                tracked_count,
+                untracked_count,
+                selected,
+                ..
+            } => {
+                screens::update::draw_overwrite_confirm(
+                    frame,
+                    changes,
+                    *tracked_count,
+                    *untracked_count,
+                    *selected,
+                );
+            }
             UpdateState::Running {
                 steps,
                 output,

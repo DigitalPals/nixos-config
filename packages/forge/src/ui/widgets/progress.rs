@@ -68,6 +68,7 @@ impl Widget for ProgressSteps<'_> {
                 }
                 StepState::Complete => ("[✓]", theme::success()),
                 StepState::Failed => ("[✗]", theme::error()),
+                StepState::Warning => ("[!]", theme::warning()),
                 StepState::Skipped => ("[-]", theme::dim()),
             };
             lines.push(Line::from(vec![

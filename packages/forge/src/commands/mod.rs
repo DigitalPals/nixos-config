@@ -59,6 +59,8 @@ pub enum CommandMessage {
     StepComplete { step: String },
     /// Step failed with rich error information
     StepFailed { step: String, error: ParsedError },
+    /// Step completed with a non-fatal warning
+    StepWarning { step: String, detail: String },
     /// Step was skipped
     StepSkipped { step: String },
     /// Sub-step detail update (e.g. "Downloading nixpkgs (2/5)")

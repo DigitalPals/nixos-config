@@ -10,6 +10,7 @@ use crate::commands;
 use crate::commands::executor::run_capture;
 use crate::commands::update::{
     check_local_changes, find_stash_reference, get_default_branch, get_upstream_ref,
+    inspect_remote_status, run_preflight_dry_run,
 };
 use crate::constants::nixos_config_dir;
 use crate::constants::MAX_INPUT_LENGTH;
@@ -52,7 +53,77 @@ fn parse_update_inputs(input: &str) -> Vec<String> {
         .collect()
 }
 
+fn format_tool_requirement(tool: &commands::health::ToolRequirement) -> String {
+    format!("{} ({})", tool.name, tool.install_hint)
+}
+
 impl App {
+    async fn collect_update_preflight_report(
+        &self,
+        options: &UpdateOptions,
+        changes: &[LocalChange],
+        pending_resolution: Option<LocalChangesResolution>,
+    ) -> Result<UpdatePreflightReport> {
+        let health = commands::health::check_health(commands::health::Operation::Update).await;
+        let config_path = nixos_config_dir();
+        let config_str = config_path.to_string_lossy().to_string();
+
+        let remote = if config_path.join(".git").exists() {
+            inspect_remote_status(&config_str).await
+        } else {
+            UpdateRemoteStatus {
+                checked: false,
+                error: Some("Not a git repository".to_string()),
+                ..UpdateRemoteStatus::default()
+            }
+        };
+
+        let dry_run = if !health.is_ok() {
+            UpdateDryRunStatus::Skipped("Required tools missing".to_string())
+        } else if matches!(pending_resolution, Some(LocalChangesResolution::Overwrite)) {
+            UpdateDryRunStatus::Skipped(
+                "Dry run deferred because local changes will be discarded".to_string(),
+            )
+        } else {
+            run_preflight_dry_run(options).await
+        };
+
+        Ok(UpdatePreflightReport {
+            missing_required_tools: health
+                .missing_required
+                .iter()
+                .map(format_tool_requirement)
+                .collect(),
+            missing_optional_tools: health
+                .missing_optional
+                .iter()
+                .map(format_tool_requirement)
+                .collect(),
+            tracked_count: changes.iter().filter(|change| change.tracked).count(),
+            untracked_count: changes.iter().filter(|change| !change.tracked).count(),
+            pending_resolution,
+            remote,
+            dry_run,
+        })
+    }
+
+    async fn show_update_review(
+        &mut self,
+        options: UpdateOptions,
+        changes: Vec<LocalChange>,
+        pending_resolution: Option<LocalChangesResolution>,
+    ) -> Result<()> {
+        let report = self
+            .collect_update_preflight_report(&options, &changes, pending_resolution)
+            .await?;
+        self.mode = AppMode::Update(UpdateState::ReviewPreflight {
+            options,
+            report,
+            selected: 0,
+        });
+        Ok(())
+    }
+
     /// Handle keyboard input
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         if self.error.is_some() {
@@ -329,6 +400,7 @@ impl App {
                     | AppMode::Keys(KeysState::Complete { .. })
                     | AppMode::Keybindings(KeybindingsState::Viewing { .. })
                     | AppMode::Update(UpdateState::Preflight { .. })
+                    | AppMode::Update(UpdateState::ReviewPreflight { .. })
                     | AppMode::Update(UpdateState::Complete { .. })
                     | AppMode::Install(InstallState::Complete { .. })
                     | AppMode::CreateHost(CreateHostState::Complete { .. })
@@ -344,6 +416,8 @@ impl App {
                 self.mode,
                 AppMode::Update(UpdateState::Preflight { .. })
                     | AppMode::Update(UpdateState::LocalChangesPrompt { .. })
+                    | AppMode::Update(UpdateState::ReviewPreflight { .. })
+                    | AppMode::Update(UpdateState::OverwriteConfirm { .. })
             ) {
                 if matches!(self.mode, AppMode::MainMenu { .. }) {
                     self.push_modal(super::ModalDialog::ExitConfirm);
@@ -388,6 +462,67 @@ impl App {
             return Ok(());
         }
 
+        if let AppMode::Update(UpdateState::ReviewPreflight {
+            options,
+            report,
+            selected,
+        }) = &mut self.mode
+        {
+            enum ReviewAction {
+                None,
+                Back,
+                Start(UpdateOptions, Option<LocalChangesResolution>),
+                Blocked,
+            }
+
+            let options = options.clone();
+            let report = report.clone();
+            let mut action = ReviewAction::None;
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = selected.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1).min(1);
+                }
+                KeyCode::Esc => {
+                    action = ReviewAction::Back;
+                }
+                KeyCode::Enter => {
+                    if *selected == 1 {
+                        action = ReviewAction::Back;
+                    } else if !report.can_continue() {
+                        action = ReviewAction::Blocked;
+                    } else {
+                        action = ReviewAction::Start(options.clone(), report.pending_resolution);
+                    }
+                }
+                _ => {}
+            }
+
+            match action {
+                ReviewAction::None => {}
+                ReviewAction::Back => {
+                    self.mode = AppMode::Update(UpdateState::preflight(options, false));
+                }
+                ReviewAction::Blocked => {
+                    self.error = Some(
+                        "Preflight did not pass yet. Resolve the issues shown in review first."
+                            .to_string(),
+                    );
+                }
+                ReviewAction::Start(options, Some(resolution)) => {
+                    self.apply_local_changes_resolution(resolution, options)
+                        .await?;
+                }
+                ReviewAction::Start(options, None) => {
+                    self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
+                    self.launch_update_command().await?;
+                }
+            }
+            return Ok(());
+        }
+
         // Handle local changes prompt dialog
         if let AppMode::Update(UpdateState::LocalChangesPrompt {
             changes,
@@ -396,7 +531,18 @@ impl App {
             ..
         }) = &mut self.mode
         {
-            let mut pending_resolution: Option<(LocalChangesResolution, UpdateOptions)> = None;
+            enum LocalPromptAction {
+                None,
+                Back(UpdateOptions),
+                Review(
+                    UpdateOptions,
+                    Vec<LocalChange>,
+                    Option<LocalChangesResolution>,
+                ),
+                ConfirmOverwrite(UpdateOptions, Vec<LocalChange>),
+            }
+
+            let mut action = LocalPromptAction::None;
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     *selected = selected.saturating_sub(1);
@@ -410,17 +556,119 @@ impl App {
                         1 => LocalChangesResolution::Stash,
                         _ => LocalChangesResolution::Cancel,
                     };
-                    let _changes = std::mem::take(changes);
-                    pending_resolution = Some((resolution, options.clone()));
+                    match resolution {
+                        LocalChangesResolution::Overwrite => {
+                            action = LocalPromptAction::ConfirmOverwrite(
+                                options.clone(),
+                                changes.clone(),
+                            );
+                        }
+                        LocalChangesResolution::Stash => {
+                            action = LocalPromptAction::Review(
+                                options.clone(),
+                                changes.clone(),
+                                Some(LocalChangesResolution::Stash),
+                            );
+                        }
+                        LocalChangesResolution::Cancel => {
+                            action = LocalPromptAction::Back(options.clone());
+                        }
+                    }
                 }
                 KeyCode::Esc => {
-                    self.mode = AppMode::Update(UpdateState::preflight(options.clone(), false));
+                    action = LocalPromptAction::Back(options.clone());
                 }
                 _ => {}
             }
-            if let Some((resolution, options)) = pending_resolution {
-                self.apply_local_changes_resolution(resolution, options)
+            match action {
+                LocalPromptAction::None => {}
+                LocalPromptAction::Back(options) => {
+                    self.mode = AppMode::Update(UpdateState::preflight(options, false));
+                }
+                LocalPromptAction::Review(options, changes, resolution) => {
+                    self.show_update_review(options, changes, resolution)
+                        .await?;
+                }
+                LocalPromptAction::ConfirmOverwrite(options, changes) => {
+                    self.mode = AppMode::Update(UpdateState::OverwriteConfirm {
+                        tracked_count: changes.iter().filter(|change| change.tracked).count(),
+                        untracked_count: changes.iter().filter(|change| !change.tracked).count(),
+                        changes,
+                        options,
+                        selected: 1,
+                    });
+                }
+            }
+            return Ok(());
+        }
+
+        if let AppMode::Update(UpdateState::OverwriteConfirm {
+            changes,
+            tracked_count,
+            untracked_count,
+            options,
+            selected,
+        }) = &mut self.mode
+        {
+            enum OverwriteAction {
+                None,
+                Back(UpdateOptions, Vec<LocalChange>, usize, usize),
+                Review(UpdateOptions, Vec<LocalChange>),
+            }
+
+            let options = options.clone();
+            let changes_snapshot = changes.clone();
+            let tracked_count = *tracked_count;
+            let untracked_count = *untracked_count;
+            let mut action = OverwriteAction::None;
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = selected.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1).min(1);
+                }
+                KeyCode::Esc => {
+                    action = OverwriteAction::Back(
+                        options,
+                        changes_snapshot,
+                        tracked_count,
+                        untracked_count,
+                    );
+                }
+                KeyCode::Enter => {
+                    if *selected == 0 {
+                        action = OverwriteAction::Review(options, changes_snapshot);
+                    } else {
+                        action = OverwriteAction::Back(
+                            options,
+                            changes_snapshot,
+                            tracked_count,
+                            untracked_count,
+                        );
+                    }
+                }
+                _ => {}
+            }
+            match action {
+                OverwriteAction::None => {}
+                OverwriteAction::Back(options, changes, tracked_count, untracked_count) => {
+                    self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {
+                        changes,
+                        tracked_count,
+                        untracked_count,
+                        selected: 1,
+                        options,
+                    });
+                }
+                OverwriteAction::Review(options, changes) => {
+                    self.show_update_review(
+                        options,
+                        changes,
+                        Some(LocalChangesResolution::Overwrite),
+                    )
                     .await?;
+                }
             }
             return Ok(());
         }
@@ -761,17 +1009,11 @@ impl App {
 
     /// Start update, checking for health and local changes first.
     pub(super) async fn begin_update_flow(&mut self) -> Result<()> {
-        // Health check before update
-        let health: commands::health::HealthCheckResult =
-            commands::health::check_health(commands::health::Operation::Update).await;
-        if !health.is_ok() {
-            self.error = Some(health.error_message());
-            return Ok(());
-        }
-
         let options = match &self.mode {
             AppMode::Update(UpdateState::Preflight { options, .. }) => options.clone(),
             AppMode::Update(UpdateState::LocalChangesPrompt { options, .. }) => options.clone(),
+            AppMode::Update(UpdateState::OverwriteConfirm { options, .. }) => options.clone(),
+            AppMode::Update(UpdateState::ReviewPreflight { options, .. }) => options.clone(),
             AppMode::Update(UpdateState::Running { options, .. }) => options.clone(),
             _ => UpdateOptions::default(),
         };
@@ -783,11 +1025,8 @@ impl App {
 
         let changes = check_local_changes();
         if changes.is_empty() {
-            // No local changes, start update directly
-            self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
-            self.launch_update_command().await?;
+            self.show_update_review(options, changes, None).await?;
         } else {
-            // Local changes detected, show prompt
             self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {
                 tracked_count: changes.iter().filter(|change| change.tracked).count(),
                 untracked_count: changes.iter().filter(|change| !change.tracked).count(),
@@ -810,27 +1049,24 @@ impl App {
 
         match resolution {
             LocalChangesResolution::Overwrite => {
-                // Get the default branch name
                 let branch = get_default_branch();
                 let upstream =
                     get_upstream_ref(&config_str).unwrap_or_else(|| format!("origin/{}", branch));
                 let fetch_remote = upstream.split('/').next().unwrap_or("origin").to_string();
 
-                // Fetch from remote first
                 let _ = run_capture("git", &["-C", &config_str, "fetch", &fetch_remote]).await;
 
-                // Reset to remote branch
                 let (reset_ok, _, _) =
                     run_capture("git", &["-C", &config_str, "reset", "--hard", &upstream]).await?;
 
                 if reset_ok {
-                    // Also clean untracked files
                     let _ = run_capture("git", &["-C", &config_str, "clean", "-fd"]).await;
+                    self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
+                    self.launch_update_command().await?;
+                } else {
+                    self.error = Some("Failed to discard local changes".to_string());
+                    self.mode = AppMode::Update(UpdateState::preflight(options, false));
                 }
-
-                // Start update (no stash needed)
-                self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
-                self.launch_update_command().await?;
             }
             LocalChangesResolution::Stash => {
                 let stash_message = format!(
