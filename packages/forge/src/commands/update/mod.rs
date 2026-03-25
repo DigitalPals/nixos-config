@@ -47,6 +47,11 @@ const STEP_CLAUDE: &str = "update.claude";
 const STEP_CODEX: &str = "update.codex";
 const STEP_BROWSER: &str = "update.browser";
 const STEP_FIRMWARE: &str = "update.firmware";
+const NOCTALIA_INPUT: &str = "noctalia";
+const NOCTALIA_REMOTE: &str = "https://github.com/noctalia-dev/noctalia-shell.git";
+
+static NOCTALIA_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"refs/tags/(v(\d+)\.(\d+)\.(\d+))$").unwrap());
 
 /// Get the current NixOS system generation number
 pub async fn get_current_generation() -> Option<u32> {
@@ -594,6 +599,38 @@ fn transform_nix_output(line: &str) -> Option<String> {
     Some(line.to_string())
 }
 
+fn should_track_noctalia_release(options: &UpdateOptions) -> bool {
+    options.inputs.is_empty() || options.inputs.iter().any(|input| input == NOCTALIA_INPUT)
+}
+
+async fn resolve_latest_noctalia_release() -> Result<String> {
+    let (success, stdout, stderr) =
+        run_capture("git", &["ls-remote", "--tags", "--refs", NOCTALIA_REMOTE]).await?;
+
+    if !success {
+        anyhow::bail!(
+            "Failed to resolve the latest Noctalia release tag: {}",
+            stderr.trim()
+        );
+    }
+
+    let latest = stdout
+        .lines()
+        .filter_map(|line| {
+            let (_, reference) = line.split_once('\t')?;
+            let captures = NOCTALIA_TAG_RE.captures(reference)?;
+            let tag = captures.get(1)?.as_str().to_string();
+            let major = captures.get(2)?.as_str().parse::<u32>().ok()?;
+            let minor = captures.get(3)?.as_str().parse::<u32>().ok()?;
+            let patch = captures.get(4)?.as_str().parse::<u32>().ok()?;
+            Some(((major, minor, patch), tag))
+        })
+        .max_by_key(|(version, _)| *version)
+        .map(|(_, tag)| tag);
+
+    latest.ok_or_else(|| anyhow::anyhow!("No Noctalia release tags were found"))
+}
+
 /// Start the update process
 pub async fn start_update(
     tx: mpsc::Sender<CommandMessage>,
@@ -683,6 +720,23 @@ async fn run_update(
         let mut flake_args: Vec<String> = vec!["flake".into(), "update".into()];
         for input in &options.inputs {
             flake_args.push(input.clone());
+        }
+        if should_track_noctalia_release(options) {
+            let latest_release = resolve_latest_noctalia_release().await?;
+            let override_ref = format!("github:noctalia-dev/noctalia-shell/{}", latest_release);
+            out(
+                tx,
+                &format!("  Tracking Noctalia release {}", latest_release),
+            )
+            .await;
+            tx.send(CommandMessage::StepDetail {
+                step: STEP_FLAKE.to_string(),
+                detail: format!("Tracking Noctalia {}", latest_release),
+            })
+            .await?;
+            flake_args.push("--override-input".into());
+            flake_args.push(NOCTALIA_INPUT.into());
+            flake_args.push(override_ref);
         }
         flake_args.push("--flake".into());
         flake_args.push(flake_path.to_string());

@@ -1,5 +1,5 @@
 # Ghostty terminal configuration
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 let
   noctaliaTheme = ''
@@ -77,9 +77,24 @@ in
     # themes.noctalia = { ... };
   };
 
-  # Manage theme file directly with force to prevent backup conflicts
-  xdg.configFile."ghostty/themes/noctalia" = {
-    text = noctaliaTheme;
-    force = true;
-  };
+  # Noctalia rewrites the active Ghostty theme at runtime. Keep the file writable
+  # and only seed a default theme when it doesn't exist yet.
+  home.activation.ghosttyNoctaliaThemeWritable = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    dir="$HOME/.config/ghostty/themes"
+    file="$dir/noctalia"
+
+    mkdir -p "$dir"
+
+    if [ -L "$file" ]; then
+      rm -f "$file"
+    fi
+
+    if [ ! -e "$file" ]; then
+      cat > "$file" <<'EOF'
+${noctaliaTheme}
+EOF
+    fi
+
+    chmod 0644 "$file"
+  '';
 }

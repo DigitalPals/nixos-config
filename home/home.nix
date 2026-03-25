@@ -33,6 +33,7 @@ in
   # Git configuration
   programs.git = {
     enable = true;
+    signing.format = "openpgp";
     settings.user = {
       name = "John";
       email = "john@cybex.net";
@@ -43,6 +44,7 @@ in
   xdg.userDirs = {
     enable = true;
     createDirectories = true;
+    setSessionVariables = true;
     desktop = null;  # Don't create Desktop
     documents = "${config.home.homeDirectory}/Documents";
     download = "${config.home.homeDirectory}/Downloads";
@@ -161,7 +163,7 @@ in
     fastfetch
     jq
     nodejs
-    portal.packages.${pkgs.system}.default  # SSH client
+    portal.packages.${pkgs.stdenv.hostPlatform.system}.default  # SSH client
     lazygit
     ripgrep
     fd

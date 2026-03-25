@@ -10,6 +10,7 @@
 let
   # Load base settings from JSON
   baseSettings = builtins.fromJSON (builtins.readFile ./settings.json);
+  noctaliaPackage = inputs.noctalia.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
   # Filter out Battery widget for hosts without a battery (desktop PCs)
   hostsWithoutBattery = [ "kraken" ];
@@ -35,7 +36,7 @@ in
     enable = true;
 
     # Add QtWebSockets for Claw plugin's WebSocket support
-    package = pkgs.noctalia-shell.overrideAttrs (old: {
+    package = noctaliaPackage.overrideAttrs (old: {
       buildInputs = (old.buildInputs or []) ++ [ pkgs.qt6.qtwebsockets ];
     });
 
