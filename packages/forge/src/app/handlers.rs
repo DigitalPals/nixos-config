@@ -1025,7 +1025,20 @@ impl App {
 
         let changes = check_local_changes();
         if changes.is_empty() {
-            self.show_update_review(options, changes, None).await?;
+            let report = self
+                .collect_update_preflight_report(&options, &changes, None)
+                .await?;
+
+            if report.should_auto_continue() {
+                self.mode = AppMode::Update(UpdateState::new_with_options(options, None));
+                self.launch_update_command().await?;
+            } else {
+                self.mode = AppMode::Update(UpdateState::ReviewPreflight {
+                    options,
+                    report,
+                    selected: 0,
+                });
+            }
         } else {
             self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {
                 tracked_count: changes.iter().filter(|change| change.tracked).count(),

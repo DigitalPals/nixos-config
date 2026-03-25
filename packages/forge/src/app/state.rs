@@ -358,6 +358,19 @@ impl UpdatePreflightReport {
                 UpdateDryRunStatus::Passed | UpdateDryRunStatus::Skipped(_)
             )
     }
+
+    pub fn should_auto_continue(&self) -> bool {
+        self.missing_required_tools.is_empty()
+            && self.missing_optional_tools.is_empty()
+            && self.tracked_count == 0
+            && self.untracked_count == 0
+            && self.pending_resolution.is_none()
+            && self.remote.checked
+            && self.remote.error.is_none()
+            && self.remote.ahead == 0
+            && self.remote.behind == 0
+            && matches!(self.dry_run, UpdateDryRunStatus::Passed)
+    }
 }
 
 /// Which row is selected in the update preflight screen
