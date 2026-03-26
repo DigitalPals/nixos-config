@@ -251,6 +251,8 @@
 
   # GNOME Keyring - Auto-unlock on login
   services.gnome.gnome-keyring.enable = true;
+  # Keep Secret Service support, but do not export a desktop SSH agent.
+  services.gnome.gcr-ssh-agent.enable = false;
   security.pam.services.greetd.enableGnomeKeyring = true;
   security.pam.services.login.enableGnomeKeyring = true;
 
