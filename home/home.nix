@@ -382,26 +382,6 @@ in
     };
   };
 
-  # === GNOME Keyring auto-unlock (no-password auto-login) ===
-  # greetd auto-login skips PAM auth, so the keyring never receives a password.
-  # Pipe an empty string to unlock the "login" keyring at session start.
-  systemd.user.services.gnome-keyring-unlock = {
-    Unit = {
-      Description = "Auto-unlock GNOME Keyring (login keyring, empty password)";
-      After = [ "gnome-keyring-daemon.service" ];
-      PartOf = [ "graphical-session.target" ];
-    };
-    Service = {
-      Type = "oneshot";
-      ExecStart = pkgs.writeShellScript "gnome-keyring-unlock" ''
-        echo -n "" | ${pkgs.gnome-keyring}/bin/gnome-keyring-daemon --unlock
-      '';
-    };
-    Install = {
-      WantedBy = [ "graphical-session.target" ];
-    };
-  };
-
   # State version (should match NixOS)
   home.stateVersion = "24.11";
 }
