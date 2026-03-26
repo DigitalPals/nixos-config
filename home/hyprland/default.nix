@@ -10,19 +10,18 @@ let
   bindingsConfig = import ./bindings.nix { inherit brightnessControl; };
   autostartConfig = import ./autostart.nix { inherit pkgs lib osConfig; };
 
-  # Script to disable laptop screen when XREAL glasses are connected
-  xrealToggle = pkgs.writeShellScript "xreal-toggle" ''
-    XREAL_DESC="XREAL One Pro"
-
-    check_xreal() {
-      ${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -e '.[] | select(.model == "'"$XREAL_DESC"'")' > /dev/null 2>&1
+  # Script to disable laptop screen when an external display is connected
+  # Supports: XREAL One Pro glasses, Apple Studio Display XDR
+  externalMonitorToggle = pkgs.writeShellScript "external-monitor-toggle" ''
+    check_external() {
+      ${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -e '.[] | select(.model == "XREAL One Pro" or .model == "Studio XDR" or .model == "AORUS FO32U2")' > /dev/null 2>&1
     }
 
     toggle() {
-      if check_xreal; then
-        ${pkgs.hyprland}/bin/hyprctl keyword monitor "eDP-1,disable"
+      if check_external; then
+        ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,disable
       else
-        ${pkgs.hyprland}/bin/hyprctl keyword monitor "eDP-1,preferred,0x540,auto"
+        ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x540,auto
       fi
     }
 
@@ -48,7 +47,7 @@ let
     source = ~/.config/hypr/bindings.conf
     source = ~/.config/hypr/looknfeel.conf
     source = ~/.config/hypr/autostart.conf
-    source = ~/.config/hypr/xreal-toggle.conf
+    source = ~/.config/hypr/external-monitor-toggle.conf
     source = ~/.config/hypr/noctalia/noctalia-colors.conf
   '';
 
@@ -63,10 +62,10 @@ in {
     extraConfig = hyprlandExtraConfig;
   };
 
-  # XREAL toggle script (G1a only)
-  xdg.configFile."hypr/xreal-toggle.conf".text =
+  # External monitor toggle script (G1a only)
+  xdg.configFile."hypr/external-monitor-toggle.conf".text =
     if lib.hasPrefix "G1a" hostname then ''
-      exec-once = ${xrealToggle}
+      exec-once = ${externalMonitorToggle}
     '' else "";
 
   # Modular config files in ~/.config/hypr/
