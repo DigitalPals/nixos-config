@@ -18,6 +18,7 @@ let
     dwindle {
       pseudotile = true
       preserve_split = true
+      split_width_multiplier = 0.75
     }
   '' else "";
 
