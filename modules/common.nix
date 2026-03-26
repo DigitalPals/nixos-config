@@ -235,6 +235,7 @@
     balena-cli
     wl-clipboard
     xdg-utils
+    openssl
     efibootmgr
     lm_sensors
     powertop
