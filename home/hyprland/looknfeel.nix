@@ -104,8 +104,9 @@ ${masterConfig}
   windowrule = match:class org\.gnome\.Nautilus, match:title Open.*, float on
   windowrule = match:class org\.gnome\.Nautilus, match:title Save.*, float on
 
-  # On the AORUS monitor, keep a lone tiled window narrower instead of edge-to-edge.
+  # On large external monitors, keep a lone tiled window narrower instead of edge-to-edge.
   workspace = m[desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2] w[t1], gapsout:10 480 10 480
+  workspace = m[desc:Apple Computer Inc Studio XDR] w[t1], gapsout:10 640 10 640
 
   # Suppress maximize for all windows
   windowrule = match:class .*, suppress_event maximize
