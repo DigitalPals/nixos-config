@@ -107,7 +107,7 @@ ${masterConfig}
 
   # On large external monitors, keep a lone tiled window narrower instead of edge-to-edge.
   workspace = m[desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2] w[t1], gapsout:10 480 10 480
-  workspace = m[desc:Apple Computer Inc Studio XDR] w[t1], gapsout:10 640 10 640
+  workspace = m[desc:Apple Computer Inc Studio XDR] w[t1], gapsout:10 480 10 480
 
   # Suppress maximize for all windows
   windowrule = match:class .*, suppress_event maximize
