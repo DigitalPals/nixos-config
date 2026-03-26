@@ -154,6 +154,9 @@
   # Firmware updates via fwupd (LVFS)
   services.fwupd.enable = true;
 
+  # Thunderbolt device manager (authorizes displays, docks, etc. in "user" security mode)
+  services.hardware.bolt.enable = true;
+
   # Btrfs scrub (use mkDefault so laptops can disable to save battery)
   services.btrfs.autoScrub.enable = lib.mkDefault true;
 
@@ -226,6 +229,7 @@
   };
 
   environment.systemPackages = with pkgs; [
+    (callPackage ../packages/asdcontrol { })
     git
     gh
     gcc
@@ -296,6 +300,9 @@
 
   # I/O scheduler tuning for NVMe (use none/mq-deadline for best performance)
   services.udev.extraRules = ''
+    # Apple Studio Display brightness control (allow user access to HID devices)
+    SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="1114", MODE="0666"
+    SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="1116", MODE="0666"
     # NVMe namespaces - use none scheduler (lowest latency)
     ACTION=="add|change", KERNEL=="nvme[0-9]n[0-9]", ATTR{queue/scheduler}="none"
     # SATA SSDs - use mq-deadline

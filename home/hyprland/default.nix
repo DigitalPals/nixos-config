@@ -6,7 +6,8 @@ let
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
-  bindingsConfig = import ./bindings.nix {};
+  brightnessControl = import ./brightness.nix { inherit pkgs; };
+  bindingsConfig = import ./bindings.nix { inherit brightnessControl; };
   autostartConfig = import ./autostart.nix { inherit pkgs lib osConfig; };
 
   # Script to disable laptop screen when XREAL glasses are connected
