@@ -15,7 +15,7 @@
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
   bind = $mainMod, M, exec, $browser --app=https://mail.google.com/mail/u/1/#inbox
-  bind = $mainMod, S, exec, $browser --app=https://open.spotify.com/
+  bind = $mainMod, S, exec, spotify
   bind = $mainMod SHIFT, SLASH, exec, 1password
   bind = $mainMod, D, exec, $terminal -e lazydocker
   bind = $mainMod, T, exec, $browser --app=https://web.telegram.org/a/
