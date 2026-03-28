@@ -837,8 +837,10 @@ impl App {
                     output.push_back("To install NixOS:".to_string());
                     output.push_back("  1. Boot from a NixOS minimal ISO".to_string());
                     output.push_back("  2. Connect to WiFi: nmtui".to_string());
-                    output
-                        .push_back("  3. Run: nix run github:DigitalPals/nixos-config".to_string());
+                    output.push_back(
+                        "  3. Run: nix --extra-experimental-features \"nix-command flakes\" run github:DigitalPals/nixos-config#forge"
+                            .to_string(),
+                    );
                     output.push_back("  4. Select 'Install NixOS' from the menu".to_string());
                     self.mode = AppMode::Install(InstallState::Complete {
                         success: false,

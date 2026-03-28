@@ -24,18 +24,114 @@ let
     "0008-ASoC-SDCA-Tidy-up-some-memory-allocations.patch"
     "0009-ASoC-SDCA-Handle-CONFIG_PM_SLEEP-not-being-set.patch"
     "0010-ASoC-SDCA-Add-NO_DIRECT_COMPLETE-flag-to-class-drive.patch"
-    "0011-ASoC-sdca-Fix-missing-regmap-dependencies-in-Kconfig.patch"
     "0012-ASoC-SDCA-Rearrange-FDL-file-messages.patch"
     "0013-ASoC-SDCA-Add-regmap-defaults-for-specification-defi.patch"
     "0014-ASoC-SDCA-Limit-values-user-can-write-to-Selected-Mo.patch"
-    "0015-ASoC-SDCA-Fix-comments-for-sdca_irq_request.patch"
-    "0016-ASoC-SDCA-Add-allocation-failure-check-for-Entity-na.patch"
-    "0017-ASoC-SDCA-Fix-NULL-pointer-dereference-in-sdca_jack_.patch"
   ];
 
   mkSdcaPatch = name: {
     inherit name;
     patch = "${hurricanOmarchyEnabling}/sdca-backport-patches/${name}";
+  };
+
+  xpsHapticTouchpad = pkgs.writeTextFile {
+    name = "xps-haptic-touchpad";
+    executable = true;
+    destination = "/bin/xps-haptic-touchpad";
+    text = ''
+      #!${pkgs.python3}/bin/python3
+
+      """Haptic feedback daemon for the Dell XPS Synaptics touchpad.
+
+      The device uses the HID Manual Trigger protocol, so we listen for
+      button press events and send a short haptic pulse through hidraw.
+      """
+
+      import fcntl
+      import glob
+      import os
+      import struct
+      import sys
+
+      VENDOR = "06CB"
+      PRODUCT = "D01A"
+      REPORT_ID = 0x37
+      INTENSITY = 40
+
+      EVENT_FORMAT = "llHHi"
+      EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
+      EV_KEY = 0x01
+      BUTTONS = {272, 273, 274}
+
+
+      def hid_ioctl(length):
+          return 0xC0000000 | (length << 16) | (ord("H") << 8) | 0x06
+
+
+      def find_hidraw():
+          for path in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+              uevent = os.path.join(path, "device", "uevent")
+              try:
+                  with open(uevent, encoding="utf-8") as handle:
+                      content = handle.read().upper()
+                  if f"0000{VENDOR}" in content and f"0000{PRODUCT}" in content:
+                      return os.path.join("/dev", os.path.basename(path))
+              except OSError:
+                  continue
+          return None
+
+
+      def find_touchpad_event():
+          for path in sorted(glob.glob("/sys/class/input/event*/device/name")):
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      name = handle.read().strip().upper()
+                  if VENDOR in name and PRODUCT in name and "TOUCHPAD" in name:
+                      event = path.split("/")[-3]
+                      return os.path.join("/dev/input", event)
+              except OSError:
+                  continue
+          return None
+
+
+      def main():
+          hidraw = find_hidraw()
+          if not hidraw:
+              print("No Synaptics haptic hidraw device found", file=sys.stderr)
+              sys.exit(1)
+
+          event = find_touchpad_event()
+          if not event:
+              print("No Synaptics touchpad input device found", file=sys.stderr)
+              sys.exit(1)
+
+          report = struct.pack("BB", REPORT_ID, INTENSITY)
+          ioctl_request = hid_ioctl(len(report))
+
+          hidraw_fd = os.open(hidraw, os.O_RDWR)
+          event_fd = os.open(event, os.O_RDONLY)
+
+          try:
+              while True:
+                  data = os.read(event_fd, EVENT_SIZE)
+                  if len(data) < EVENT_SIZE:
+                      continue
+                  _, _, event_type, code, value = struct.unpack(EVENT_FORMAT, data)
+                  if event_type == EV_KEY and code in BUTTONS and value == 1:
+                      try:
+                          fcntl.ioctl(hidraw_fd, ioctl_request, report)
+                      except OSError:
+                          pass
+          except KeyboardInterrupt:
+              pass
+          finally:
+              os.close(event_fd)
+              os.close(hidraw_fd)
+
+
+      if __name__ == "__main__":
+          main()
+    '';
   };
 in
 {
@@ -51,6 +147,9 @@ in
   hardware.wirelessRegulatoryDatabase = true;
   boot.extraModprobeConfig = ''
     options cfg80211 ieee80211_regdom=NL
+    # Temporary Panther Lake WiFi 7 workaround: BE211 is currently more stable
+    # when EHT/802.11be is disabled, falling back to WiFi 6/802.11ax.
+    options iwlwifi disable_11be=Y
     options v4l2loopback video_nr=50 card_label="Intel IPU7 Camera" exclusive_caps=1
   '';
 
@@ -76,9 +175,9 @@ in
 
   environment.etc = {
     "intel_lpmd".source = "${pkgs.intelLpmd}/etc/intel_lpmd";
-    "dbus-1/system.d/org.freedesktop.intel_lpmd.conf".source =
-      "${pkgs.intelLpmd}/etc/dbus-1/system.d/org.freedesktop.intel_lpmd.conf";
   };
+
+  services.dbus.packages = [ pkgs.intelLpmd ];
 
   # Early boot kernel modules (order matters for proper initialization)
   # - GPU module first: enables early KMS for high-res Plymouth/console
@@ -90,14 +189,15 @@ in
   ];
 
   # === Haptic Touchpad Fix ===
-  # Dell XPS 2024+ uses a Synaptics haptic touchpad (06CB:D01A) that loses
-  # haptic feedback after suspend/resume due to aggressive I2C power management.
-  # Fix sourced from Omarchy Linux:
-  # https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-dell-xps-haptic-touchpad.sh
+  # Dell XPS uses a Synaptics haptic touchpad (06CB:D01A) whose haptic engine
+  # is more reliable when runtime PM stays off, and whose click feedback still
+  # needs a userspace nudge on current kernels.
 
-  # Keep I2C HID controller powered (prevent suspend from cutting power)
+  # Keep the touchpad controller awake so the haptic engine does not lose state.
   services.udev.extraRules = ''
-    # Synaptics haptic touchpad: keep I2C controller active to preserve haptics
+    # Keep the Synaptics touchpad path powered to preserve haptic state.
+    ACTION=="add", SUBSYSTEM=="pci", KERNEL=="0000:00:19.0", ATTR{power/control}="on"
+    ACTION=="add", SUBSYSTEM=="platform", KERNEL=="i2c_designware.0", ATTR{power/control}="on"
     ACTION=="add|change", SUBSYSTEM=="i2c", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="d01a", ATTR{power/control}="on"
 
     # Make the virtual camera device accessible to the desktop session
@@ -107,30 +207,19 @@ in
     SUBSYSTEM=="leds", KERNEL=="*::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
   '';
 
-  # Rebind I2C HID driver on resume to reinitialize haptic feedback
+  # Generate haptic click feedback in userspace until the kernel path matures.
   systemd.services.xps-haptic-touchpad = {
-    description = "Rebind haptic touchpad I2C HID driver after resume";
-    after = [ "suspend.target" "hibernate.target" ];
-    wantedBy = [ "suspend.target" "hibernate.target" ];
+    description = "Dell XPS haptic touchpad feedback";
+    after = [ "systemd-udev-settle.service" ];
+    wants = [ "systemd-udev-settle.service" ];
+    wantedBy = [ "multi-user.target" ];
 
     serviceConfig = {
-      Type = "oneshot";
-      ExecStartPre = "${pkgs.coreutils}/bin/sleep 1";
+      Type = "simple";
+      ExecStart = "${xpsHapticTouchpad}/bin/xps-haptic-touchpad";
+      Restart = "on-failure";
+      RestartSec = 2;
     };
-
-    script = ''
-      set -euo pipefail
-
-      # Find the I2C HID device for the Synaptics haptic touchpad
-      for dev in /sys/bus/i2c/drivers/i2c_hid_acpi/i2c-*; do
-        [ -d "$dev" ] || continue
-        # Unbind and rebind to reinitialize haptic feedback
-        devname="$(basename "$dev")"
-        echo "$devname" > /sys/bus/i2c/drivers/i2c_hid_acpi/unbind 2>/dev/null || true
-        sleep 0.5
-        echo "$devname" > /sys/bus/i2c/drivers/i2c_hid_acpi/bind 2>/dev/null || true
-      done
-    '';
   };
 
   systemd.services.xps-wireless-regdom = {

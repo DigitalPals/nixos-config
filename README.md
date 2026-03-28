@@ -18,6 +18,7 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 | `kraken` | Desktop PC | NVIDIA RTX 5090 |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
 | `proart` | ASUS ProArt P16 OLED | AMD + NVIDIA RTX 5090 |
+| `xps` | Dell XPS 14 | Intel Panther Lake |
 
 ## Partition Layout
 
@@ -66,9 +67,21 @@ ping -c 1 github.com
 
 ### Step 3: Run Forge
 
+**Official NixOS minimal ISO:**
+The stock installer ISO does not enable flakes for ad-hoc `nix run`, so use:
+```bash
+nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/nixos-config#forge
+```
+
+**Forge ISO built from this repo:**
+Forge starts automatically on login. If you need to restart it manually:
+```bash
+forge-startup
+```
+
 Run the Forge installer directly from the flake:
 ```bash
-nix run github:DigitalPals/nixos-config#forge
+nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/nixos-config#forge
 ```
 
 The interactive TUI will guide you through:
@@ -79,7 +92,7 @@ The interactive TUI will guide you through:
 
 Alternatively, run with arguments for non-interactive install:
 ```bash
-nix run github:DigitalPals/nixos-config#forge -- install kraken /dev/nvme0n1
+nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/nixos-config#forge -- install kraken /dev/nvme0n1
 ```
 
 ### Step 4: Wait for Installation
