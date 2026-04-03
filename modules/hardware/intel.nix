@@ -25,14 +25,10 @@
     ];
   };
 
-  # Panther Lake display fix: disable power-saving features that cause
-  # 10Hz refresh rate on Xe3 GPUs. These will likely become safe to
-  # re-enable once the xe driver matures (kernel 6.20+).
+  # Panther Lake display fix for the Dell XPS OLED panel: newer Omarchy
+  # testing narrowed the 10Hz regression down to panel replay alone.
   boot.kernelParams = [
-    "xe.enable_psr=0"          # Disable Panel Self Refresh
     "xe.enable_panel_replay=0" # Disable Panel Replay
-    "xe.enable_fbc=0"          # Disable Framebuffer Compression
-    "xe.enable_dc=0"           # Disable Display Core power management
   ];
 
   # Environment variables for Intel Wayland

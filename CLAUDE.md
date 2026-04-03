@@ -516,23 +516,20 @@ cat /proc/acpi/wakeup | grep enabled                 # Wakeup sources
 
 ### Panther Lake Display Fix
 
-**Problem:** Display stuck at 10Hz refresh rate on Panther Lake systems using the `xe` kernel module.
+**Problem:** The Dell XPS OLED panel can drop to 10Hz on Panther Lake systems using the `xe` kernel module.
 
-**Root cause:** Panel Self Refresh (PSR), Panel Replay, Framebuffer Compression, and Display Core power management features in the xe driver are unstable on Panther Lake (Xe3).
+**Current understanding:** Omarchy initially disabled several Xe power-saving features, but after follow-up testing they narrowed the XPS OLED regression down to Panel Replay.
 
-**Solution:** Kernel parameters in `modules/hardware/intel.nix`:
+**Solution:** Kernel parameter in `modules/hardware/intel.nix`:
 ```nix
 boot.kernelParams = [
-  "xe.enable_psr=0"
   "xe.enable_panel_replay=0"
-  "xe.enable_fbc=0"
-  "xe.enable_dc=0"
 ];
 ```
 
-**Source:** [Omarchy Linux Panther Lake fix](https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-intel-panther-lake-display.sh)
+**Source:** [Omarchy Linux XPS Panther Lake display fix](https://github.com/basecamp/omarchy/blob/dev/install/config/hardware/dell/fix-xps-ptl-display.sh)
 
-**When fixed:** These params will likely become safe to re-enable once the xe driver matures (kernel 6.20+). Test by removing one param at a time.
+**When fixed:** Re-test without this parameter once newer Xe fixes land upstream.
 
 ### Dell XPS Haptic Touchpad
 
@@ -540,17 +537,17 @@ boot.kernelParams = [
 
 **Solution:** Two-part fix in `hosts/xps/default.nix`:
 1. Udev rule to keep I2C controller powered (`power/control="on"`)
-2. Systemd service to unbind/rebind `i2c_hid_acpi` driver on resume
+2. Userspace haptic feedback daemon that sends click pulses through hidraw
 
-**Source:** [Omarchy Linux haptic touchpad fix](https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-dell-xps-haptic-touchpad.sh)
+**Source:** [Omarchy Linux haptic touchpad fix](https://github.com/basecamp/omarchy/blob/dev/install/config/hardware/dell/fix-xps-haptic-touchpad.sh)
 
 ### Dell XPS Audio (SOF Conflict)
 
-**Problem:** On some Panther Lake systems, SOF (Sound Open Firmware) modules conflict with standard HDA drivers.
+**Problem:** Early Panther Lake support needed extra audio help before all fixes were upstreamed.
 
-**Status:** Kernel 6.19+ likely has the upstream fix. A commented-out blacklist is in `hosts/xps/default.nix` — uncomment only if audio doesn't work.
+**Status:** Omarchy briefly carried a temporary SOF blacklist, but their current direction is a patched Panther Lake 6.19.10 kernel. This repo instead carries SDCA backports on 6.19.x, so there is no blacklist enabled by default.
 
-**Source:** [Omarchy Linux audio fix](https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-dell-xps-audio.sh)
+**Source:** [Omarchy 3.5.0 Panther Lake support notes](https://github.com/basecamp/omarchy/pull/5192)
 
 ### Intel WiFi 7 BE211
 
