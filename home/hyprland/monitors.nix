@@ -24,7 +24,7 @@ let
     env = GDK_SCALE,2
   '' else ''
     # Laptop: Auto-detect with native scaling
-    monitor = ,preferred,auto,auto
+    monitor = ,preferred,auto,auto,vrr,1
     env = GDK_SCALE,2
   '';
 in ''
