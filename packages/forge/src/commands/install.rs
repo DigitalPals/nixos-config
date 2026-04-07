@@ -1048,8 +1048,39 @@ async fn cleanup_previous_disk_state(runner: &CommandRunner<'_>, disk: &str) {
         let _ = runner.run(cmd, args).await;
     }
 
+    runner
+        .out("Attempting a full destructive wipe of the target SSD/NVMe...")
+        .await;
+    let discard_ok = runner.run("sudo", &["blkdiscard", "-f", disk]).await.ok() == Some(true);
+
+    if !discard_ok {
+        runner
+            .out("Full discard was not available, falling back to clearing disk metadata...")
+            .await;
+        let _ = runner
+            .run(
+                "sudo",
+                &[
+                    "sh",
+                    "-c",
+                    r#"
+disk="$1"
+size_bytes="$(blockdev --getsize64 "$disk" 2>/dev/null || echo 0)"
+dd if=/dev/zero of="$disk" bs=1M count=64 conv=fsync,notrunc status=none || true
+if [ "$size_bytes" -gt 67108864 ]; then
+  seek_mb=$(( size_bytes / 1024 / 1024 - 64 ))
+  dd if=/dev/zero of="$disk" bs=1M seek="$seek_mb" count=64 conv=fsync,notrunc status=none || true
+fi
+"#,
+                    "cleanup-disk",
+                    disk,
+                ],
+            )
+            .await;
+    }
+
     let _ = runner.run("sudo", &["wipefs", "-a", "-f", disk]).await;
-    let _ = runner.run("sudo", &["partprobe", disk]).await;
+    let _ = runner.run("sudo", &["blockdev", "--rereadpt", disk]).await;
     let _ = runner
         .run_with_timeout("sudo", &["udevadm", "settle", "--timeout=30"], 45)
         .await;
