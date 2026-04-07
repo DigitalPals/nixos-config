@@ -96,10 +96,11 @@
     # Set useDisko = false for hosts with manual partition setup (e.g., hibernate swap)
     mkNixosSystem = { hostname, extraModules ? [], useDisko ? true }:
       nixpkgs.lib.nixosSystem {
+        inherit system;
         specialArgs = { inherit inputs plymouth-cybex forge; };
         modules = [
           # Apply overlays to NixOS (for patched xdg-desktop-portal-gtk)
-          { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ gtkPortalOverlay xpsHardwareOverlay ]; }
+          { nixpkgs.overlays = [ gtkPortalOverlay xpsHardwareOverlay ]; }
           mkInstallerProfileModule
         ]
         # Disko for declarative disk partitioning (optional)
