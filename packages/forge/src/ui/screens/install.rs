@@ -617,6 +617,106 @@ pub fn draw_select_swap_mode(
     );
 }
 
+/// Draw hardware profile selection screen
+pub fn draw_select_hardware_profile(
+    frame: &mut Frame,
+    host: &str,
+    disk: &DiskInfo,
+    selected: usize,
+    _app: &App,
+) {
+    let area = frame.area();
+    let center = centered_rect(68, 62, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(4),
+            Constraint::Length(14),
+            Constraint::Min(3),
+        ])
+        .split(center);
+
+    draw_header(frame, chunks[0], "Select Hardware Profile");
+
+    let info = Paragraph::new(vec![Line::from(vec![
+        Span::styled("  Host: ", theme::dim()),
+        Span::styled(host, theme::text()),
+        Span::styled("  |  Disk: ", theme::dim()),
+        Span::styled(&disk.path, theme::text()),
+        Span::styled(format!(" ({})", disk.size), theme::dim()),
+    ])])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border()),
+    );
+    frame.render_widget(info, chunks[1]);
+
+    let keep_style = if selected == 0 {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+    let refresh_style = if selected == 1 {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+    let keep_indicator = if selected == 0 { ">" } else { " " };
+    let refresh_indicator = if selected == 1 { ">" } else { " " };
+
+    let options = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!(" {} ", keep_indicator), keep_style),
+            Span::styled("Keep checked-in profile", keep_style),
+            Span::styled(" (Recommended)", theme::dim()),
+        ]),
+        Line::from(vec![
+            Span::styled("     ", theme::dim()),
+            Span::styled(
+                "Use the repo's known-good hardware settings without extra live detection.",
+                theme::dim(),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!(" {} ", refresh_indicator), refresh_style),
+            Span::styled("Refresh from live system", refresh_style),
+        ]),
+        Line::from(vec![
+            Span::styled("     ", theme::dim()),
+            Span::styled(
+                "Generate a machine-detected hardware layer from this installer session.",
+                theme::dim(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("     ", theme::dim()),
+            Span::styled(
+                "Useful for unusual devices, but less predictable than the checked-in profile.",
+                theme::dim(),
+            ),
+        ]),
+        Line::from(""),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(Span::styled(" Hardware Profile ", theme::title())),
+    );
+    frame.render_widget(options, chunks[2]);
+
+    draw_footer(
+        frame,
+        chunks[3],
+        &[("↑↓/jk", "Navigate"), ("Enter", "Select"), ("Esc", "Back")],
+    );
+}
+
 /// Draw overview/confirmation screen
 pub fn draw_overview(
     frame: &mut Frame,
@@ -686,9 +786,9 @@ pub fn draw_overview(
     ]));
 
     let hardware_refresh_text = if credentials.refresh_hardware_config {
-        "Yes (refresh from live system)"
+        "Live detection layer"
     } else {
-        "No (keep checked-in profile)"
+        "Checked-in profile"
     };
     detail_lines.push(Line::from(vec![
         Span::styled("  Hardware: ", theme::dim()),
@@ -742,11 +842,7 @@ pub fn draw_overview(
     draw_footer(
         frame,
         chunks[3],
-        &[
-            ("h", "Toggle hardware refresh"),
-            ("Type 'yes' + Enter", "Confirm"),
-            ("Esc", "Cancel"),
-        ],
+        &[("Type 'yes' + Enter", "Confirm"), ("Esc", "Cancel")],
     );
 }
 

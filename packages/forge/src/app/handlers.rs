@@ -654,6 +654,9 @@ impl App {
             AppMode::Install(InstallState::SelectSwapMode { host, selected, .. }) => {
                 Some(("install_swap_mode", *selected, Some(host.clone()), None))
             }
+            AppMode::Install(InstallState::SelectHardwareProfile { host, selected, .. }) => {
+                Some(("install_hardware_profile", *selected, Some(host.clone()), None))
+            }
             AppMode::Install(InstallState::Overview { host, disk: _, .. }) => {
                 Some(("install_overview", 0, Some(host.clone()), None))
             }
@@ -722,6 +725,9 @@ impl App {
             }
             Some(("install_swap_mode", selected, Some(_host), _)) => {
                 self.handle_swap_mode_key(key, selected).await?;
+            }
+            Some(("install_hardware_profile", selected, Some(_host), _)) => {
+                self.handle_hardware_profile_key(key, selected).await?;
             }
             Some(("install_overview", _, Some(host), _)) => {
                 self.handle_overview_key_action(key, &host).await?;
@@ -1393,7 +1399,43 @@ impl App {
                     let mut creds = credentials.clone();
                     creds.swap_mode = swap_mode;
 
-                    // Proceed to overview
+                    // Proceed to hardware profile selection
+                    self.mode = AppMode::Install(InstallState::SelectHardwareProfile {
+                        host: host.clone(),
+                        disk: disk.clone(),
+                        credentials: creds,
+                        selected: if credentials.refresh_hardware_config { 1 } else { 0 },
+                    });
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_hardware_profile_key(
+        &mut self,
+        key: KeyEvent,
+        _current_selected: usize,
+    ) -> Result<()> {
+        if let AppMode::Install(InstallState::SelectHardwareProfile {
+            host,
+            disk,
+            credentials,
+            selected,
+        }) = &mut self.mode
+        {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = selected.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1).min(1);
+                }
+                KeyCode::Enter => {
+                    let mut creds = credentials.clone();
+                    creds.refresh_hardware_config = *selected == 1;
+
                     self.mode = AppMode::Install(InstallState::Overview {
                         host: host.clone(),
                         disk: disk.clone(),
@@ -1418,9 +1460,7 @@ impl App {
         {
             match key.code {
                 KeyCode::Char(c) => {
-                    if (c == 'h' || c == 'H') && input.is_empty() {
-                        credentials.refresh_hardware_config = !credentials.refresh_hardware_config;
-                    } else if input.len() < MAX_INPUT_LENGTH {
+                    if input.len() < MAX_INPUT_LENGTH {
                         input.push(c);
                     }
                     (None, None, false)
@@ -1456,11 +1496,11 @@ impl App {
                     ),
                     StepStatus::new_with_id(
                         crate::commands::steps::HW_CONFIG,
-                        "Refreshing hardware detection",
+                        "Preparing hardware profile",
                     ),
                     StepStatus::new_with_id(
                         crate::commands::steps::DISK,
-                        "Configuring disk device",
+                        "Preparing install profile",
                     ),
                     StepStatus::new_with_id(
                         crate::commands::steps::DISKO,
@@ -1897,6 +1937,7 @@ impl App {
             old_mode,
             AppMode::Install(InstallState::EnterCredentials { .. })
                 | AppMode::Install(InstallState::SelectSwapMode { .. })
+                | AppMode::Install(InstallState::SelectHardwareProfile { .. })
                 | AppMode::Install(InstallState::Overview { .. })
                 | AppMode::CreateHost(CreateHostState::EnterHostname { .. })
         );
@@ -1935,20 +1976,37 @@ impl App {
                     error: None,
                 })
             }
+            AppMode::Install(InstallState::SelectHardwareProfile {
+                host,
+                disk,
+                credentials,
+                ..
+            }) => {
+                let ram_gb = get_ram_size_gb();
+                let selected = match credentials.swap_mode {
+                    SwapMode::ZramOnly => 0,
+                    SwapMode::HibernateSupport => 1,
+                };
+                AppMode::Install(InstallState::SelectSwapMode {
+                    host,
+                    disk,
+                    credentials,
+                    selected,
+                    ram_gb,
+                })
+            }
             AppMode::Install(InstallState::Overview {
                 host,
                 disk,
                 credentials,
                 ..
             }) => {
-                // Go back to swap mode selection
-                let ram_gb = get_ram_size_gb();
-                AppMode::Install(InstallState::SelectSwapMode {
+                let selected = if credentials.refresh_hardware_config { 1 } else { 0 };
+                AppMode::Install(InstallState::SelectHardwareProfile {
                     host,
                     disk,
                     credentials,
-                    selected: 0,
-                    ram_gb,
+                    selected,
                 })
             }
             AppMode::Install(InstallState::Complete { .. }) => AppMode::MainMenu { selected: 0 },

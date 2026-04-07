@@ -85,6 +85,20 @@ pub fn draw_help(frame: &mut Frame, mode: &AppMode) {
             );
             " Help - Credentials "
         }
+        AppMode::Install(InstallState::SelectSwapMode { .. })
+        | AppMode::Install(InstallState::SelectHardwareProfile { .. }) => {
+            add_section(
+                &mut lines,
+                "Keys",
+                &[
+                    ("↑ / k", "Move selection up"),
+                    ("↓ / j", "Move selection down"),
+                    ("Enter", "Continue"),
+                    ("Esc", "Back"),
+                ],
+            );
+            " Help - Install Options "
+        }
         AppMode::Install(InstallState::Running { .. })
         | AppMode::Update(UpdateState::Preparing { .. })
         | AppMode::Apps(AppProfileState::Running { .. })

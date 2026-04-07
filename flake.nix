@@ -58,25 +58,49 @@
     plymouth-cybex = pkgs.callPackage ./packages/plymouth-cybex { };
     forge = pkgs.callPackage ./packages/forge { };
 
+    mkGeneratedHostModules = hostname:
+      let
+        hostDir = ./hosts + "/${hostname}";
+      in
+      builtins.filter builtins.pathExists [
+        (hostDir + "/detected-hardware.nix")
+        (hostDir + "/local.nix")
+        (hostDir + "/installer.nix")
+      ];
+
+    mkInstallerProfileModule = { lib, config, ... }: {
+      options.forge.installer.username = lib.mkOption {
+        type = lib.types.str;
+        default = "john";
+        description = "Primary user name for the installed system.";
+      };
+
+      config._module.args.username = config.forge.installer.username;
+    };
+
     # Home Manager configuration
-    mkHomeManagerConfig = { hostname, username }: {
+    mkHomeManagerConfig = { hostname }: { config, ... }: {
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
       home-manager.backupFileExtension = "backup";
       # Avoid rebuild failures when a .backup file already exists.
       home-manager.overwriteBackup = true;
-      home-manager.extraSpecialArgs = { inherit inputs hostname username forge; };
-      home-manager.users.${username} = import ./home/home.nix;
+      home-manager.extraSpecialArgs = {
+        inherit inputs hostname forge;
+        username = config.forge.installer.username;
+      };
+      home-manager.users.${config.forge.installer.username} = import ./home/home.nix;
     };
 
     # Helper to create NixOS configurations
     # Set useDisko = false for hosts with manual partition setup (e.g., hibernate swap)
-    mkNixosSystem = { hostname, username ? "john", extraModules ? [], useDisko ? true }:
+    mkNixosSystem = { hostname, extraModules ? [], useDisko ? true }:
       nixpkgs.lib.nixosSystem {
-        specialArgs = { inherit inputs plymouth-cybex forge username; };
+        specialArgs = { inherit inputs plymouth-cybex forge; };
         modules = [
           # Apply overlays to NixOS (for patched xdg-desktop-portal-gtk)
           { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ gtkPortalOverlay xpsHardwareOverlay ]; }
+          mkInstallerProfileModule
         ]
         # Disko for declarative disk partitioning (optional)
         ++ (if useDisko then [
@@ -91,8 +115,10 @@
 
           # Home Manager
           home-manager.nixosModules.home-manager
-          (mkHomeManagerConfig { inherit hostname username; })
-        ] ++ extraModules;
+          (mkHomeManagerConfig { inherit hostname; })
+        ]
+        ++ (mkGeneratedHostModules hostname)
+        ++ extraModules;
       };
   in
   {

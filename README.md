@@ -87,16 +87,22 @@ nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/ni
 The interactive TUI will guide you through:
 1. Select your host (`kraken`, `G1a`, `proart`, or `xps`)
 2. Select the target disk
-3. Confirm the installation (type 'yes')
-4. Set your LUKS encryption passphrase when prompted
+3. Choose your user account and swap mode
+4. Choose whether to keep the checked-in hardware profile or generate a live hardware layer
+5. Confirm the installation (type 'yes')
 
-During installation, Forge refreshes the machine-detected hardware profile from
-the live system before installing NixOS by default. You can turn that off at
-the confirmation screen if you want to keep the checked-in profile as-is.
+Forge keeps the checked-in hardware profile by default. If you want live
+machine detection, opt into it during the hardware profile step or use the
+command-line flag below.
 
 Alternatively, run with arguments for non-interactive install:
 ```bash
 nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/nixos-config#forge -- install kraken /dev/nvme0n1
+```
+
+To opt into a live hardware refresh from the command line:
+```bash
+nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/nixos-config#forge -- install xps /dev/nvme0n1 --refresh-hardware
 ```
 
 ### Step 4: Wait for Installation

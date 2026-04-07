@@ -77,7 +77,7 @@ impl Default for InstallCredentials {
             password: String::new(),
             confirm_password: String::new(),
             swap_mode: SwapMode::default(),
-            refresh_hardware_config: true,
+            refresh_hardware_config: false,
         }
     }
 }
@@ -111,6 +111,12 @@ pub enum InstallState {
         selected: usize,
         /// Total RAM in GB (for display)
         ram_gb: u64,
+    },
+    SelectHardwareProfile {
+        host: String,
+        disk: DiskInfo,
+        credentials: InstallCredentials,
+        selected: usize,
     },
     Overview {
         host: String,

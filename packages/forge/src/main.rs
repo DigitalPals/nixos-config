@@ -44,7 +44,10 @@ enum Commands {
         hostname: Option<String>,
         /// Target disk device (e.g., /dev/nvme0n1)
         disk: Option<String>,
-        /// Skip refreshing the hardware profile from the live installer
+        /// Generate a hardware-detection layer from the live installer
+        #[arg(long)]
+        refresh_hardware: bool,
+        /// Deprecated compatibility flag
         #[arg(long)]
         no_refresh_hardware: bool,
     },
@@ -146,12 +149,13 @@ async fn main() -> Result<()> {
         Some(Commands::Install {
             hostname,
             disk,
+            refresh_hardware,
             no_refresh_hardware,
         }) => {
             run_tui(AppMode::Install(app::InstallState::new(
                 hostname,
                 disk,
-                !no_refresh_hardware,
+                refresh_hardware && !no_refresh_hardware,
             )))
             .await
         }

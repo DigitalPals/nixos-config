@@ -103,11 +103,9 @@
     };
   };
 
-  # Mount all subvolumes in initrd to avoid race conditions
+  # Only the root filesystem needs to be mounted in initrd. The remaining
+  # subvolumes can come up during normal boot once encrypted root is active.
   fileSystems."/".neededForBoot = true;
-  fileSystems."/home".neededForBoot = true;
-  fileSystems."/nix".neededForBoot = true;
-  fileSystems."/var/log".neededForBoot = true;
 
   # Kernel modules needed for LUKS, LVM, and device mapper
   boot.initrd.availableKernelModules = [ "dm_mod" "dm_crypt" "dm-snapshot" "cryptd" "aesni_intel" ];

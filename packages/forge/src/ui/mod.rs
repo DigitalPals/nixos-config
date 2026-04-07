@@ -26,7 +26,6 @@ pub fn draw(frame: &mut Frame, app: &App) {
             "Terminal too small (min {}x{}, current {}x{})",
             MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT, area.width, area.height
         );
-        let x = area.width.saturating_sub(msg.len() as u16) / 2;
         let y = area.height / 2;
         let text = Paragraph::new(Line::from(Span::styled(msg, theme::warning())))
             .alignment(ratatui::layout::Alignment::Center);
@@ -78,6 +77,20 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 ..
             } => {
                 screens::install::draw_select_swap_mode(frame, host, disk, *selected, *ram_gb, app);
+            }
+            InstallState::SelectHardwareProfile {
+                host,
+                disk,
+                selected,
+                ..
+            } => {
+                screens::install::draw_select_hardware_profile(
+                    frame,
+                    host,
+                    disk,
+                    *selected,
+                    app,
+                );
             }
             InstallState::Overview {
                 host,
