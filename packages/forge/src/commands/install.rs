@@ -743,6 +743,7 @@ async fn step_run_disko(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
     hostname: &str,
+    disk: &str,
     password: &str,
 ) -> Result<bool> {
     let temp_config_str = temp_config.to_string_lossy();
@@ -840,6 +841,9 @@ async fn step_run_disko(
     // must be staged with git add.
     runner.out("Staging configuration changes...").await;
     let _ = run_capture("git", &["-C", &temp_config_str, "add", "-A"]).await;
+
+    // Clean up leftovers from previous install attempts before partitioning.
+    cleanup_previous_disk_state(runner, disk).await;
 
     // Build disko with streaming output. On a cold machine this can take a while
     // if substitutes are unavailable and Nix has to compile locally.
@@ -1016,6 +1020,39 @@ async fn step_run_disko(
 
     runner.step_complete("disko").await?;
     Ok(true)
+}
+
+async fn cleanup_previous_disk_state(runner: &CommandRunner<'_>, disk: &str) {
+    runner
+        .out("Cleaning up previous install state on the target disk...")
+        .await;
+
+    let cleanup_commands: [(&str, &[&str]); 4] = [
+        ("sudo", &["sh", "-c", "umount -R /mnt 2>/dev/null || true"]),
+        ("sudo", &["sh", "-c", "swapoff -a 2>/dev/null || true"]),
+        (
+            "sudo",
+            &[
+                "sh",
+                "-c",
+                "cryptsetup luksClose cryptroot 2>/dev/null || true",
+            ],
+        ),
+        (
+            "sudo",
+            &["sh", "-c", "dmsetup remove cryptroot 2>/dev/null || true"],
+        ),
+    ];
+
+    for (cmd, args) in cleanup_commands {
+        let _ = runner.run(cmd, args).await;
+    }
+
+    let _ = runner.run("sudo", &["wipefs", "-a", "-f", disk]).await;
+    let _ = runner.run("sudo", &["partprobe", disk]).await;
+    let _ = runner
+        .run_with_timeout("sudo", &["udevadm", "settle", "--timeout=30"], 45)
+        .await;
 }
 
 /// Step 6b: Configure hibernate boot settings (after disko, before nixos-install)
@@ -1583,7 +1620,7 @@ async fn run_install(
     }
 
     // Step 6: Run disko
-    if !step_run_disko(&runner, &temp_config, hostname, password).await? {
+    if !step_run_disko(&runner, &temp_config, hostname, disk, password).await? {
         return Ok(());
     }
 
