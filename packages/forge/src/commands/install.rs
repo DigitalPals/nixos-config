@@ -841,15 +841,16 @@ async fn step_run_disko(
     runner.out("Staging configuration changes...").await;
     let _ = run_capture("git", &["-C", &temp_config_str, "add", "-A"]).await;
 
-    // Build disko with streaming output and a long timeout (first run may fetch a lot)
+    // Build disko with streaming output. On a cold machine this can take a while
+    // if substitutes are unavailable and Nix has to compile locally.
     runner
-        .out("Building disko (fetching dependencies, this may take a few minutes)...")
+        .out("Building disko (fetching dependencies, this may take a while on a cold build)...")
         .await;
     let disko_link = format!("/tmp/forge-disko-{}", std::process::id());
     let _ = std::fs::remove_file(&disko_link);
     let _ = std::fs::remove_dir_all(&disko_link);
     let build_ok = runner
-        .run_with_timeout(
+        .run(
             "nix",
             &[
                 "build",
@@ -857,7 +858,6 @@ async fn step_run_disko(
                 "--out-link",
                 &disko_link,
             ],
-            constants::BUILD_COMMAND_TIMEOUT_SECS,
         )
         .await?;
 
@@ -1326,17 +1326,20 @@ async fn step_install_nixos(
         // Continue anyway - the actual build might still work
     }
 
-    // Run nixos-install with sudo (nix run doesn't preserve root privileges)
-    // Use 30-minute timeout since nixos-install can take a long time
+    // Run nixos-install with sudo (nix run doesn't preserve root privileges).
+    // Fresh installs can legitimately run well past 30 minutes if cached binaries
+    // are unavailable and the target system needs to compile packages locally.
     runner
         .out(&format!(
             "Running: sudo env NIX_CONFIG=... nixos-install --flake {}",
             flake_ref
         ))
         .await;
-    runner.out("  (This may take 10-30 minutes...)").await;
+    runner
+        .out("  (This can take a long time on a fresh install; compiler activity is normal.)")
+        .await;
     let success = runner
-        .run_with_timeout(
+        .run(
             "sudo",
             &[
                 "env",
@@ -1346,7 +1349,6 @@ async fn step_install_nixos(
                 &flake_ref,
                 "--no-root-passwd",
             ],
-            crate::constants::rebuild_timeout_secs(),
         )
         .await?;
 
