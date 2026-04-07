@@ -98,4 +98,25 @@
   # Enable emergency shell access for debugging boot issues
   # If boot hangs, add rd.systemd.unit=rescue.target to kernel params at boot
   boot.initrd.systemd.emergencyAccess = true;
+
+  # Force udev to process /dev/mapper/cryptroot after LUKS decryption.
+  # Without this, systemd initrd drops the device-mapper udev event, so mount
+  # units never see the decrypted device and boot hangs with
+  # "A start job is running for cryptroot".
+  # Note: do NOT add x-systemd.after=systemd-udev-settle.service to mount
+  # options — that references a different (deprecated) service and can itself
+  # cause hangs.  The service below is sufficient on its own.
+  # Reference: https://github.com/NixOS/nixpkgs/issues/42165
+  boot.initrd.systemd.services.cryptsetup-udev-settle = {
+    description = "Wait for udev after LUKS decryption";
+    wantedBy = [ "cryptsetup.target" ];
+    after = [ "systemd-cryptsetup@cryptroot.service" ];
+    before = [ "cryptsetup.target" ];
+    unitConfig.DefaultDependencies = "no";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "/bin/udevadm settle";
+      RemainAfterExit = true;
+    };
+  };
 }
