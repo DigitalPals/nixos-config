@@ -20,6 +20,15 @@ pub async fn run_command(
     run_command_filtered(tx, cmd, args, |_| true).await
 }
 
+/// Execute a command and stream output without applying a timeout
+pub async fn run_command_without_timeout(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+) -> Result<bool> {
+    run_command_filtered_without_timeout(tx, cmd, args, |_| true).await
+}
+
 /// Execute a command and stream output, filtering lines with a predicate
 /// Lines where the filter returns false will be skipped
 pub async fn run_command_filtered<F>(
@@ -32,6 +41,89 @@ where
     F: Fn(&str) -> bool + Send + Sync + 'static,
 {
     run_command_filtered_with_timeout(tx, cmd, args, None, filter).await
+}
+
+/// Execute a command and stream output without applying a timeout, filtering
+/// lines with a predicate. Lines where the filter returns false will be skipped.
+pub async fn run_command_filtered_without_timeout<F>(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+    filter: F,
+) -> Result<bool>
+where
+    F: Fn(&str) -> bool + Send + Sync + 'static,
+{
+    use std::sync::Arc;
+    let filter = Arc::new(filter);
+
+    tracing::info!("Running command without timeout: {} {:?}", cmd, args);
+
+    let mut child = Command::new(cmd)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("Failed to spawn command: {}", cmd))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout for command: {}", cmd))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture stderr for command: {}", cmd))?;
+
+    let tx_out = tx.clone();
+    let filter_out = Arc::clone(&filter);
+    let stdout_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if !filter_out(&line) {
+                continue;
+            }
+            if let Err(e) = tx_out.send(CommandMessage::Stdout(line)).await {
+                tracing::warn!("Failed to send stdout to channel: {}", e);
+                break;
+            }
+        }
+    });
+
+    let tx_err = tx.clone();
+    let filter_err = Arc::clone(&filter);
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if !filter_err(&line) {
+                continue;
+            }
+            if let Err(e) = tx_err.send(CommandMessage::Stderr(line)).await {
+                tracing::warn!("Failed to send stderr to channel: {}", e);
+                break;
+            }
+        }
+    });
+
+    let status = child
+        .wait()
+        .await
+        .with_context(|| format!("Failed to wait for command: {}", cmd))?;
+
+    match tokio::time::timeout(Duration::from_secs(5), stdout_task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("stdout reader task panicked: {}", e),
+        Err(_) => tracing::warn!("stdout reader task timed out for command: {}", cmd),
+    }
+    match tokio::time::timeout(Duration::from_secs(5), stderr_task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("stderr reader task panicked: {}", e),
+        Err(_) => tracing::warn!("stderr reader task timed out for command: {}", cmd),
+    }
+
+    let success = status.success();
+    tracing::info!("Command completed with success={}", success);
+    Ok(success)
 }
 
 /// Execute a command with explicit timeout

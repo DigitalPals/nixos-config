@@ -850,7 +850,7 @@ async fn step_run_disko(
     let _ = std::fs::remove_file(&disko_link);
     let _ = std::fs::remove_dir_all(&disko_link);
     let build_ok = runner
-        .run(
+        .run_without_timeout(
             "nix",
             &[
                 "build",
@@ -884,7 +884,7 @@ async fn step_run_disko(
 
     // Run disko with sudo to ensure EUID=0 (required by disko)
     let success = runner
-        .run(
+        .run_without_timeout(
             "sudo",
             &[
                 &disko_bin,
@@ -1339,7 +1339,7 @@ async fn step_install_nixos(
         .out("  (This can take a long time on a fresh install; compiler activity is normal.)")
         .await;
     let success = runner
-        .run(
+        .run_without_timeout(
             "sudo",
             &[
                 "env",
