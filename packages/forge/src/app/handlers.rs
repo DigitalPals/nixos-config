@@ -59,10 +59,7 @@ impl App {
         changes: Vec<LocalChange>,
         pending_resolution: Option<LocalChangesResolution>,
     ) -> Result<()> {
-        self.mode = AppMode::Update(UpdateState::preparing(
-            options.clone(),
-            pending_resolution,
-        ));
+        self.mode = AppMode::Update(UpdateState::preparing(options.clone(), pending_resolution));
 
         if let Some(tx) = self.cmd_tx.clone() {
             let cancel = self.new_cancel_token();
@@ -1454,6 +1451,10 @@ impl App {
                     StepStatus::new_with_id(
                         crate::commands::steps::REPOSITORY,
                         "Cloning configuration repository",
+                    ),
+                    StepStatus::new_with_id(
+                        crate::commands::steps::HW_CONFIG,
+                        "Refreshing hardware detection",
                     ),
                     StepStatus::new_with_id(
                         crate::commands::steps::DISK,

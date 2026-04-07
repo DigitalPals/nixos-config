@@ -214,11 +214,7 @@ impl App {
         &mut self,
         report: UpdatePreflightReport,
     ) -> Result<()> {
-        if let AppMode::Update(UpdateState::Preparing {
-            options,
-            ..
-        }) = &self.mode
-        {
+        if let AppMode::Update(UpdateState::Preparing { options, .. }) = &self.mode {
             let options = options.clone();
 
             if report.should_auto_continue() {

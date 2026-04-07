@@ -258,8 +258,7 @@ pub async fn start_preflight(
     pending_resolution: Option<crate::app::LocalChangesResolution>,
 ) -> Result<()> {
     tokio::spawn(async move {
-        if let Err(error) =
-            run_preflight(&tx, cancel, &options, &changes, pending_resolution).await
+        if let Err(error) = run_preflight(&tx, cancel, &options, &changes, pending_resolution).await
         {
             tracing::error!("Update preflight failed: {}", error);
             let _ = tx
@@ -292,8 +291,8 @@ async fn run_preflight(
     )
     .await;
 
-    let health = crate::commands::health::check_health(crate::commands::health::Operation::Update)
-        .await;
+    let health =
+        crate::commands::health::check_health(crate::commands::health::Operation::Update).await;
     if health.is_ok() {
         out(tx, "Required tools are available").await;
         tx.send(CommandMessage::StepComplete {
@@ -364,7 +363,11 @@ async fn run_preflight(
     }
 
     let dry_run = if !health.is_ok() {
-        out(tx, "Skipping dry-run build because required tools are missing").await;
+        out(
+            tx,
+            "Skipping dry-run build because required tools are missing",
+        )
+        .await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PREFLIGHT_DRYRUN.to_string(),
         })
@@ -374,7 +377,11 @@ async fn run_preflight(
         pending_resolution,
         Some(crate::app::LocalChangesResolution::Overwrite)
     ) {
-        out(tx, "Skipping dry-run build until local changes are resolved").await;
+        out(
+            tx,
+            "Skipping dry-run build until local changes are resolved",
+        )
+        .await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PREFLIGHT_DRYRUN.to_string(),
         })
@@ -435,7 +442,8 @@ async fn run_preflight(
         dry_run,
     };
 
-    tx.send(CommandMessage::UpdatePreflightReady { report }).await?;
+    tx.send(CommandMessage::UpdatePreflightReady { report })
+        .await?;
     Ok(())
 }
 

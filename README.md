@@ -90,6 +90,9 @@ The interactive TUI will guide you through:
 3. Confirm the installation (type 'yes')
 4. Set your LUKS encryption passphrase when prompted
 
+During installation, Forge refreshes the machine-detected hardware profile from
+the live system before installing NixOS.
+
 Alternatively, run with arguments for non-interactive install:
 ```bash
 nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/nixos-config#forge -- install kraken /dev/nvme0n1

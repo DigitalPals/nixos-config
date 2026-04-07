@@ -394,7 +394,92 @@ async fn step_prepare_repository(
     Ok(Some(temp_config))
 }
 
-/// Step 4: Configure disk device and update disko configuration
+/// Regenerate the machine-detected hardware profile from the live environment.
+async fn regenerate_hardware_config(
+    runner: &CommandRunner<'_>,
+    output_path: &std::path::Path,
+) -> Result<()> {
+    let temp_dir = format!("/tmp/forge-hw-config-{}", std::process::id());
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("Failed to create temp hardware config dir: {}", temp_dir))?;
+
+    let success = runner
+        .run(
+            "sudo",
+            &[
+                "nixos-generate-config",
+                "--no-filesystems",
+                "--dir",
+                &temp_dir,
+            ],
+        )
+        .await?;
+
+    if !success {
+        anyhow::bail!("nixos-generate-config failed");
+    }
+
+    let generated_path = std::path::Path::new(&temp_dir).join("hardware-configuration.nix");
+    if !generated_path.exists() {
+        anyhow::bail!("generated hardware profile not found");
+    }
+
+    std::fs::copy(&generated_path, output_path).with_context(|| {
+        format!(
+            "Failed to replace hardware profile at {}",
+            output_path.display()
+        )
+    })?;
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(())
+}
+
+/// Step 4: Refresh machine-detected hardware profile from the live installer.
+async fn step_refresh_hardware_config(
+    runner: &CommandRunner<'_>,
+    temp_config: &std::path::Path,
+    hostname: &str,
+) -> Result<bool> {
+    runner
+        .out("Refreshing machine-detected hardware profile from the live system...")
+        .await;
+
+    let hardware_file = temp_config
+        .join(constants::HOSTS_SUBDIR)
+        .join(hostname)
+        .join("hardware-configuration.nix");
+
+    if !hardware_file.exists() {
+        runner
+            .out("No hardware profile found for this host, keeping repository defaults.")
+            .await;
+        runner.step_complete(super::steps::HW_CONFIG).await?;
+        return Ok(true);
+    }
+
+    match regenerate_hardware_config(runner, &hardware_file).await {
+        Ok(()) => {
+            runner
+                .out("Machine-detected hardware profile refreshed successfully.")
+                .await;
+        }
+        Err(e) => {
+            runner
+                .err(&format!(
+                    "Hardware detection refresh failed, continuing with the checked-in profile: {}",
+                    e
+                ))
+                .await;
+        }
+    }
+
+    runner.step_complete(super::steps::HW_CONFIG).await?;
+    Ok(true)
+}
+
+/// Step 5: Configure disk device and update disko configuration
 async fn step_configure_disk(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
@@ -527,7 +612,7 @@ async fn step_configure_disk(
     Ok(true)
 }
 
-/// Step 4b: Configure GPU bus IDs for hybrid GPU systems
+/// Step 5b: Configure GPU bus IDs for hybrid GPU systems
 async fn step_configure_gpu(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
@@ -633,7 +718,7 @@ async fn step_configure_gpu(
     Ok(true)
 }
 
-/// Step 5: Run disko to partition and format disks
+/// Step 6: Run disko to partition and format disks
 async fn step_run_disko(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
@@ -897,7 +982,7 @@ async fn step_run_disko(
     Ok(true)
 }
 
-/// Step 5b: Configure hibernate boot settings (after disko, before nixos-install)
+/// Step 6b: Configure hibernate boot settings (after disko, before nixos-install)
 /// Detects resume_offset from swapfile and injects boot settings into host config
 /// For LVM configs, hibernate is pre-configured in the host's default.nix
 async fn step_configure_hibernate(
@@ -1020,7 +1105,7 @@ async fn step_configure_hibernate(
     Ok(true)
 }
 
-/// Step 6: Install NixOS
+/// Step 7: Install NixOS
 async fn step_install_nixos(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
@@ -1260,7 +1345,7 @@ async fn step_install_nixos(
     Ok(true)
 }
 
-/// Step 7: Set user password
+/// Step 8: Set user password
 async fn step_set_user_password(
     runner: &CommandRunner<'_>,
     username: &str,
@@ -1441,32 +1526,37 @@ async fn run_install(
         None => return Ok(()),
     };
 
-    // Step 4: Configure disk (including swap mode)
+    // Step 4: Refresh machine-detected hardware profile
+    if !step_refresh_hardware_config(&runner, &temp_config, hostname).await? {
+        return Ok(());
+    }
+
+    // Step 5: Configure disk (including swap mode)
     if !step_configure_disk(&runner, &temp_config, hostname, disk, username, swap_mode).await? {
         return Ok(());
     }
 
-    // Step 4b: Configure GPU bus IDs (for hybrid GPU systems)
+    // Step 5b: Configure GPU bus IDs (for hybrid GPU systems)
     if !step_configure_gpu(&runner, &temp_config, hostname).await? {
         return Ok(());
     }
 
-    // Step 5: Run disko
+    // Step 6: Run disko
     if !step_run_disko(&runner, &temp_config, hostname, password).await? {
         return Ok(());
     }
 
-    // Step 5b: Configure hibernate boot settings (if hibernate mode selected)
+    // Step 6b: Configure hibernate boot settings (if hibernate mode selected)
     if !step_configure_hibernate(&runner, &temp_config, hostname, swap_mode).await? {
         return Ok(());
     }
 
-    // Step 6: Install NixOS
+    // Step 7: Install NixOS
     if !step_install_nixos(&runner, &temp_config, hostname, username).await? {
         return Ok(());
     }
 
-    // Step 7: Set user password
+    // Step 8: Set user password
     step_set_user_password(&runner, username, password).await?;
 
     // Show completion message
