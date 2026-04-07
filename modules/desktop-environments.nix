@@ -68,4 +68,12 @@ in
 
   # Hyprland wrapper script in PATH
   environment.systemPackages = [ hyprlandSessions.script ];
+
+  # Hyprland sources a Noctalia-generated color snippet during config parse.
+  # On fresh installs that file must already exist before the first session
+  # starts, otherwise Hyprland aborts config loading and keybinds never come up.
+  systemd.tmpfiles.rules = [
+    "d /home/${username}/.config/hypr/noctalia 0755 ${username} users -"
+    "f /home/${username}/.config/hypr/noctalia/noctalia-colors.conf 0644 ${username} users -"
+  ];
 }
