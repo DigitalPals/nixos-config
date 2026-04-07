@@ -1276,6 +1276,24 @@ async fn step_install_nixos(
         .out("  /mnt/home exists (btrfs subvolume mounted)")
         .await;
 
+    // Remove installer-only passwordFile entries before copying the
+    // configuration into the installed system.
+    let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
+    if let Ok(content) = std::fs::read_to_string(&disko_default_file) {
+        let cleaned = remove_luks_password_file(&content);
+        if cleaned != content {
+            std::fs::write(&disko_default_file, cleaned).with_context(|| {
+                format!(
+                    "Failed to clean installer-only LUKS config: {}",
+                    disko_default_file
+                )
+            })?;
+            runner
+                .out("  Removed temporary installer-only LUKS keyfile setting")
+                .await;
+        }
+    }
+
     // Copy configuration to user home directory
     // Note: We use sudo for all file operations because nix run doesn't preserve EUID=0
     runner
@@ -1715,6 +1733,12 @@ fn inject_luks_password_file(content: &str) -> String {
     LUKS_NAME_RE
         .replace(&cleaned, replacement.as_str())
         .to_string()
+}
+
+/// Remove any temporary installer-only passwordFile entries from the disko
+/// config before it is copied onto the installed system.
+fn remove_luks_password_file(content: &str) -> String {
+    PASSWORD_FILE_RE.replace_all(content, "").to_string()
 }
 
 /// Inject @swap subvolume into disko configuration for hibernate support
