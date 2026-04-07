@@ -1278,20 +1278,26 @@ async fn step_install_nixos(
 
     // Remove installer-only passwordFile entries before copying the
     // configuration into the installed system.
-    let disko_default_file = format!("{}/modules/disko/default.nix", temp_config_str);
-    if let Ok(content) = std::fs::read_to_string(&disko_default_file) {
-        let cleaned = remove_luks_password_file(&content);
-        if cleaned != content {
-            std::fs::write(&disko_default_file, cleaned).with_context(|| {
-                format!(
-                    "Failed to clean installer-only LUKS config: {}",
-                    disko_default_file
-                )
-            })?;
-            runner
-                .out("  Removed temporary installer-only LUKS keyfile setting")
-                .await;
+    let disko_files = [
+        format!("{}/modules/disko/default.nix", temp_config_str),
+        format!("{}/modules/disko/{}.nix", temp_config_str, hostname),
+    ];
+    let mut removed_installer_keyfile = false;
+    for disko_file in &disko_files {
+        if let Ok(content) = std::fs::read_to_string(disko_file) {
+            let cleaned = remove_luks_password_file(&content);
+            if cleaned != content {
+                std::fs::write(disko_file, cleaned).with_context(|| {
+                    format!("Failed to clean installer-only LUKS config: {}", disko_file)
+                })?;
+                removed_installer_keyfile = true;
+            }
         }
+    }
+    if removed_installer_keyfile {
+        runner
+            .out("  Removed temporary installer-only LUKS keyfile setting")
+            .await;
     }
 
     // Copy configuration to user home directory
