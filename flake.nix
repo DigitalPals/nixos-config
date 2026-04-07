@@ -23,13 +23,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Portal - SSH connection manager (uses own nixpkgs to match cachix builds)
-    # Points to release branch for stable builds with cachix cache hits
-    portal.url = "github:DigitalPals/portal/release";
-
   };
 
-  outputs = { self, nixpkgs, home-manager, noctalia, disko, portal, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, noctalia, disko, ... }@inputs:
   let
     system = "x86_64-linux";
 
@@ -68,7 +64,7 @@
       home-manager.backupFileExtension = "backup";
       # Avoid rebuild failures when a .backup file already exists.
       home-manager.overwriteBackup = true;
-      home-manager.extraSpecialArgs = { inherit inputs hostname username forge portal; };
+      home-manager.extraSpecialArgs = { inherit inputs hostname username forge; };
       home-manager.users.${username} = import ./home/home.nix;
     };
 

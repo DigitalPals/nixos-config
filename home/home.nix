@@ -1,5 +1,5 @@
 # Home Manager configuration
-{ config, pkgs, inputs, lib, osConfig, username, hostname, portal, ... }:
+{ config, pkgs, inputs, lib, osConfig, username, hostname, ... }:
 
 let
   # Dynamically load all wallpapers from ../wallpapers directory
@@ -164,7 +164,6 @@ in
     fastfetch
     jq
     nodejs
-    portal.packages.${pkgs.stdenv.hostPlatform.system}.default  # SSH client
     lazygit
     ripgrep
     fd

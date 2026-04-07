@@ -9,7 +9,7 @@
   # Enable flakes
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
-  # Binary caches (Cachix for Portal)
+  # Binary caches
   nix.settings.substituters = [
     "https://cache.nixos.org"
     "https://digitalpals.cachix.org"
@@ -92,7 +92,7 @@
     trustedInterfaces = [ "tailscale0" ];
   };
 
-  # SSH server intentionally disabled - use Portal SSH client for outbound connections
+  # SSH server intentionally disabled by default.
   # If SSH access is needed, enable: services.openssh.enable = true;
 
   # Disable NetworkManager-wait-online to speed up boot
