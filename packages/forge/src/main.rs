@@ -44,6 +44,9 @@ enum Commands {
         hostname: Option<String>,
         /// Target disk device (e.g., /dev/nvme0n1)
         disk: Option<String>,
+        /// Skip refreshing the hardware profile from the live installer
+        #[arg(long)]
+        no_refresh_hardware: bool,
     },
     /// Create a new host configuration
     CreateHost {
@@ -140,8 +143,17 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Install { hostname, disk }) => {
-            run_tui(AppMode::Install(app::InstallState::new(hostname, disk))).await
+        Some(Commands::Install {
+            hostname,
+            disk,
+            no_refresh_hardware,
+        }) => {
+            run_tui(AppMode::Install(app::InstallState::new(
+                hostname,
+                disk,
+                !no_refresh_hardware,
+            )))
+            .await
         }
         Some(Commands::CreateHost { hostname: _ }) => {
             // Hostname is now entered at the end of the wizard, so we always start with hardware detection

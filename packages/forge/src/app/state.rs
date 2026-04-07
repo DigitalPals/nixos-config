@@ -61,12 +61,25 @@ pub enum SwapMode {
 }
 
 /// User credentials and options collected during installation
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct InstallCredentials {
     pub username: String,
     pub password: String,
     pub confirm_password: String,
     pub swap_mode: SwapMode,
+    pub refresh_hardware_config: bool,
+}
+
+impl Default for InstallCredentials {
+    fn default() -> Self {
+        Self {
+            username: String::new(),
+            password: String::new(),
+            confirm_password: String::new(),
+            swap_mode: SwapMode::default(),
+            refresh_hardware_config: true,
+        }
+    }
 }
 
 /// Installation state machine
@@ -122,7 +135,11 @@ pub enum InstallState {
 }
 
 impl InstallState {
-    pub fn new(hostname: Option<String>, disk: Option<String>) -> Self {
+    pub fn new(
+        hostname: Option<String>,
+        disk: Option<String>,
+        refresh_hardware_config: bool,
+    ) -> Self {
         match (hostname, disk) {
             (Some(host), Some(disk_path)) => {
                 // Direct install with provided args - go to credentials
@@ -133,10 +150,14 @@ impl InstallState {
                     model: None,
                     partitions: vec![],
                 };
+                let credentials = InstallCredentials {
+                    refresh_hardware_config,
+                    ..InstallCredentials::default()
+                };
                 InstallState::EnterCredentials {
                     host,
                     disk,
-                    credentials: InstallCredentials::default(),
+                    credentials,
                     active_field: CredentialField::Username,
                     error: None,
                 }

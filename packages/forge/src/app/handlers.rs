@@ -1418,7 +1418,9 @@ impl App {
         {
             match key.code {
                 KeyCode::Char(c) => {
-                    if input.len() < MAX_INPUT_LENGTH {
+                    if (c == 'h' || c == 'H') && input.is_empty() {
+                        credentials.refresh_hardware_config = !credentials.refresh_hardware_config;
+                    } else if input.len() < MAX_INPUT_LENGTH {
                         input.push(c);
                     }
                     (None, None, false)
@@ -1488,6 +1490,7 @@ impl App {
                         &creds.username,
                         &creds.password,
                         creds.swap_mode.clone(),
+                        creds.refresh_hardware_config,
                     )
                     .await?;
                 }

@@ -164,6 +164,7 @@ pub async fn start_install(
     username: &str,
     password: &str,
     swap_mode: SwapMode,
+    refresh_hardware_config: bool,
 ) -> Result<()> {
     let hostname = hostname.to_string();
     let disk = disk.to_string();
@@ -171,7 +172,17 @@ pub async fn start_install(
     let password = password.to_string();
 
     tokio::spawn(async move {
-        if let Err(e) = run_install(&tx, &hostname, &disk, &username, &password, &swap_mode).await {
+        if let Err(e) = run_install(
+            &tx,
+            &hostname,
+            &disk,
+            &username,
+            &password,
+            &swap_mode,
+            refresh_hardware_config,
+        )
+        .await
+        {
             let error_msg = format!("{:#}", e); // Full error chain with context
             tracing::error!("Installation failed: {}", error_msg);
             // Display error to user
@@ -441,7 +452,16 @@ async fn step_refresh_hardware_config(
     runner: &CommandRunner<'_>,
     temp_config: &std::path::Path,
     hostname: &str,
+    refresh_hardware_config: bool,
 ) -> Result<bool> {
+    if !refresh_hardware_config {
+        runner
+            .out("Hardware refresh disabled, keeping the checked-in hardware profile.")
+            .await;
+        runner.step_complete(super::steps::HW_CONFIG).await?;
+        return Ok(true);
+    }
+
     runner
         .out("Refreshing machine-detected hardware profile from the live system...")
         .await;
@@ -1507,6 +1527,7 @@ async fn run_install(
     username: &str,
     password: &str,
     swap_mode: &SwapMode,
+    refresh_hardware_config: bool,
 ) -> Result<()> {
     let runner = CommandRunner::new(tx);
 
@@ -1527,7 +1548,9 @@ async fn run_install(
     };
 
     // Step 4: Refresh machine-detected hardware profile
-    if !step_refresh_hardware_config(&runner, &temp_config, hostname).await? {
+    if !step_refresh_hardware_config(&runner, &temp_config, hostname, refresh_hardware_config)
+        .await?
+    {
         return Ok(());
     }
 

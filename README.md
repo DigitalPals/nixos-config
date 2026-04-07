@@ -91,7 +91,8 @@ The interactive TUI will guide you through:
 4. Set your LUKS encryption passphrase when prompted
 
 During installation, Forge refreshes the machine-detected hardware profile from
-the live system before installing NixOS.
+the live system before installing NixOS by default. You can turn that off at
+the confirmation screen if you want to keep the checked-in profile as-is.
 
 Alternatively, run with arguments for non-interactive install:
 ```bash

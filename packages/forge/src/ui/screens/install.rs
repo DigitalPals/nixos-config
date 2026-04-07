@@ -685,6 +685,16 @@ pub fn draw_overview(
         Span::styled(swap_mode_text, theme::text()),
     ]));
 
+    let hardware_refresh_text = if credentials.refresh_hardware_config {
+        "Yes (refresh from live system)"
+    } else {
+        "No (keep checked-in profile)"
+    };
+    detail_lines.push(Line::from(vec![
+        Span::styled("  Hardware: ", theme::dim()),
+        Span::styled(hardware_refresh_text, theme::text()),
+    ]));
+
     // Add hardware info if available (new host)
     if let Some(hw) = hardware_config {
         detail_lines.push(Line::from(vec![
@@ -732,7 +742,11 @@ pub fn draw_overview(
     draw_footer(
         frame,
         chunks[3],
-        &[("Type 'yes' + Enter", "Confirm"), ("Esc", "Cancel")],
+        &[
+            ("h", "Toggle hardware refresh"),
+            ("Type 'yes' + Enter", "Confirm"),
+            ("Esc", "Cancel"),
+        ],
     );
 }
 
