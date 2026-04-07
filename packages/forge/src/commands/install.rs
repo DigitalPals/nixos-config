@@ -928,8 +928,8 @@ async fn step_run_disko(
         .out("  Trying /dev/disk/by-partlabel/cryptroot...")
         .await;
     let (ok1, uuid1, err1) = run_capture(
-        "cryptsetup",
-        &["luksUUID", "/dev/disk/by-partlabel/cryptroot"],
+        "sudo",
+        &["cryptsetup", "luksUUID", "/dev/disk/by-partlabel/cryptroot"],
     )
     .await?;
     if ok1 && !uuid1.trim().is_empty() {
@@ -949,8 +949,9 @@ async fn step_run_disko(
             .out("  Trying to find backing device of /dev/mapper/cryptroot...")
             .await;
         let (ok2, dmsetup_out, _) = run_capture(
-            "sh",
+            "sudo",
             &[
+                "sh",
                 "-c",
                 "dmsetup deps -o devname cryptroot 2>/dev/null | grep -oP '\\(\\K[^)]+' | head -1",
             ],
@@ -961,7 +962,8 @@ async fn step_run_disko(
             runner
                 .out(&format!("  Backing device: {}", backing_dev))
                 .await;
-            let (ok3, uuid3, _) = run_capture("cryptsetup", &["luksUUID", &backing_dev]).await?;
+            let (ok3, uuid3, _) =
+                run_capture("sudo", &["cryptsetup", "luksUUID", &backing_dev]).await?;
             if ok3 && !uuid3.trim().is_empty() {
                 luks_uuid = Some(uuid3.trim().to_string());
                 runner
@@ -975,7 +977,7 @@ async fn step_run_disko(
     if luks_uuid.is_none() {
         runner.out("  Trying common partition paths...").await;
         for dev in &["/dev/nvme0n1p2", "/dev/sda2", "/dev/vda2"] {
-            let (ok, uuid, _) = run_capture("cryptsetup", &["luksUUID", dev]).await?;
+            let (ok, uuid, _) = run_capture("sudo", &["cryptsetup", "luksUUID", dev]).await?;
             if ok && !uuid.trim().is_empty() {
                 luks_uuid = Some(uuid.trim().to_string());
                 runner
