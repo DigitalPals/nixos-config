@@ -155,13 +155,17 @@ in
 
   # Intel CPU configuration
   hardware.cpu.intel.updateMicrocode = true;
+  # Use the upstream 7.0 release-candidate kernel so Panther Lake audio support
+  # comes from mainline instead of our temporary 6.19 backport set.
+  boot.kernelPackages = lib.mkForce pkgs.linuxPackages_testing;
   boot.kernelModules = [ "kvm-intel" "coretemp" "v4l2loopback" ];
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
 
   # Intel thermald for thermal management (Dell DPTF integration)
   services.thermald.enable = true;
 
-  # Panther Lake audio support matches Omarchy's SDCA backports on 6.19.x.
+  # Keep the SDCA backports available only for older 6.19-based testing.
+  # They are skipped automatically once the selected kernel is 7.0+.
   boot.kernelPatches = lib.mkIf (lib.hasPrefix "6.19" config.boot.kernelPackages.kernel.version) (
     map mkSdcaPatch sdcaPatchNames
   );
@@ -250,9 +254,9 @@ in
   };
 
   # === Audio: SOF/HDA conflict workaround ===
-  # Omarchy currently carries SDCA backports on top of 6.19.x for Panther Lake.
-  # If linuxPackages_latest moves beyond 6.19.x, re-test audio before removing
-  # or reworking the kernel patch series above.
+  # Omarchy carried SDCA backports on top of 6.19.x for early Panther Lake
+  # support. With the testing kernel on 7.0-rc, audio should come from
+  # upstream support instead of this repo's temporary backport set.
 
   # Lid switch behavior
   services.logind.settings.Login = {
