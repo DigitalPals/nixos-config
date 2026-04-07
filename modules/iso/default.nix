@@ -82,7 +82,7 @@ in
   boot.supportedFilesystems.zfs = lib.mkForce false;
 
   # ISO naming - includes kernel version
-  isoImage.isoBaseName = lib.mkForce "NixOS-Cybex-${config.boot.kernelPackages.kernel.version}";
+  image.baseName = lib.mkForce "NixOS-Cybex-${config.boot.kernelPackages.kernel.version}";
   isoImage.volumeID = "NIXOS_CYBEX";
 
   # Auto-login to nixos user

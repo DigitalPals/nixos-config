@@ -40,7 +40,7 @@ struct Cli {
 enum Commands {
     /// Fresh NixOS installation
     Install {
-        /// Target hostname (kraken or G1a)
+        /// Target hostname (for example: xps)
         hostname: Option<String>,
         /// Target disk device (e.g., /dev/nvme0n1)
         disk: Option<String>,

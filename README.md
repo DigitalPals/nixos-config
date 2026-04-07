@@ -85,7 +85,7 @@ nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/ni
 ```
 
 The interactive TUI will guide you through:
-1. Select your host (kraken, G1a, or proart)
+1. Select your host (`kraken`, `G1a`, `proart`, or `xps`)
 2. Select the target disk
 3. Confirm the installation (type 'yes')
 4. Set your LUKS encryption passphrase when prompted

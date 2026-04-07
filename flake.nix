@@ -50,6 +50,7 @@
 
     pkgs = import nixpkgs {
       inherit system;
+      config.allowUnfree = true;
       overlays = [ gtkPortalOverlay xpsHardwareOverlay ];
     };
 
@@ -99,14 +100,17 @@
       disko = {
         type = "app";
         program = "${disko.packages.${system}.disko}/bin/disko";
+        meta.description = "Disko partitioning utility";
       };
       forge = {
         type = "app";
         program = "${forge}/bin/forge";
+        meta.description = "Forge installer and system management tool";
       };
       default = {
         type = "app";
         program = "${forge}/bin/forge";
+        meta.description = "Forge installer and system management tool";
       };
     };
 

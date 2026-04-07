@@ -72,7 +72,6 @@
   # asusctl provides fan curve control and platform profile management
   services.asusd = {
     enable = true;
-    enableUserService = true;  # Enables user-level notifications and control
     # Default to Quiet profile on both AC and battery for silent operation
     asusdConfig.text = ''
       (
