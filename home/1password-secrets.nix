@@ -1,7 +1,8 @@
 # SSH defaults
 #
-# SSH uses the local key in ~/.ssh directly so Git and other CLI tools do
-# not wake up desktop credential agents just to authenticate over SSH.
+# Keys are managed through 1Password's SSH agent. The agent socket is set
+# explicitly so SSH works even when SSH_AUTH_SOCK is not exported to the
+# current session (e.g. Claude Code terminal, cron jobs).
 #
 { config, pkgs, lib, ... }:
 
@@ -10,11 +11,9 @@
     enable = true;
     enableDefaultConfig = false;
 
-    # Default: use the local key file directly from disk.
     matchBlocks."*" = {
-      identityFile = "~/.ssh/id_ed25519";
       extraOptions = {
-        IdentitiesOnly = "yes";
+        IdentityAgent = "~/.1password/agent.sock";
       };
     };
 
