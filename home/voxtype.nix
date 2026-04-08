@@ -63,7 +63,7 @@
     if [ ! -f "$model" ]; then
       mkdir -p "$(dirname "$model")"
       if ${pkgs.curl}/bin/curl -m 5 -fsSL https://voxtype.io >/dev/null 2>&1; then
-        ${pkgs.voxtype-vulkan}/bin/voxtype setup --download --no-post-install >/dev/null 2>&1 || true
+        ${pkgs.voxtype-vulkan}/bin/voxtype setup --download --model base --no-post-install >/dev/null 2>&1 || [ -f "$model" ]
       fi
     fi
   '';

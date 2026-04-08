@@ -41,6 +41,7 @@ stdenv.mkDerivation {
 
   configureFlags = [
     "--sbindir=${placeholder "out"}/bin"
+    "--localstatedir=/var"
     "--with-systemdsystemunitdir=${placeholder "out"}/lib/systemd/system"
     "--with-dbus-sys-dir=${placeholder "out"}/etc/dbus-1/system.d"
   ];

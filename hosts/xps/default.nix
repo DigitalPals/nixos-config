@@ -6,34 +6,6 @@
 # WiFi: Intel Wi-Fi 7 BE211
 { config, pkgs, lib, ... }:
 let
-  hurricanOmarchyEnabling = pkgs.fetchFromGitHub {
-    owner = "TsaiGaggery";
-    repo = "hurrican_omarchy_enabling";
-    rev = "2e3aba622c03a2510da2b69a57ea00111f9759c9";
-    hash = "sha256-b1468p0YcZA8gp0XMPIVg0BpswM5vUYenUdmZrkbuWA=";
-  };
-
-  sdcaPatchNames = [
-    "0001-ASoC-SDCA-functions-Fix-confusing-cleanup.h-syntax.patch"
-    "0002-ASoC-SDCA-Add-ASoC-jack-hookup-in-class-driver.patch"
-    "0003-ASoC-SDCA-Replace-use-of-system_wq-with-system_dfl_w.patch"
-    "0004-ASoC-SDCA-Add-SDCA-IRQ-enable-disable-helpers.patch"
-    "0005-ASoC-SDCA-Add-basic-system-suspend-support.patch"
-    "0006-ASoC-SDCA-Device-boot-into-the-system-suspend-proces.patch"
-    "0007-ASoC-SDCA-Add-lock-to-serialise-the-Function-initial.patch"
-    "0008-ASoC-SDCA-Tidy-up-some-memory-allocations.patch"
-    "0009-ASoC-SDCA-Handle-CONFIG_PM_SLEEP-not-being-set.patch"
-    "0010-ASoC-SDCA-Add-NO_DIRECT_COMPLETE-flag-to-class-drive.patch"
-    "0012-ASoC-SDCA-Rearrange-FDL-file-messages.patch"
-    "0013-ASoC-SDCA-Add-regmap-defaults-for-specification-defi.patch"
-    "0014-ASoC-SDCA-Limit-values-user-can-write-to-Selected-Mo.patch"
-  ];
-
-  mkSdcaPatch = name: {
-    inherit name;
-    patch = "${hurricanOmarchyEnabling}/sdca-backport-patches/${name}";
-  };
-
   xpsHapticTouchpad = pkgs.writeTextFile {
     name = "xps-haptic-touchpad";
     executable = true;
@@ -54,7 +26,8 @@ let
       import sys
 
       VENDOR = "06CB"
-      PRODUCT = "D01A"
+      # Dell has shipped at least two Synaptics product IDs on this XPS generation.
+      PRODUCTS = {"D01A", "D01D"}
       REPORT_ID = 0x37
       INTENSITY = 40
 
@@ -74,7 +47,9 @@ let
               try:
                   with open(uevent, encoding="utf-8") as handle:
                       content = handle.read().upper()
-                  if f"0000{VENDOR}" in content and f"0000{PRODUCT}" in content:
+                  if f"0000{VENDOR}" in content and any(
+                      f"0000{product}" in content for product in PRODUCTS
+                  ):
                       return os.path.join("/dev", os.path.basename(path))
               except OSError:
                   continue
@@ -86,7 +61,7 @@ let
               try:
                   with open(path, encoding="utf-8") as handle:
                       name = handle.read().strip().upper()
-                  if VENDOR in name and PRODUCT in name and "TOUCHPAD" in name:
+                  if VENDOR in name and any(product in name for product in PRODUCTS) and "TOUCHPAD" in name:
                       event = path.split("/")[-3]
                       return os.path.join("/dev/input", event)
               except OSError:
@@ -144,11 +119,12 @@ in
   networking.hostName = "xps";
 
   # WiFi regulatory domain (enables proper 5GHz/6GHz channels and power levels)
+  # Use kernel param (not extraModprobeConfig) since cfg80211 is built-in on testing kernels.
   hardware.wirelessRegulatoryDatabase = true;
+  boot.kernelParams = [ "cfg80211.ieee80211_regdom=NL" ];
   boot.extraModprobeConfig = ''
-    options cfg80211 ieee80211_regdom=NL
-    # Temporary Panther Lake WiFi 7 workaround: BE211 is currently more stable
-    # when EHT/802.11be is disabled, falling back to WiFi 6/802.11ax.
+    # WiFi 7 (EHT/802.11be) causes poor performance with some routers/environments;
+    # fall back to WiFi 6/802.11ax until the iwlwifi BE211 driver matures further.
     options iwlwifi disable_11be=Y
     options v4l2loopback video_nr=50 card_label="Intel IPU7 Camera" exclusive_caps=1
   '';
@@ -158,17 +134,11 @@ in
   # Use the upstream 7.0 release-candidate kernel so Panther Lake audio support
   # comes from mainline instead of our temporary 6.19 backport set.
   boot.kernelPackages = lib.mkForce pkgs.linuxPackages_testing;
-  boot.kernelModules = [ "kvm-intel" "coretemp" "v4l2loopback" ];
+  boot.kernelModules = [ "v4l2loopback" ];
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
 
   # Intel thermald for thermal management (Dell DPTF integration)
   services.thermald.enable = true;
-
-  # Keep the SDCA backports available only for older 6.19-based testing.
-  # They are skipped automatically once the selected kernel is 7.0+.
-  boot.kernelPatches = lib.mkIf (lib.hasPrefix "6.19" config.boot.kernelPackages.kernel.version) (
-    map mkSdcaPatch sdcaPatchNames
-  );
 
   environment.systemPackages = with pkgs; [
     icamerasrcIpu75xa
@@ -203,6 +173,7 @@ in
     ACTION=="add", SUBSYSTEM=="pci", KERNEL=="0000:00:19.0", ATTR{power/control}="on"
     ACTION=="add", SUBSYSTEM=="platform", KERNEL=="i2c_designware.0", ATTR{power/control}="on"
     ACTION=="add|change", SUBSYSTEM=="i2c", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="d01a", ATTR{power/control}="on"
+    ACTION=="add|change", SUBSYSTEM=="i2c", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="d01d", ATTR{power/control}="on"
 
     # Make the virtual camera device accessible to the desktop session
     KERNEL=="video50", GROUP="video", MODE="0660"
@@ -226,20 +197,6 @@ in
     };
   };
 
-  systemd.services.xps-wireless-regdom = {
-    description = "Apply XPS wireless regulatory domain";
-    after = [ "NetworkManager.service" ];
-    wantedBy = [ "multi-user.target" ];
-
-    serviceConfig = {
-      Type = "oneshot";
-    };
-
-    script = ''
-      ${pkgs.iw}/bin/iw reg set NL || true
-    '';
-  };
-
   systemd.services.intel-lpmd = {
     description = "Intel Low Power Mode Daemon";
     after = [ "dbus.service" "upower.service" ];
@@ -248,15 +205,11 @@ in
 
     serviceConfig = {
       ExecStart = "${pkgs.intelLpmd}/bin/intel_lpmd --systemd --dbus-enable";
+      RuntimeDirectory = "intel_lpmd";
       Restart = "on-failure";
       Type = "simple";
     };
   };
-
-  # === Audio: SOF/HDA conflict workaround ===
-  # Omarchy carried SDCA backports on top of 6.19.x for early Panther Lake
-  # support. With the testing kernel on 7.0-rc, audio should come from
-  # upstream support instead of this repo's temporary backport set.
 
   # Lid switch behavior
   services.logind.settings.Login = {

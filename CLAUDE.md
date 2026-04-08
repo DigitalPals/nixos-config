@@ -22,7 +22,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   ├── iso/                        # Forge installer ISO config
 │   └── hardware/
 │       ├── nvidia.nix              # NVIDIA driver config
-│       └── intel.nix               # Intel GPU config (unused)
+│       └── intel.nix               # Intel GPU config (XPS / Panther Lake)
 ├── home/
 │   ├── home.nix                    # Main Home Manager config
 │   ├── ghostty.nix                 # Terminal config
@@ -516,9 +516,7 @@ cat /proc/acpi/wakeup | grep enabled                 # Wakeup sources
 
 ### Panther Lake Display Fix
 
-**Problem:** The Dell XPS OLED panel can drop to 10Hz on Panther Lake systems using the `xe` kernel module.
-
-**Current understanding:** Omarchy initially disabled several Xe power-saving features, but after follow-up testing they narrowed the XPS OLED regression down to Panel Replay.
+**Problem:** The Dell XPS OLED panel can drop to 10Hz and window dragging becomes laggy after suspend/resume on Panther Lake systems using the `xe` kernel module. Root cause is Panel Replay.
 
 **Solution:** Kernel parameter in `modules/hardware/intel.nix`:
 ```nix
@@ -527,31 +525,33 @@ boot.kernelParams = [
 ];
 ```
 
-**Source:** [Omarchy Linux XPS Panther Lake display fix](https://github.com/basecamp/omarchy/blob/dev/install/config/hardware/dell/fix-xps-ptl-display.sh)
-
-**When fixed:** Re-test without this parameter once newer Xe fixes land upstream.
+**When fixed:** The upstream `QUIRK_DISABLE_PANEL_REPLAY` for DA14260 lands in kernel **7.1**. Remove this parameter once `linuxPackages_testing` reaches 7.1+.
 
 ### Dell XPS Haptic Touchpad
 
-**Problem:** Synaptics haptic touchpad (06CB:D01A) loses haptic feedback after suspend/resume due to aggressive I2C power management.
+**Problem:** Synaptics haptic touchpad (06CB:D01A) loses haptic feedback after suspend/resume due to aggressive I2C power management. The kernel also does not auto-generate haptic pulses via the HID Manual Trigger path.
 
 **Solution:** Two-part fix in `hosts/xps/default.nix`:
-1. Udev rule to keep I2C controller powered (`power/control="on"`)
+1. Udev rules to keep I2C controller and touchpad device powered (`power/control="on"`)
 2. Userspace haptic feedback daemon that sends click pulses through hidraw
 
-**Source:** [Omarchy Linux haptic touchpad fix](https://github.com/basecamp/omarchy/blob/dev/install/config/hardware/dell/fix-xps-haptic-touchpad.sh)
+### Dell XPS Audio
 
-### Dell XPS Audio (SOF Conflict)
-
-**Problem:** Early Panther Lake support needed extra audio help before all fixes were upstreamed.
-
-**Status:** Omarchy briefly carried a temporary SOF blacklist, but their current direction is a patched Panther Lake 6.19.10 kernel. This repo instead carries SDCA backports on 6.19.x, so there is no blacklist enabled by default.
-
-**Source:** [Omarchy 3.5.0 Panther Lake support notes](https://github.com/basecamp/omarchy/pull/5192)
+**Status:** Audio is fully supported in kernel 7.0+ via mainline SDCA drivers. No patches or workarounds needed. The 6.19-era SDCA backport infrastructure has been removed.
 
 ### Intel WiFi 7 BE211
 
-Uses the `iwlwifi` driver which is well-supported in Linux. No special workarounds needed (unlike MediaTek MT7925 on G1a/proart). WiFi power save is globally disabled in `modules/common.nix`.
+Uses the `iwlwifi` driver. WiFi 7 (EHT/802.11be) is disabled via `options iwlwifi disable_11be=Y` in `hosts/xps/default.nix` — the BE211 driver on 7.0-rc causes poor real-world performance (slow throughput) even though the kernel accepts the connection. Falling back to WiFi 6/802.11ax is stable. WiFi power save is globally disabled in `modules/common.nix`.
+
+**When to re-test:** Try removing `disable_11be=Y` on a stable 7.x release or when iwlwifi changelog mentions BE211/EHT fixes.
+
+### Wireless Regulatory Domain
+
+The regulatory domain (NL) is set via kernel parameter rather than a modprobe option, because `cfg80211` is built into the testing kernel and modprobe options have no effect on built-in modules:
+
+```nix
+boot.kernelParams = [ "cfg80211.ieee80211_regdom=NL" ];
+```
 
 ## Key NVIDIA Settings
 

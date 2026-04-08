@@ -13,22 +13,24 @@
   ];
 
   # Intel-specific VA-API for hardware video acceleration
+  # Panther Lake/Xe3 uses the iHD backend exclusively; the old i965 driver
+  # targets pre-Broadwell hardware and is not needed here.
   hardware.graphics = {
     extraPackages = with pkgs; [
-      intel-media-driver    # iHD driver for Broadwell+ (VA-API)
-      intel-vaapi-driver    # i965 driver for older Intel GPUs (VA-API)
+      intel-media-driver    # iHD driver for Broadwell+ / Xe (VA-API)
       intel-compute-runtime # OpenCL support
     ];
     extraPackages32 = with pkgs.pkgsi686Linux; [
       intel-media-driver
-      intel-vaapi-driver
     ];
   };
 
-  # Panther Lake display fix for the Dell XPS OLED panel: newer Omarchy
-  # testing narrowed the 10Hz regression down to panel replay alone.
+  # Panther Lake display fix for the Dell XPS OLED panel: Panel Replay causes
+  # a 10Hz regression and laggy window dragging after resume. The upstream
+  # QUIRK_DISABLE_PANEL_REPLAY for DA14260 lands in 7.1; keep this param until
+  # linuxPackages_testing reaches 7.1+.
   boot.kernelParams = [
-    "xe.enable_panel_replay=0" # Disable Panel Replay
+    "xe.enable_panel_replay=0" # Disable Panel Replay (fixed in 7.1 via driver quirk)
   ];
 
   # Environment variables for Intel Wayland
