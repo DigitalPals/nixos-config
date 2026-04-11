@@ -10,11 +10,20 @@ let
   bindingsConfig = import ./bindings.nix { inherit brightnessControl; };
   autostartConfig = import ./autostart.nix { inherit pkgs lib osConfig; };
 
-  # Script to disable laptop screen when an external display is connected
-  # Supports: XREAL One Pro glasses, Apple Studio Display XDR
+  # Script to disable the laptop panel when a known external display is connected.
+  # Supports: XREAL glasses, Apple XDR-class displays, AORUS FO32U2.
   externalMonitorToggle = pkgs.writeShellScript "external-monitor-toggle" ''
     check_external() {
-      ${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -e '.[] | select(.model == "XREAL One Pro" or .model == "Studio XDR" or .model == "AORUS FO32U2")' > /dev/null 2>&1
+      ${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -e '
+        .[]
+        | select(
+            .model == "XREAL One Pro"
+            or .model == "Nreal XREAL One Pro"
+            or .model == "Studio XDR"
+            or .model == "Pro Display XDR"
+            or .model == "AORUS FO32U2"
+          )
+      ' > /dev/null 2>&1
     }
 
     toggle() {
@@ -62,9 +71,10 @@ in {
     extraConfig = hyprlandExtraConfig;
   };
 
-  # External monitor toggle script (G1a only)
+  # External monitor toggle script for laptops that should blank the internal
+  # panel when a known external display is attached.
   xdg.configFile."hypr/external-monitor-toggle.conf".text =
-    if lib.hasPrefix "G1a" hostname then ''
+    if lib.hasPrefix "G1a" hostname || lib.hasPrefix "xps" hostname then ''
       exec-once = ${externalMonitorToggle}
     '' else "";
 
