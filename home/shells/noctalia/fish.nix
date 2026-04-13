@@ -3,7 +3,8 @@
 { config, pkgs, lib, ... }:
 
 let
-  ohMyPoshPackageHash = builtins.hashString "sha256" (toString pkgs.oh-my-posh);
+  ohMyPoshConfigHash = builtins.hashFile "sha256" ./EDM115-newline2.omp.json;
+  ohMyPoshCacheHash = builtins.hashString "sha256" "${toString pkgs.oh-my-posh}:${ohMyPoshConfigHash}";
 in
 {
   programs.fish = {
@@ -27,6 +28,37 @@ in
 
       # VISUAL for programs that distinguish from EDITOR
       set -gx VISUAL nvim
+
+      # Oh My Posh runs from the host Nix store even inside Distrobox. Derive
+      # the prompt OS icon from the active environment's /etc/os-release.
+      set -l posh_os_id (sh -c '. /etc/os-release 2>/dev/null; printf "%s" "$ID"' 2>/dev/null)
+      set -l posh_os_like (sh -c '. /etc/os-release 2>/dev/null; printf "%s" "$ID_LIKE"' 2>/dev/null)
+      switch $posh_os_id
+        case nixos
+          set -gx POSH_OS_ICON ""
+        case fedora
+          set -gx POSH_OS_ICON ""
+        case debian
+          set -gx POSH_OS_ICON ""
+        case ubuntu
+          set -gx POSH_OS_ICON ""
+        case arch
+          set -gx POSH_OS_ICON ""
+        case alpine
+          set -gx POSH_OS_ICON ""
+        case opensuse-tumbleweed opensuse-leap opensuse
+          set -gx POSH_OS_ICON ""
+        case '*'
+          if string match -q "*debian*" $posh_os_like
+            set -gx POSH_OS_ICON ""
+          else if string match -q "*rhel*" $posh_os_like; or string match -q "*fedora*" $posh_os_like
+            set -gx POSH_OS_ICON ""
+          else if string match -q "*arch*" $posh_os_like
+            set -gx POSH_OS_ICON ""
+          else
+            set -gx POSH_OS_ICON ""
+          end
+      end
 
       # Initialize oh-my-posh prompt
       ${pkgs.oh-my-posh}/bin/oh-my-posh init fish --config ~/.config/oh-my-posh/EDM115-newline2.omp.json | source
@@ -123,7 +155,7 @@ in
 
     mkdir -p "$(dirname "$HASH_FILE")"
 
-    NEW_HASH="${ohMyPoshPackageHash}"
+    NEW_HASH="${ohMyPoshCacheHash}"
     OLD_HASH=""
     [ -f "$HASH_FILE" ] && OLD_HASH=$(cat "$HASH_FILE")
 

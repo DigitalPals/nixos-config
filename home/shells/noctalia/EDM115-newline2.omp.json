@@ -29,11 +29,11 @@
           "properties": {
             "cache_duration": "none"
           },
-          "template": " {{ .Icon }}  ",
+          "template": " {{ .Env.POSH_OS_ICON }}  ",
           "foreground": "#f8f8f2",
           "powerline_symbol": "\ue0b0",
           "background": "#282a36",
-          "type": "os",
+          "type": "text",
           "style": "powerline"
         },
         {

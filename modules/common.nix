@@ -166,6 +166,13 @@
     enableOnBoot = true;
   };
 
+  # Distrobox development containers. Keep Docker available for projects, but
+  # use rootless Podman as Distrobox's container backend.
+  virtualisation.podman = {
+    enable = true;
+    defaultNetwork.settings.dns_enabled = true;
+  };
+
   # Audio (PipeWire)
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;
@@ -237,6 +244,8 @@
     rustup
     bun
     balena-cli
+    distrobox
+    podman
     wl-clipboard
     xdg-utils
     openssl

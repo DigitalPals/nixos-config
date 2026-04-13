@@ -15,19 +15,24 @@
 {
   programs.ssh = {
     enable = true;
+    matchBlocks = lib.mkForce {};
     enableDefaultConfig = false;
 
-    matchBlocks."*" = {
-      identityFile = "~/.ssh/id_ed25519";
-      extraOptions = {
-        IdentitiesOnly = "yes";
-      };
-    };
-
-    extraConfig = ''
-      # Security defaults
-      StrictHostKeyChecking accept-new
-      HashKnownHosts yes
-    '';
+    extraConfig = "";
   };
+
+  # OpenSSH inside Distrobox rejects ~/.ssh/config when it is a Home Manager
+  # symlink because the symlink itself appears as mode 0777. Keep a real file.
+  home.activation.sshConfigRegularFile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    mkdir -p "$HOME/.ssh"
+    rm -f "$HOME/.ssh/config"
+    cat > "$HOME/.ssh/config" <<'EOF'
+Host *
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
+  HashKnownHosts yes
+EOF
+    chmod 600 "$HOME/.ssh/config"
+  '';
 }

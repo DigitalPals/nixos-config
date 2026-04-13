@@ -78,6 +78,103 @@ in
       source = ./scripts/clipboard-image-to-file;
       executable = true;
     };
+    # Open or create the default Fedora Distrobox development shell
+    ".local/bin/dev-fedora-shell" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        box_name="dev-fedora"
+        image="registry.fedoraproject.org/fedora-toolbox:latest"
+
+        if ! ${pkgs.distrobox}/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
+          ${pkgs.distrobox}/bin/distrobox create --yes --name "$box_name" --image "$image"
+        fi
+
+        exec ${pkgs.distrobox}/bin/distrobox enter --name "$box_name" -- bash -lc '
+          printf "\033]0;dev-fedora\007"
+          printf "Fedora Distrobox: dev-fedora\n"
+          exec "''${SHELL:-/bin/bash}" -l
+        '
+      '';
+    };
+    # Open or create the default Arch Linux Distrobox development shell
+    ".local/bin/dev-arch-shell" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        box_name="dev-arch"
+        image="docker.io/library/archlinux:latest"
+
+        if ! ${pkgs.distrobox}/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
+          ${pkgs.distrobox}/bin/distrobox create --yes --name "$box_name" --image "$image"
+        fi
+
+        exec ${pkgs.distrobox}/bin/distrobox enter --name "$box_name" -- bash -lc '
+          printf "\033]0;dev-arch\007"
+          printf "Arch Distrobox: dev-arch\n"
+          exec "''${SHELL:-/bin/bash}" -l
+        '
+      '';
+    };
+    # Open or create the default Debian Distrobox development shell
+    ".local/bin/dev-debian-shell" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        box_name="dev-debian"
+        image="docker.io/library/debian:latest"
+
+        if ! ${pkgs.distrobox}/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
+          ${pkgs.distrobox}/bin/distrobox create --yes --name "$box_name" --image "$image"
+        fi
+
+        exec ${pkgs.distrobox}/bin/distrobox enter --name "$box_name" -- bash -lc '
+          printf "\033]0;dev-debian\007"
+          printf "Debian Distrobox: dev-debian\n"
+          exec "''${SHELL:-/bin/bash}" -l
+        '
+      '';
+    };
+    # Distrobox init hook shared by newly-created Fedora, Debian, Arch, etc. boxes.
+    ".local/bin/dev-distrobox-init" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env sh
+
+        # Keep sudo frictionless inside dev containers, matching the host.
+        if command -v sudo >/dev/null 2>&1 && [ -d /etc/sudoers.d ]; then
+          printf '%s ALL=(ALL) NOPASSWD:ALL\n' ${username} > /etc/sudoers.d/99-${username}-nopasswd
+          chmod 0440 /etc/sudoers.d/99-${username}-nopasswd
+        fi
+
+        if command -v dnf >/dev/null 2>&1; then
+          packages="fish sudo curl ca-certificates openssh-clients git git-lfs fzf eza zoxide gh neovim ripgrep fd-find bat jq yq nodejs npm python3-pip gcc gcc-c++ cmake make rustup cargo btop fastfetch direnv oh-my-posh unzip tar gzip xz findutils util-linux procps-ng less"
+          dnf install -y ''${packages} || for package in ''${packages}; do dnf install -y "$package" || true; done
+        elif command -v apt-get >/dev/null 2>&1; then
+          packages="fish sudo curl ca-certificates openssh-client git git-lfs fzf eza zoxide gh neovim ripgrep fd-find bat jq yq nodejs npm python3-pip gcc g++ cmake make cargo btop fastfetch direnv unzip tar gzip xz-utils findutils util-linux procps less"
+          apt-get update || true
+          apt-get install -y ''${packages} || for package in ''${packages}; do apt-get install -y "$package" || true; done
+        elif command -v pacman >/dev/null 2>&1; then
+          packages="fish sudo curl ca-certificates openssh git git-lfs fzf eza zoxide github-cli neovim ripgrep fd bat jq yq nodejs npm python python-pip gcc cmake make rustup cargo btop fastfetch direnv oh-my-posh lazygit lazydocker unzip tar gzip xz findutils util-linux procps-ng less"
+          pacman -Sy --needed --noconfirm ''${packages} || for package in ''${packages}; do pacman -Sy --needed --noconfirm "$package" || true; done
+        elif command -v zypper >/dev/null 2>&1; then
+          packages="fish sudo curl ca-certificates openssh git git-lfs fzf eza zoxide gh neovim ripgrep fd bat jq yq nodejs npm python3-pip gcc gcc-c++ cmake make cargo btop fastfetch direnv unzip tar gzip xz findutils util-linux procps less"
+          zypper install -y ''${packages} || for package in ''${packages}; do zypper install -y "$package" || true; done
+        elif command -v apk >/dev/null 2>&1; then
+          packages="fish sudo curl ca-certificates openssh-client git git-lfs fzf eza zoxide github-cli neovim ripgrep fd bat jq yq nodejs npm py3-pip gcc g++ cmake make cargo btop fastfetch direnv unzip tar gzip xz findutils util-linux procps less"
+          apk update || true
+          apk add ''${packages} || for package in ''${packages}; do apk add "$package" || true; done
+        fi
+
+        true
+      '';
+    };
     # Wrapper for Satty copy command (copies image + converts for CLI tools)
     ".local/bin/clipboard-copy-image" = {
       source = ./scripts/clipboard-copy-image;
@@ -92,6 +189,10 @@ in
       prefix=''${HOME}/.npm-global
     '';
   };
+
+  xdg.configFile."distrobox/distrobox.conf".text = ''
+    container_init_hook="${config.home.homeDirectory}/.local/bin/dev-distrobox-init"
+  '';
 
   # Desktop entry overrides for Wayland
   xdg.desktopEntries."1password" = {

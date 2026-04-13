@@ -1,6 +1,6 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl }:
+{ brightnessControl, homeDirectory }:
 
 ''
   # Variables
@@ -10,6 +10,9 @@
 
   # Applications
   bind = $mainMod, Return, exec, $terminal
+  bind = $mainMod SHIFT, F, exec, $terminal -e ${homeDirectory}/.local/bin/dev-fedora-shell
+  bind = $mainMod SHIFT, A, exec, $terminal -e ${homeDirectory}/.local/bin/dev-arch-shell
+  bind = $mainMod SHIFT, D, exec, $terminal -e ${homeDirectory}/.local/bin/dev-debian-shell
   bind = $mainMod, SPACE, exec, noctalia-shell ipc call launcher toggle
   bind = $mainMod, E, exec, nautilus --new-window
   bind = $mainMod, B, exec, $browser
@@ -22,7 +25,6 @@
   bind = $mainMod SHIFT, T, exec, $terminal -e btop
   bind = $mainMod, W, exec, $browser --app=https://web.whatsapp.com/
   bind = $mainMod, Y, exec, $browser --app=https://youtube.com/
-  bind = $mainMod SHIFT, A, exec, $browser --app=https://chatgpt.com/
   bind = $mainMod SHIFT, P, exec, $browser --app=https://photos.google.com/
   bind = $mainMod SHIFT, X, exec, $browser --app=https://x.com/
   bind = $mainMod CTRL, X, exec, voxtype --model base --language en record toggle

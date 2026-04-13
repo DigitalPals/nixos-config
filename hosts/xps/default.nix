@@ -6,6 +6,17 @@
 # WiFi: Intel Wi-Fi 7 BE211
 { config, pkgs, lib, ... }:
 let
+  linuxKernel70 = pkgs.linux_testing.override {
+    argsOverride = {
+      version = "7.0";
+      modDirVersion = "7.0.0";
+      src = pkgs.fetchurl {
+        url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.tar.xz";
+        hash = "sha256-u39tgLOHx1e30Uu5MCj8uQ95PFwNNnc27oFaEAs4kfA=";
+      };
+    };
+  };
+
   xpsHapticTouchpad = pkgs.writeTextFile {
     name = "xps-haptic-touchpad";
     executable = true;
@@ -131,9 +142,8 @@ in
 
   # Intel CPU configuration
   hardware.cpu.intel.updateMicrocode = true;
-  # Use the upstream 7.0 release-candidate kernel so Panther Lake audio support
-  # comes from mainline instead of our temporary 6.19 backport set.
-  boot.kernelPackages = lib.mkForce pkgs.linuxPackages_testing;
+  # Use the final upstream 7.0 kernel until nixpkgs linux_testing catches up.
+  boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor linuxKernel70);
   boot.kernelModules = [ "v4l2loopback" ];
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
 

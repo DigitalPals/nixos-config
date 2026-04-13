@@ -2,8 +2,8 @@
   description = "NixOS configuration with Home Manager, Hyprland, and Noctalia Desktop Shell";
 
   inputs = {
-    # Use nixpkgs-unstable for compatibility
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Use nixpkgs master for the latest testing kernel needed by Panther Lake.
+    nixpkgs.url = "github:NixOS/nixpkgs/master";
 
     # Home Manager following nixpkgs-unstable
     home-manager = {

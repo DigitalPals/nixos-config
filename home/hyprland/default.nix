@@ -7,7 +7,10 @@ let
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
   brightnessControl = import ./brightness.nix { inherit pkgs; };
-  bindingsConfig = import ./bindings.nix { inherit brightnessControl; };
+  bindingsConfig = import ./bindings.nix {
+    inherit brightnessControl;
+    homeDirectory = config.home.homeDirectory;
+  };
   autostartConfig = import ./autostart.nix { inherit pkgs lib osConfig; };
 
   # Script to disable the laptop panel when a known external display is connected.
