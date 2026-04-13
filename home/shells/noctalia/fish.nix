@@ -142,6 +142,7 @@ in
   # Fish 4.3 generated this temporary migration file after moving
   # fish_key_bindings out of universal scope. The migration is complete.
   home.activation.removeFishFrozenKeyBindingsMigration = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    $DRY_RUN_CMD ${pkgs.fish}/bin/fish -lc 'set --erase --universal fish_key_bindings; or true'
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
       "$HOME/.config/fish/conf.d/fish_frozen_key_bindings.fish" \
       "$HOME/.config/fish/conf.d/fish_frozen_key_bindings.fish.bak"
