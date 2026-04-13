@@ -146,6 +146,12 @@ in
     source = ./EDM115-newline2.omp.json;
   };
 
+  # Keep the key binding mode explicit in managed config. This avoids fish
+  # needing to preserve an old universal fish_key_bindings value.
+  xdg.configFile."fish/conf.d/00-key-bindings.fish".text = ''
+    set -g fish_key_bindings fish_default_key_bindings
+  '';
+
   # oh-my-posh caches its generated Fish init script and embeds the binary's
   # absolute Nix store path in that cache. When the package path changes after
   # a rebuild, clear the cache so new shells regenerate it with the new path.
@@ -172,12 +178,36 @@ in
   '';
 
   # Fish 4.3 generated this temporary migration file after moving
-  # fish_key_bindings out of universal scope. The migration is complete.
+  # fish_key_bindings out of universal scope. Do not invoke fish here: starting
+  # fish can recreate the migration notice before this cleanup runs.
   home.activation.removeFishFrozenKeyBindingsMigration = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    $DRY_RUN_CMD ${pkgs.fish}/bin/fish -lc 'set --erase --universal fish_key_bindings; or true'
+    FISH_VARIABLES="$HOME/.config/fish/fish_variables"
+
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
       "$HOME/.config/fish/conf.d/fish_frozen_key_bindings.fish" \
       "$HOME/.config/fish/conf.d/fish_frozen_key_bindings.fish.bak"
+
+    if [ -f "$FISH_VARIABLES" ]; then
+      $DRY_RUN_CMD ${pkgs.gnused}/bin/sed -i \
+        -e '/^SETUVAR fish_key_bindings:/d' \
+        -e '/^SETUVAR __fish_initialized:/d' \
+        "$FISH_VARIABLES"
+    else
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$HOME/.config/fish"
+      if [ -n "''${DRY_RUN:-}" ]; then
+        echo "${pkgs.coreutils}/bin/printf ... > $FISH_VARIABLES"
+      else
+        ${pkgs.coreutils}/bin/printf '%s\n' \
+          '# This file contains fish universal variable definitions.' \
+          '# VERSION: 3.0' > "$FISH_VARIABLES"
+      fi
+    fi
+
+    if [ -n "''${DRY_RUN:-}" ]; then
+      echo "${pkgs.coreutils}/bin/printf ... >> $FISH_VARIABLES"
+    else
+      ${pkgs.coreutils}/bin/printf '%s\n' 'SETUVAR __fish_initialized:4300' >> "$FISH_VARIABLES"
+    fi
   '';
 
   # Zoxide (smart cd)
