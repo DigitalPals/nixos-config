@@ -98,4 +98,5 @@
   # Mouse
   bindm = $mainMod, mouse:272, movewindow
   bindm = $mainMod, mouse:273, resizewindow
+  bindm = $mainMod SHIFT, mouse:272, resizewindow
 ''
