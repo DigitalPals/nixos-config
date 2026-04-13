@@ -6,7 +6,7 @@ let
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
-  brightnessControl = import ./brightness.nix { inherit pkgs; };
+  brightnessControl = import ./brightness.nix { inherit pkgs lib hostname; };
   bindingsConfig = import ./bindings.nix {
     inherit brightnessControl;
     homeDirectory = config.home.homeDirectory;

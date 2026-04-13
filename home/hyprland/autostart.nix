@@ -25,14 +25,13 @@ let
   '';
 in
 ''
-${lib.optionalString osConfig.services.fprintd.enable ''
-  # PAM service for Noctalia lock screen fingerprint auth (set in Hyprland env)
+  # PAM service for Noctalia lock screen auth.
   env = NOCTALIA_PAM_SERVICE,noctalia
-''}
+
   # Systemd integration - export environment for user services
   # Include HYPRLAND_INSTANCE_SIGNATURE so portal services can connect
-  exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE${if osConfig.services.fprintd.enable then " NOCTALIA_PAM_SERVICE" else ""}
-  exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE${if osConfig.services.fprintd.enable then " NOCTALIA_PAM_SERVICE" else ""}
+  exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE NOCTALIA_PAM_SERVICE
+  exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE NOCTALIA_PAM_SERVICE
 
   # Portal setup: GTK portal provides Settings interface (dark mode)
   # Start GTK portal first, wait for D-Bus registration, then restart main portal

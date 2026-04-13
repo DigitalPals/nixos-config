@@ -2,8 +2,13 @@
 # Routes brightness keys to the correct tool based on which monitor the cursor is on:
 # - Apple Studio Display (XDR): uses asdcontrol via USB HID
 # - Laptop/other displays: uses brightnessctl
-{ pkgs }:
+{ pkgs, lib, hostname ? "" }:
 
+let
+  stopXpsAutoBrightness = if lib.hasPrefix "xps" hostname then ''
+    ${pkgs.systemd}/bin/systemctl --user stop wluma.service 2>/dev/null || true
+  '' else "";
+in
 pkgs.writeShellScript "brightness-control" ''
   direction="$1"  # "up" or "down"
   step="''${2:-5}" # percentage step, default 5
@@ -33,6 +38,7 @@ pkgs.writeShellScript "brightness-control" ''
     fi
   else
     # Laptop or other display: use brightnessctl
+    ${stopXpsAutoBrightness}
     if [ "$direction" = "up" ]; then
       ${pkgs.brightnessctl}/bin/brightnessctl set "$step%+"
     else

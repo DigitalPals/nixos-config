@@ -260,19 +260,35 @@
     webp-pixbuf-loader
   ];
 
-  # Security - passwordless sudo (account has no password)
+  # Security - trust the active local user after LUKS unlock.
   security.sudo.wheelNeedsPassword = false;
 
-  # GNOME Keyring - Auto-unlock on login
+  # Match passwordless sudo for GUI/admin flows. This does not grant anything
+  # beyond the existing wheel privilege; it removes the extra polkit prompt for
+  # the active local session.
+  security.polkit = {
+    enable = true;
+    extraConfig = ''
+      polkit.addRule(function(action, subject) {
+        if (subject.isInGroup("wheel") && subject.active && subject.local) {
+          return polkit.Result.YES;
+        }
+      });
+    '';
+  };
+
+  # GNOME Keyring - provide Secret Service for Chrome/libsecret. With greetd
+  # autologin, zero-prompt use relies on a blank keyring password and LUKS for
+  # at-rest protection.
   services.gnome.gnome-keyring.enable = true;
   # Keep Secret Service support, but do not export a desktop SSH agent.
   services.gnome.gcr-ssh-agent.enable = false;
   security.pam.services.greetd.enableGnomeKeyring = true;
   security.pam.services.login.enableGnomeKeyring = true;
 
-  # Fingerprint auth support (only on hosts with fprintd enabled, e.g. G1a)
-  # Clean PAM service for Noctalia lock screen (no GNOME Keyring interference)
-  security.pam.services.noctalia = lib.mkIf config.services.fprintd.enable {};
+  # Clean PAM service for Noctalia lock screen. This keeps SUPER+L as the
+  # deliberate password/fingerprint auth path without GNOME Keyring hooks.
+  security.pam.services.noctalia = {};
   # Setuid wrapper for polkit-agent-helper-1 (needed by badged polkit agent)
   security.wrappers.polkit-agent-helper-1 = lib.mkIf config.services.fprintd.enable {
     setuid = true;

@@ -2,6 +2,8 @@
 { config, pkgs, inputs, lib, osConfig, username, hostname, ... }:
 
 let
+  isXps = lib.hasPrefix "xps" hostname;
+
   # Dynamically load all wallpapers from ../wallpapers directory
   wallpapersDir = ../wallpapers;
   wallpaperFiles = builtins.readDir wallpapersDir;
@@ -307,7 +309,9 @@ in
     noto-fonts-color-emoji
     nerd-fonts.jetbrains-mono
     nerd-fonts.fira-code
-  ];
+  ] ++ lib.optionals isXps (with pkgs; [
+    wluma
+  ]);
 
   # Web browsers
   programs.google-chrome = {
@@ -430,6 +434,24 @@ in
     };
   };
 
+  xdg.configFile."wluma/config.toml".text = lib.mkIf isXps ''
+    [als.iio]
+    path = "/sys/bus/iio/devices"
+    thresholds = { 0 = "dark", 10 = "dim", 30 = "normal", 80 = "bright", 250 = "outdoors" }
+
+    [[output.backlight]]
+    name = "eDP-1"
+    path = "/sys/class/backlight/intel_backlight"
+    capturer = "none"
+
+    [output.backlight.predictor.manual]
+    thresholds.dark = { 0 = 55 }
+    thresholds.dim = { 0 = 35 }
+    thresholds.normal = { 0 = 15 }
+    thresholds.bright = { 0 = 0 }
+    thresholds.outdoors = { 0 = 0 }
+  '';
+
   # Environment variables
   home.sessionVariables = {
     EDITOR = "nvim";
@@ -441,9 +463,26 @@ in
     QT_QPA_PLATFORM = "wayland";
     SDL_VIDEODRIVER = "wayland";
     XDG_SESSION_TYPE = "wayland";
-  } // lib.optionalAttrs osConfig.services.fprintd.enable {
-    # Use clean PAM service for Noctalia lock screen (fingerprint hosts only)
     NOCTALIA_PAM_SERVICE = "noctalia";
+  };
+
+  systemd.user.services.wluma = lib.mkIf isXps {
+    Unit = {
+      Description = "Adjust screen brightness from ambient light";
+      After = [ "graphical-session.target" ];
+      PartOf = [ "graphical-session.target" ];
+    };
+
+    Service = {
+      Type = "simple";
+      ExecStart = "${pkgs.wluma}/bin/wluma";
+      Restart = "always";
+      RestartSec = 5;
+    };
+
+    Install = {
+      WantedBy = [ "graphical-session.target" ];
+    };
   };
 
   # === Mic mute LED sync service (G1a only) ===
