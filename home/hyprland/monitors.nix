@@ -17,10 +17,10 @@ let
     # known external display is connected (XDR, AORUS, XREAL).
     monitor = eDP-1,preferred,0x0,auto
     monitor = desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2,3840x2160@120,auto,auto
-    monitor = desc:Apple Computer Inc Studio XDR,preferred,auto,auto,bitdepth,10,cm,auto
-    monitor = desc:Apple Computer Inc Pro Display XDR,preferred,auto,auto,bitdepth,10,cm,auto
-    monitor = desc:Nreal XREAL One Pro,1920x1080@120,auto,auto
-    monitor = desc:XREAL XREAL One Pro,1920x1080@120,auto,auto
+    monitor = desc:Apple Computer Inc Studio XDR,preferred,auto,auto,bitdepth,10,cm,auto,vrr,0
+    monitor = desc:Apple Computer Inc Pro Display XDR,preferred,auto,auto,bitdepth,10,cm,auto,vrr,0
+    monitor = desc:Nreal XREAL One Pro,1920x1080@120,auto,auto,vrr,0
+    monitor = desc:XREAL XREAL One Pro,1920x1080@120,auto,auto,vrr,0
     # Default workspace on external monitors
     workspace = 1, monitor:desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2, default:true
     workspace = 1, monitor:desc:Apple Computer Inc Studio XDR, default:true

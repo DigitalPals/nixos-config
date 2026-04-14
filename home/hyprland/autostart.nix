@@ -1,6 +1,6 @@
 # Autostart configuration
 # Programs to run at Hyprland startup
-{ pkgs, lib, osConfig }:
+{ pkgs, lib, osConfig, preShellCommand ? null }:
 
 let
   # GTK portal executable path (provides Settings interface for dark mode)
@@ -23,6 +23,12 @@ let
     touch "$file"
     chmod 0644 "$file"
   '';
+
+  shellStartup = lib.concatStringsSep " && " (
+    [ "${ensureNoctaliaHyprColorsWritable}" ]
+    ++ lib.optional (preShellCommand != null) "${preShellCommand}"
+    ++ [ "noctalia-shell" ]
+  );
 in
 ''
   # PAM service for Noctalia lock screen auth.
@@ -42,6 +48,5 @@ in
   exec-once = ${if osConfig.services.fprintd.enable then "badged" else "systemctl --user start hyprpolkitagent"}
 
   # Start desktop shell
-  exec-once = ${ensureNoctaliaHyprColorsWritable}
-  exec-once = noctalia-shell
+  exec-once = ${shellStartup}
 ''

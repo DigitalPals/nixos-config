@@ -2,6 +2,8 @@
 { config, pkgs, lib, hostname, osConfig, ... }:
 
 let
+  isExternalDisplayLaptop = lib.hasPrefix "G1a" hostname || lib.hasPrefix "xps" hostname;
+
   # Import config generators
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
   inputConfig = import ./input.nix {};
@@ -11,45 +13,62 @@ let
     inherit brightnessControl;
     homeDirectory = config.home.homeDirectory;
   };
-  autostartConfig = import ./autostart.nix { inherit pkgs lib osConfig; };
+  externalMonitorFunctions = ''
+    apply_monitor_state() {
+      monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || return 0
+
+      if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '
+        .[]
+        | select(
+            (.model // "") == "XREAL One Pro"
+            or (.model // "") == "Nreal XREAL One Pro"
+            or (.model // "") == "Studio XDR"
+            or (.model // "") == "Pro Display XDR"
+            or (.model // "") == "AORUS FO32U2"
+          )
+      ' > /dev/null 2>&1; then
+        if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1")' > /dev/null 2>&1; then
+          ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,disable || true
+        fi
+      else
+        if ! printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and .x == 0 and .y == 0)' > /dev/null 2>&1; then
+          ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+        fi
+      fi
+
+      return 0
+    }
+  '';
+
+  externalMonitorApply = pkgs.writeShellScript "external-monitor-apply" ''
+    ${externalMonitorFunctions}
+    apply_monitor_state
+  '';
 
   # Script to disable the laptop panel when a known external display is connected.
   # Supports: XREAL glasses, Apple XDR-class displays, AORUS FO32U2.
   externalMonitorToggle = pkgs.writeShellScript "external-monitor-toggle" ''
-    check_external() {
-      ${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -e '
-        .[]
-        | select(
-            .model == "XREAL One Pro"
-            or .model == "Nreal XREAL One Pro"
-            or .model == "Studio XDR"
-            or .model == "Pro Display XDR"
-            or .model == "AORUS FO32U2"
-          )
-      ' > /dev/null 2>&1
-    }
+    ${externalMonitorFunctions}
 
-    toggle() {
-      if check_external; then
-        ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,disable
-      else
-        ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x540,auto
-      fi
-    }
-
-    # Check on startup
-    toggle
+    if [ -z "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+      exit 0
+    fi
 
     # Listen for monitor hotplug events
     ${pkgs.socat}/bin/socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" | while read -r line; do
       case "$line" in
         monitoradded*|monitorremoved*)
           sleep 0.5
-          toggle
+          apply_monitor_state
           ;;
       esac
     done
   '';
+
+  autostartConfig = import ./autostart.nix {
+    inherit pkgs lib osConfig;
+    preShellCommand = if isExternalDisplayLaptop then externalMonitorApply else null;
+  };
 
   # Hyprland configuration
   hyprlandExtraConfig = ''
@@ -77,7 +96,7 @@ in {
   # External monitor toggle script for laptops that should blank the internal
   # panel when a known external display is attached.
   xdg.configFile."hypr/external-monitor-toggle.conf".text =
-    if lib.hasPrefix "G1a" hostname || lib.hasPrefix "xps" hostname then ''
+    if isExternalDisplayLaptop then ''
       exec-once = ${externalMonitorToggle}
     '' else "";
 
