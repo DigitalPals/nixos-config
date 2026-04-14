@@ -45,8 +45,9 @@ let
     apply_monitor_state
   '';
 
-  # Script to disable the laptop panel when a known external display is connected.
-  # Supports: XREAL glasses, Apple XDR-class displays, AORUS FO32U2.
+  # Script to disable the laptop panel when a known external display is
+  # connected. On monitor removal, bring eDP-1 back immediately so clients do
+  # not sit through a no-output Wayland interval before the debounce completes.
   externalMonitorToggle = pkgs.writeShellScript "external-monitor-toggle" ''
     ${externalMonitorFunctions}
 
@@ -57,7 +58,12 @@ let
     # Listen for monitor hotplug events
     ${pkgs.socat}/bin/socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" | while read -r line; do
       case "$line" in
-        monitoradded*|monitorremoved*)
+        monitorremoved*)
+          ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+          sleep 0.5
+          apply_monitor_state
+          ;;
+        monitoradded*)
           sleep 0.5
           apply_monitor_state
           ;;
