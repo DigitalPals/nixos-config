@@ -188,9 +188,6 @@ in
     # Make the virtual camera device accessible to the desktop session
     KERNEL=="video50", GROUP="video", MODE="0660"
 
-    # Give wluma fast direct access to the internal panel backlight.
-    ACTION=="add|change", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="${pkgs.coreutils}/bin/chgrp video %S%p/brightness", RUN+="${pkgs.coreutils}/bin/chmod g+w %S%p/brightness"
-
     # Allow users to control mic mute LED (for WirePlumber sync service)
     SUBSYSTEM=="leds", KERNEL=="*::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
   '';
