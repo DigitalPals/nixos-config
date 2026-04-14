@@ -46,8 +46,9 @@ let
   '';
 
   # Script to disable the laptop panel when a known external display is
-  # connected. On monitor removal, bring eDP-1 back immediately so clients do
-  # not sit through a no-output Wayland interval before the debounce completes.
+  # connected. On external monitor removal, bring eDP-1 back immediately so
+  # clients do not sit through a no-output Wayland interval before the debounce
+  # completes.
   externalMonitorToggle = pkgs.writeShellScript "external-monitor-toggle" ''
     ${externalMonitorFunctions}
 
@@ -59,7 +60,10 @@ let
     ${pkgs.socat}/bin/socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" | while read -r line; do
       case "$line" in
         monitorremoved*)
-          ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+          removed_monitor="''${line#monitorremoved>>}"
+          if [ "$removed_monitor" != "eDP-1" ]; then
+            ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+          fi
           sleep 0.5
           apply_monitor_state
           ;;
