@@ -47,9 +47,9 @@ let
   '';
 
   # Script to disable the laptop panel when a known external display is
-  # connected. On external monitor removal, bring eDP-1 back immediately so
-  # clients do not sit through a no-output Wayland interval before the debounce
-  # completes.
+  # connected. Hotplug changes are handled after a short settle delay because
+  # XREAL connect/disconnect can briefly create transient output add/remove
+  # events while Hyprland is reconfiguring monitors.
   externalMonitorToggle = pkgs.writeShellScript "external-monitor-toggle" ''
     ${externalMonitorFunctions}
 
@@ -60,16 +60,8 @@ let
     # Listen for monitor hotplug events
     ${pkgs.socat}/bin/socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" | while read -r line; do
       case "$line" in
-        monitorremoved*)
-          removed_monitor="''${line#monitorremoved>>}"
-          if [ "$removed_monitor" != "eDP-1" ]; then
-            ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
-          fi
-          sleep 0.5
-          apply_monitor_state
-          ;;
-        monitoradded*)
-          sleep 0.5
+        monitoradded*|monitorremoved*)
+          sleep 2
           apply_monitor_state
           ;;
       esac
