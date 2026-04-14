@@ -20,7 +20,6 @@ in
     ./neovim.nix      # Neovim with LazyVim dependencies
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers)
-    ./forge-notify.nix  # Background update checker
     # Noctalia Desktop Shell
     inputs.noctalia.homeModules.default
     ./shells/noctalia

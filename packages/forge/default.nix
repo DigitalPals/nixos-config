@@ -1,4 +1,4 @@
-{ lib, rustPlatform, pkg-config, makeWrapper, openssl, dbus, nvd, libnotify }:
+{ lib, rustPlatform, pkg-config, makeWrapper, openssl, dbus, nvd }:
 
 rustPlatform.buildRustPackage {
   pname = "forge";
@@ -15,10 +15,6 @@ rustPlatform.buildRustPackage {
     # Wrap forge with nvd in PATH
     wrapProgram $out/bin/forge \
       --prefix PATH : ${lib.makeBinPath [ nvd ]}
-
-    # Wrap forge-notify with libnotify in PATH (for notify-send fallback)
-    wrapProgram $out/bin/forge-notify \
-      --prefix PATH : ${lib.makeBinPath [ libnotify ]}
   '';
 
   meta = {
