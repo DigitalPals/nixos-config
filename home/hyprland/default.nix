@@ -26,12 +26,13 @@ let
             or (.model // "") == "Pro Display XDR"
             or (.model // "") == "AORUS FO32U2"
           )
+          | select((.disabled // false) | not)
       ' > /dev/null 2>&1; then
-        if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1")' > /dev/null 2>&1; then
+        if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not))' > /dev/null 2>&1; then
           ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,disable || true
         fi
       else
-        if ! printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and .x == 0 and .y == 0)' > /dev/null 2>&1; then
+        if ! printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not) and .x == 0 and .y == 0)' > /dev/null 2>&1; then
           ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
         fi
       fi
