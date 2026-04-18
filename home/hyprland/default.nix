@@ -31,6 +31,25 @@ let
         if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not))' > /dev/null 2>&1; then
           ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,disable || true
         fi
+
+        printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -r '
+          map(select(
+            ((.model // "") == "Studio XDR" or (.model // "") == "Pro Display XDR")
+            and ((.disabled // false) | not)
+          ))
+          | group_by(.serial // "")
+          | map(
+            select(length > 1)
+            | sort_by((.width * .height), .refreshRate)
+            | .[0:-1][]
+            | .name
+          )
+          | .[]
+        ' | while read -r output; do
+          if [ -n "$output" ]; then
+            ${pkgs.hyprland}/bin/hyprctl keyword monitor "$output,disable" || true
+          fi
+        done
       else
         if ! printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not) and .x == 0 and .y == 0)' > /dev/null 2>&1; then
           ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
