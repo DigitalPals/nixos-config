@@ -18,6 +18,8 @@
   hardware.graphics = {
     extraPackages = with pkgs; [
       intel-media-driver    # iHD driver for Broadwell+ / Xe (VA-API)
+      libvpl                # Intel oneVPL dispatcher for Quick Sync video encode/decode
+      vpl-gpu-rt            # Intel GPU runtime used by modern media encoders
       intel-compute-runtime # OpenCL support
     ];
     extraPackages32 = with pkgs.pkgsi686Linux; [

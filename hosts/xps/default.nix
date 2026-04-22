@@ -150,6 +150,25 @@ in
   # Intel thermald for thermal management (Dell DPTF integration)
   services.thermald.enable = true;
 
+  # After long suspends, intel_pstate can take a noticeable moment to ramp from
+  # powersave/balance_power. Briefly boost on resume, then restore the profile.
+  powerManagement.powerDownCommands = ''
+    mkdir -p /run/xps-resume-boost
+    ${pkgs.power-profiles-daemon}/bin/powerprofilesctl get > /run/xps-resume-boost/profile 2>/dev/null || echo balanced > /run/xps-resume-boost/profile
+  '';
+
+  powerManagement.resumeCommands = ''
+    previous="$(${pkgs.coreutils}/bin/cat /run/xps-resume-boost/profile 2>/dev/null || echo balanced)"
+    if ${pkgs.power-profiles-daemon}/bin/powerprofilesctl set performance 2>/dev/null; then
+      ${pkgs.systemd}/bin/systemd-run \
+        --quiet \
+        --collect \
+        --on-active=15 \
+        --timer-property=AccuracySec=1 \
+        ${pkgs.power-profiles-daemon}/bin/powerprofilesctl set "$previous" || true
+    fi
+  '';
+
   environment.systemPackages = with pkgs; [
     icamerasrcIpu75xa
     ipu7CameraBins
