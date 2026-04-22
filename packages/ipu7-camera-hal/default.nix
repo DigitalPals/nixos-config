@@ -43,6 +43,7 @@ stdenv.mkDerivation {
     "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
     "-DCMAKE_INSTALL_LIBDIR=lib"
     "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+    "-DCMAKE_CXX_STANDARD=17"
     "-DBUILD_CAMHAL_ADAPTOR=ON"
     "-DBUILD_CAMHAL_PLUGIN=ON"
     "-DIPU_VERSIONS=ipu75xa"
@@ -57,12 +58,15 @@ stdenv.mkDerivation {
   enableParallelBuilding = true;
 
   postPatch = ''
-    substituteInPlace src/platformdata/PlatformData.h \
-      --replace '/usr/share/' "${placeholder "out"}/share/" \
-      --replace '#define CAMERA_DEFAULT_CFG_PATH "/etc/camera/"' '#define CAMERA_DEFAULT_CFG_PATH "${placeholder "out"}/etc/camera/"'
+    substituteInPlace CMakeLists.txt \
+      --replace-fail 'set(TARGET_LINK_LIBS ''${TARGET_LINK_LIBS} jsoncpp)' \
+        'set(TARGET_LINK_LIBS ''${TARGET_LINK_LIBS} ${lib.getLib jsoncpp}/lib/libjsoncpp.so)'
+
+    substituteInPlace CMakeLists.txt \
+      --replace-fail 'set (CMAKE_CXX_STANDARD 11)' 'set (CMAKE_CXX_STANDARD 17)'
 
     substituteInPlace src/platformdata/JsonParserBase.h \
-      --replace '<jsoncpp/json/json.h>' '<json/json.h>'
+      --replace-fail '<jsoncpp/json/json.h>' '<json/json.h>'
   '';
 
   postInstall = ''
