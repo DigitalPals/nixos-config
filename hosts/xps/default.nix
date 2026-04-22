@@ -131,7 +131,7 @@ in
 
   # Intel CPU configuration
   hardware.cpu.intel.updateMicrocode = true;
-  boot.kernelPackages = lib.mkForce pkgs.linuxPackages_7_0;
+  boot.kernelPackages = lib.mkForce pkgs.linuxPackages_latest;
   boot.kernelModules = [ "v4l2loopback" ];
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
 
