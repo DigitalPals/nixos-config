@@ -313,9 +313,10 @@
     "vm.swappiness" = 10;
     # Restrict ptrace scope
     "kernel.yama.ptrace_scope" = 1;
-    # Network hardening
-    "net.ipv4.conf.all.rp_filter" = 1;
-    "net.ipv4.conf.default.rp_filter" = 1;
+    # Network hardening. Loose rp_filter keeps Tailscale subnet/exit-node
+    # routing working while still rejecting obviously invalid source routes.
+    "net.ipv4.conf.all.rp_filter" = 2;
+    "net.ipv4.conf.default.rp_filter" = 2;
     "net.ipv4.icmp_echo_ignore_broadcasts" = 1;
     "net.ipv4.conf.all.accept_redirects" = 0;
     "net.ipv4.conf.default.accept_redirects" = 0;

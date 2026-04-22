@@ -1,15 +1,15 @@
 # MediaTek MT7925 WiFi 7 configuration
 # Used in: G1a (HP ZBook Ultra G1a), proart (ASUS ProArt P16)
 #
-# Known issues with MT7925 in kernels 6.14-6.18:
+# Known MT7925 issues observed on earlier kernels:
 # - Commit cb1353ef34735 causes speed drops on some routers
 # - CLC (Country Location Code) feature causes instability
 # - ASPM power management interferes with driver operation
 # - WiFi power save causes disconnects
 #
-# These workarounds may be removable with kernel 6.19+.
-# Check: nix eval nixpkgs#linuxPackages_latest.kernel.version
-# Test without disable_clc=1 after upgrading if kernel >= 6.19.
+# These workarounds should be retested periodically on current latest kernels.
+# Check: nix eval .#nixosConfigurations.G1a.config.boot.kernelPackages.kernel.version --raw
+# Test without disable_clc=1 when mt76/MT7925 changelogs mention CLC fixes.
 # See CLAUDE.md "MT7925 WiFi Stability" section for details.
 { config, pkgs, lib, ... }:
 
@@ -18,7 +18,7 @@
   boot.kernelModules = [ "mt7925e" ];
 
   # Disable ASPM in driver for stable suspend/resume
-  # Disable CLC to prevent random disconnects (known bug, fixed in kernel 6.19)
+  # Disable CLC to prevent random disconnects on affected firmware/router combos.
   boot.extraModprobeConfig = ''
     options mt7925e disable_aspm=1
     options mt7925-common disable_clc=1

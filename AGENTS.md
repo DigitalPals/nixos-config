@@ -21,7 +21,7 @@ Current baseline in this repo:
 - Wi-Fi workaround is already present
 - Haptic touchpad daemon approach is already present
 - Display workaround was updated to the newer narrower Omarchy approach
-- Audio is handled through 6.19-era backports rather than Omarchy's older temporary blacklist
+- Audio is handled by kernel 7.0+ mainline SDCA support rather than Omarchy's older temporary blacklist
 
 Default research approach:
 1. Check Omarchy's current Dell XPS hardware scripts.

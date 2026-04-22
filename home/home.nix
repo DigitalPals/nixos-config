@@ -9,6 +9,7 @@ let
     name = "Pictures/Wallpapers/${name}";
     value = { source = wallpapersDir + "/${name}"; };
   }) (lib.filterAttrs (name: type: type == "regular") wallpaperFiles);
+  hostsWithMicMuteLed = [ "G1a" "proart" "xps" ];
 in
 {
   imports = [
@@ -314,13 +315,13 @@ in
     commandLineArgs = [
       # Enable trackpad swipe gestures for back/forward navigation
       "--enable-features=TouchpadOverscrollHistoryNavigation"
-
+    ] ++ lib.optionals (hostname == "G1a") [
       # Stability workaround (G1a / Strix Halo + amdgpu):
       # We've seen GPU hangs/page-faults in the amdgpu gfx ring attributed to Chrome's GPU process,
       # which then causes Hyprland to crash when its GL context becomes unusable after a GPU reset.
       # Disabling VA-API (hw video decode/encode) avoids a common trigger path.
       "--disable-features=VaapiVideoDecodeLinuxGL,VaapiVideoEncoder"
-
+    ] ++ [
       # Suppress "Chrome didn't shut down correctly" crash restore bubble
       "--hide-crash-restore-bubble"
     ];
@@ -443,10 +444,10 @@ in
     NOCTALIA_PAM_SERVICE = "noctalia";
   };
 
-  # === Mic mute LED sync service (G1a only) ===
+  # === Mic mute LED sync service ===
   # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
   # This service polls the mic mute state and updates the LED accordingly.
-  systemd.user.services.mic-led-sync = lib.mkIf (osConfig.networking.hostName == "G1a") {
+  systemd.user.services.mic-led-sync = lib.mkIf (builtins.elem osConfig.networking.hostName hostsWithMicMuteLed) {
     Unit = {
       Description = "Sync mic mute LED with WirePlumber state";
       After = [ "pipewire.service" "wireplumber.service" ];
@@ -455,10 +456,16 @@ in
     Service = {
       Type = "simple";
       ExecStart = pkgs.writeShellScript "mic-led-sync" ''
-        LED_PATH="/sys/class/leds/hda::micmute/brightness"
+        LED_PATH=""
 
         # Wait for LED interface to be available
-        while [ ! -w "$LED_PATH" ]; do
+        while [ -z "$LED_PATH" ]; do
+          for candidate in /sys/class/leds/*::micmute/brightness; do
+            if [ -w "$candidate" ]; then
+              LED_PATH="$candidate"
+              break
+            fi
+          done
           sleep 1
         done
 

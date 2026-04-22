@@ -219,18 +219,18 @@ amdgpu: amdgpu_device_ip_resume failed (-110)
 
 **Root cause:** The VPE (Video Processing Engine) block times out during resume (~8% of cycles). The VPE_IDLE_TIMEOUT is 1 second but Strix Halo needs ~2 seconds.
 
-**Current status:** Using latest kernel (6.18) and accepting ~8% suspend failure rate. Kernels 6.14-6.17 have reached EOL in nixpkgs. The VPE fix is expected in kernel 6.19+.
+**Current status:** Using `linuxPackages_latest` from nixpkgs. Re-test any older Strix Halo suspend notes against the currently evaluated kernel before reintroducing a per-host kernel override.
 
 **Kernel config:** Kernel is set centrally in `modules/boot/limine-plymouth.nix` to `linuxPackages_latest`. No per-host override needed.
 
-**Kernel 6.18 regression:** Kernel 6.18.x has a VPE regression that breaks suspend even with `amd_iommu=off`. A problematic VPE patch was merged; the revert targets kernel 6.19, not 6.18. Framework 13/AMD and other Strix Halo users confirm this regression.
+**Older kernel 6.18 regression:** Kernel 6.18.x had a VPE regression that could break suspend even with `amd_iommu=off`. Treat this as historical context unless the current latest kernel shows the same failure mode.
 
 **Fallback option:** If suspend failures are unacceptable, override with 6.12 LTS in `hosts/G1a/default.nix`:
 ```nix
 boot.kernelPackages = lib.mkForce pkgs.linuxPackages_6_12;
 ```
 
-**When fixed:** Kernel 6.19+ should include the VPE revert. Once `linuxPackages_latest` points to 6.19+, suspend should work reliably.
+**When revisiting:** Check current suspend behavior on `linuxPackages_latest` first, then decide whether any workaround is still needed.
 
 **Additional fix:** MediaTek WiFi module needs ASPM disabled for reliable resume. See "MT7925 WiFi Stability (G1a)" section below for full configuration.
 
@@ -264,17 +264,14 @@ sudo dmesg | grep "detected ip block"
 
 **Problem:** Random WiFi disconnects on HP ZBook Ultra G1a with MediaTek MT7925 (WiFi 7) adapter. Connection drops intermittently despite strong signal.
 
-**Root cause:** Multiple bugs in the mt7925e driver affecting kernels 6.14.3 through 6.18:
+**Root cause:** Multiple bugs in the mt7925e driver observed on earlier kernels:
 - Commit `cb1353ef34735` ("wifi: mt76: mt7925: integrate *mlo_sta_cmd and *sta_cmd") causes speed drops on some routers
 - CLC (Country Location Code) feature causes instability
 - ASPM power management interferes with driver operation
 - WiFi power save causes disconnects
 
-**Current workarounds** (in `hosts/G1a/default.nix`):
+**Current workarounds** (in `modules/hardware/mediatek-wifi.nix`, imported by G1a and ProArt):
 ```nix
-# Give Linux ASPM control
-boot.kernelParams = [ "pcie_aspm=force" ];
-
 # Load driver explicitly + disable problematic features
 boot.kernelModules = [ "mt7925e" ];
 boot.extraModprobeConfig = ''
@@ -288,7 +285,7 @@ Also in `modules/common.nix`:
 networking.networkmanager.wifi.powersave = false;
 ```
 
-**When fixed:** Kernel 6.19+ may include fixes for MT792x WiFi issues. Check current kernel version with `nix eval nixpkgs#linuxPackages_latest.kernel.version`. Once on kernel 6.19+, test without `disable_clc=1` to see if the workaround is still needed.
+**When revisiting:** Check current kernel version with `nix eval .#nixosConfigurations.G1a.config.boot.kernelPackages.kernel.version --raw`. Test without `disable_clc=1` when mt76/MT7925 changelogs mention CLC or stability fixes.
 
 **References:**
 - [Ubuntu Bug #2118937](https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2118937) - Intermittent connection loss
@@ -525,7 +522,7 @@ boot.kernelParams = [
 ];
 ```
 
-**When fixed:** The upstream `QUIRK_DISABLE_PANEL_REPLAY` for DA14260 lands in kernel **7.1**. Remove this parameter once `linuxPackages_testing` reaches 7.1+.
+**When fixed:** The upstream `QUIRK_DISABLE_PANEL_REPLAY` for DA14260 lands in kernel **7.1**. Remove this parameter once `linuxPackages_latest` reaches 7.1+.
 
 ### Dell XPS Haptic Touchpad
 
@@ -541,7 +538,7 @@ boot.kernelParams = [
 
 ### Intel WiFi 7 BE211
 
-Uses the `iwlwifi` driver. WiFi 7 (EHT/802.11be) is disabled via `options iwlwifi disable_11be=Y` in `hosts/xps/default.nix` — the BE211 driver on 7.0-rc causes poor real-world performance (slow throughput) even though the kernel accepts the connection. Falling back to WiFi 6/802.11ax is stable. WiFi power save is globally disabled in `modules/common.nix`.
+Uses the `iwlwifi` driver. WiFi 7 (EHT/802.11be) is disabled via `options iwlwifi disable_11be=Y` in `hosts/xps/default.nix` because the BE211 driver has shown poor real-world performance even when the kernel accepts the connection. Falling back to WiFi 6/802.11ax is stable. WiFi power save is globally disabled in `modules/common.nix`.
 
 **When to re-test:** Try removing `disable_11be=Y` on a stable 7.x release or when iwlwifi changelog mentions BE211/EHT fixes.
 
