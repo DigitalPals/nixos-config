@@ -28,6 +28,7 @@ use crate::commands::executor::{
     command_exists, get_output, run_capture, run_command_cancellable_transformed,
     run_command_cancellable_with_timeout, CommandResult,
 };
+use crate::commands::retry::{retry_with_backoff, RetryConfig};
 use crate::commands::CommandMessage;
 
 use flake::{get_flake_lock_hash, parse_flake_changes, save_flake_lock_backup};
@@ -301,6 +302,9 @@ async fn run_preflight(
         .await?;
     } else {
         out(tx, "Required tools are missing; review will explain").await;
+        for line in health.error_message().lines() {
+            out(tx, line).await;
+        }
         tx.send(CommandMessage::StepWarning {
             step: STEP_PREFLIGHT_HEALTH.to_string(),
             detail: "Required tools missing".to_string(),
@@ -357,6 +361,7 @@ async fn run_preflight(
             out(tx, "Remote status not available").await;
             tx.send(CommandMessage::StepSkipped {
                 step: STEP_PREFLIGHT_REMOTE.to_string(),
+                reason: Some("Remote status was not checked".to_string()),
             })
             .await?;
         }
@@ -370,6 +375,7 @@ async fn run_preflight(
         .await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PREFLIGHT_DRYRUN.to_string(),
+            reason: Some("Required tools are missing".to_string()),
         })
         .await?;
         UpdateDryRunStatus::Skipped("Required tools missing".to_string())
@@ -384,6 +390,7 @@ async fn run_preflight(
         .await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PREFLIGHT_DRYRUN.to_string(),
+            reason: Some("Local changes will be discarded before updating".to_string()),
         })
         .await?;
         UpdateDryRunStatus::Skipped(
@@ -408,6 +415,7 @@ async fn run_preflight(
                 out(tx, &format!("Dry-run build skipped: {}", reason)).await;
                 tx.send(CommandMessage::StepSkipped {
                     step: STEP_PREFLIGHT_DRYRUN.to_string(),
+                    reason: Some(reason.clone()),
                 })
                 .await?;
                 UpdateDryRunStatus::Skipped(reason)
@@ -611,9 +619,39 @@ fn should_track_noctalia_release(options: &UpdateOptions) -> bool {
     options.inputs.is_empty() || options.inputs.iter().any(|input| input == NOCTALIA_INPUT)
 }
 
-async fn resolve_latest_noctalia_release() -> Result<String> {
-    let (success, stdout, stderr) =
-        run_capture("git", &["ls-remote", "--tags", "--refs", NOCTALIA_REMOTE]).await?;
+async fn run_capture_with_retry(
+    tx: &mpsc::Sender<CommandMessage>,
+    step: &str,
+    label: &str,
+    cmd: &str,
+    args: &[&str],
+) -> Result<(bool, String, String)> {
+    let config = RetryConfig::default();
+    retry_with_backoff(tx, step, &config, || async {
+        let (success, stdout, stderr) = run_capture(cmd, args).await?;
+        if success {
+            Ok((success, stdout, stderr))
+        } else {
+            let detail = stderr.trim();
+            if detail.is_empty() {
+                anyhow::bail!("{} failed", label);
+            } else {
+                anyhow::bail!("{} failed: {}", label, detail);
+            }
+        }
+    })
+    .await
+}
+
+async fn resolve_latest_noctalia_release(tx: &mpsc::Sender<CommandMessage>) -> Result<String> {
+    let (success, stdout, stderr) = run_capture_with_retry(
+        tx,
+        STEP_FLAKE,
+        "Resolve latest Noctalia release",
+        "git",
+        &["ls-remote", "--tags", "--refs", NOCTALIA_REMOTE],
+    )
+    .await?;
 
     if !success {
         anyhow::bail!(
@@ -637,6 +675,66 @@ async fn resolve_latest_noctalia_release() -> Result<String> {
         .map(|(_, tag)| tag);
 
     latest.ok_or_else(|| anyhow::anyhow!("No Noctalia release tags were found"))
+}
+
+async fn run_flake_update_with_retry(
+    tx: &mpsc::Sender<CommandMessage>,
+    cancel: CancellationToken,
+    flake_args: &[String],
+) -> Result<CommandResult> {
+    let config = RetryConfig::default();
+    let result = retry_with_backoff(tx, STEP_FLAKE, &config, || {
+        let args = flake_args.to_vec();
+        let tx = tx.clone();
+        let cancel = cancel.clone();
+
+        async move {
+            let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            let tx_detail = tx.clone();
+            let result = run_command_cancellable_transformed(
+                &tx,
+                "nix",
+                &arg_refs,
+                cancel,
+                move |line: &str| {
+                    let trimmed = line.trim();
+                    if let Some(rest) = trimmed
+                        .strip_prefix("updating input '")
+                        .or_else(|| trimmed.strip_prefix("• Updated input '"))
+                    {
+                        if let Some(name) = rest.split('\'').next() {
+                            let detail_msg = format!("Updating {}", name);
+                            let tx = tx_detail.clone();
+                            tokio::spawn(async move {
+                                let _ = tx
+                                    .send(CommandMessage::StepDetail {
+                                        step: STEP_FLAKE.to_string(),
+                                        detail: detail_msg,
+                                    })
+                                    .await;
+                            });
+                        }
+                    }
+                    transform_nix_output(line)
+                },
+            )
+            .await?;
+
+            match result {
+                CommandResult::Completed(true) | CommandResult::Cancelled => Ok(result),
+                CommandResult::Completed(false) => anyhow::bail!("nix flake update failed"),
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            tracing::warn!("flake update retries exhausted: {}", error);
+            Ok(CommandResult::Completed(false))
+        }
+    }
 }
 
 /// Start the update process
@@ -730,7 +828,7 @@ async fn run_update(
             flake_args.push(input.clone());
         }
         if should_track_noctalia_release(options) {
-            let latest_release = resolve_latest_noctalia_release().await?;
+            let latest_release = resolve_latest_noctalia_release(tx).await?;
             let override_ref = format!("github:noctalia-dev/noctalia-shell/{}", latest_release);
             out(
                 tx,
@@ -748,46 +846,14 @@ async fn run_update(
         }
         flake_args.push("--flake".into());
         flake_args.push(flake_path.to_string());
-        let flake_arg_refs: Vec<&str> = flake_args.iter().map(|s| s.as_str()).collect();
 
-        // Transform output: filter noise and extract useful info from errors
-        // Also send StepDetail messages for input updates
-        let tx_detail = tx.clone();
-        let result = run_command_cancellable_transformed(
-            tx,
-            "nix",
-            &flake_arg_refs,
-            cancel.clone(),
-            move |line: &str| {
-                // Send step detail for "updating input" lines
-                let trimmed = line.trim();
-                if let Some(rest) = trimmed
-                    .strip_prefix("updating input '")
-                    .or_else(|| trimmed.strip_prefix("• Updated input '"))
-                {
-                    if let Some(name) = rest.split('\'').next() {
-                        let detail_msg = format!("Updating {}", name);
-                        let tx = tx_detail.clone();
-                        tokio::spawn(async move {
-                            let _ = tx
-                                .send(CommandMessage::StepDetail {
-                                    step: STEP_FLAKE.to_string(),
-                                    detail: detail_msg,
-                                })
-                                .await;
-                        });
-                    }
-                }
-                transform_nix_output(line)
-            },
-        )
-        .await?;
+        let result = run_flake_update_with_retry(tx, cancel.clone(), &flake_args).await?;
 
         out(tx, "").await;
         match result {
             CommandResult::Cancelled => {
                 out(tx, "  ⊘ Flake update cancelled").await;
-                summary.core_status = UpdateCoreStatus::Partial;
+                summary.core_status = UpdateCoreStatus::Cancelled;
                 summary.partial_state = Some(
                     "Flake inputs may have changed before the update was cancelled.".to_string(),
                 );
@@ -886,7 +952,7 @@ async fn run_update(
         match result {
             CommandResult::Cancelled => {
                 out(tx, "  ⊘ System rebuild cancelled").await;
-                summary.core_status = UpdateCoreStatus::Partial;
+                summary.core_status = UpdateCoreStatus::Cancelled;
                 summary.partial_state = Some(
                     "The system switch was cancelled after update changes were prepared."
                         .to_string(),
@@ -940,6 +1006,7 @@ async fn run_update(
         summary.system_after = summary.system_before.clone();
         tx.send(CommandMessage::StepSkipped {
             step: STEP_REBUILD.to_string(),
+            reason: Some("flake.lock did not change".to_string()),
         })
         .await?;
     }
@@ -1043,7 +1110,21 @@ async fn update_claude_code(
             .ok()
             .map(|v| clean_version(&v));
 
-        let (success, _stdout, _stderr) = run_capture(claude_cmd, &["update"]).await?;
+        let (success, _stdout, _stderr) = match run_capture_with_retry(
+            tx,
+            STEP_CLAUDE,
+            "Claude Code update",
+            claude_cmd,
+            &["update"],
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!("Claude Code update retries exhausted: {}", error);
+                (false, String::new(), error.to_string())
+            }
+        };
 
         if success {
             out(tx, "  ✓ Updating Claude Code").await;
@@ -1074,6 +1155,7 @@ async fn update_claude_code(
         out(tx, "  - Claude Code not installed").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_CLAUDE.to_string(),
+            reason: Some(format!("{} was not found", claude_path.display())),
         })
         .await?;
     }
@@ -1090,8 +1172,21 @@ async fn update_codex_cli(
     if codex_path.exists() {
         summary.codex_old = get_npm_package_version("@openai/codex").await;
 
-        let (success, _stdout, _stderr) =
-            run_capture("npm", &["update", "-g", "@openai/codex"]).await?;
+        let (success, _stdout, _stderr) = match run_capture_with_retry(
+            tx,
+            STEP_CODEX,
+            "Codex CLI update",
+            "npm",
+            &["update", "-g", "@openai/codex"],
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!("Codex CLI update retries exhausted: {}", error);
+                (false, String::new(), error.to_string())
+            }
+        };
 
         if success {
             out(tx, "  ✓ Updating Codex CLI").await;
@@ -1119,6 +1214,7 @@ async fn update_codex_cli(
         out(tx, "  - Codex CLI not installed").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_CODEX.to_string(),
+            reason: Some(format!("{} was not found", codex_path.display())),
         })
         .await?;
     }
@@ -1159,6 +1255,12 @@ async fn check_app_profiles(
         } else {
             summary.browser_status = "not configured".to_string();
             out(tx, "  - Browser profiles not configured").await;
+            tx.send(CommandMessage::StepSkipped {
+                step: STEP_BROWSER.to_string(),
+                reason: Some(format!("{} does not exist", config_path.display())),
+            })
+            .await?;
+            return Ok(());
         }
 
         tx.send(CommandMessage::StepComplete {
@@ -1170,6 +1272,7 @@ async fn check_app_profiles(
         out(tx, "  - App backup not configured").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_BROWSER.to_string(),
+            reason: Some("app-restore command was not found".to_string()),
         })
         .await?;
     }
@@ -1186,6 +1289,7 @@ async fn check_firmware_updates(
         out(tx, "  - fwupd not installed").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_FIRMWARE.to_string(),
+            reason: Some("fwupdmgr command was not found".to_string()),
         })
         .await?;
         return Ok(());
@@ -1193,7 +1297,14 @@ async fn check_firmware_updates(
 
     // Refresh metadata from LVFS
     out(tx, "  Refreshing firmware metadata...").await;
-    let _ = run_capture("fwupdmgr", &["refresh"]).await;
+    let _ = run_capture_with_retry(
+        tx,
+        STEP_FIRMWARE,
+        "Firmware metadata refresh",
+        "fwupdmgr",
+        &["refresh"],
+    )
+    .await;
 
     // Check for available updates (exit code 2 = no updates)
     let output = Command::new("fwupdmgr")
@@ -1539,6 +1650,7 @@ async fn pull_config_updates(
         out(tx, "  - Not a git repository, skipping pull").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PULL.to_string(),
+            reason: Some(format!("{} is not a git repository", config_path)),
         })
         .await?;
         return Ok(0);
@@ -1549,12 +1661,15 @@ async fn pull_config_updates(
     let fetch_remote = upstream.split('/').next().unwrap_or("origin").to_string();
 
     // Fetch from the configured upstream remote
-    let (fetch_ok, _, _) = run_capture("git", &["-C", config_path, "fetch", &fetch_remote]).await?;
+    let fetch_args = ["-C", config_path, "fetch", fetch_remote.as_str()];
+    let fetch_result = run_capture_with_retry(tx, STEP_PULL, "Git fetch", "git", &fetch_args).await;
+    let fetch_ok = fetch_result.is_ok();
 
     if !fetch_ok {
         out(tx, "  - Unable to fetch from remote").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PULL.to_string(),
+            reason: Some(format!("git fetch {} failed", fetch_remote)),
         })
         .await?;
         return Ok(0);
@@ -1589,6 +1704,7 @@ async fn pull_config_updates(
         out(tx, "  - No configuration updates to pull").await;
         tx.send(CommandMessage::StepSkipped {
             step: STEP_PULL.to_string(),
+            reason: Some(format!("{} has no commits ahead of HEAD", upstream)),
         })
         .await?;
         return Ok(0);
@@ -1611,10 +1727,16 @@ async fn pull_config_updates(
     }
 
     // Pull the updates
-    let (pull_ok, _, stderr) =
-        run_capture("git", &["-C", config_path, "pull", "--ff-only"]).await?;
+    let pull_result = run_capture_with_retry(
+        tx,
+        STEP_PULL,
+        "Git pull",
+        "git",
+        &["-C", config_path, "pull", "--ff-only"],
+    )
+    .await;
 
-    if pull_ok {
+    if pull_result.is_ok() {
         out(tx, &format!("  ✓ Pulled {} commit(s)", count)).await;
         tx.send(CommandMessage::StepComplete {
             step: STEP_PULL.to_string(),
@@ -1623,6 +1745,10 @@ async fn pull_config_updates(
         return Ok(count);
     } else {
         out(tx, "  ✗ Failed to pull configuration updates").await;
+        let stderr = pull_result
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "git pull failed".to_string());
         let error = ParsedError::from_stderr(
             &stderr,
             ErrorContext {

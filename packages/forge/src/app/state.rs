@@ -423,7 +423,6 @@ pub enum UpdateState {
     /// Running non-mutating checks before update starts
     Preparing {
         options: UpdateOptions,
-        pending_resolution: Option<LocalChangesResolution>,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
         scroll_offset: Option<usize>,
@@ -528,10 +527,6 @@ impl UpdateOptions {
 }
 
 impl UpdateState {
-    pub fn new() -> Self {
-        Self::preflight(UpdateOptions::default(), false)
-    }
-
     pub fn preflight(options: UpdateOptions, auto_start: bool) -> Self {
         let input_buffer = if options.inputs.is_empty() {
             String::new()
@@ -603,7 +598,7 @@ impl UpdateState {
 
     pub fn preparing(
         options: UpdateOptions,
-        pending_resolution: Option<LocalChangesResolution>,
+        _pending_resolution: Option<LocalChangesResolution>,
     ) -> Self {
         let mut steps = vec![
             StepStatus::new_with_id("update.preflight.health", "Checking required tools"),
@@ -617,7 +612,6 @@ impl UpdateState {
 
         UpdateState::Preparing {
             options,
-            pending_resolution,
             steps,
             output: VecDeque::new(),
             scroll_offset: None,
@@ -799,10 +793,6 @@ pub struct StepStatus {
 }
 
 impl StepStatus {
-    pub fn new(name: &str) -> Self {
-        Self::new_with_id(name, name)
-    }
-
     pub fn new_with_id(id: &str, name: &str) -> Self {
         Self {
             id: id.to_string(),

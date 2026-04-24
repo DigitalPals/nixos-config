@@ -62,7 +62,10 @@ pub enum CommandMessage {
     /// Step completed with a non-fatal warning
     StepWarning { step: String, detail: String },
     /// Step was skipped
-    StepSkipped { step: String },
+    StepSkipped {
+        step: String,
+        reason: Option<String>,
+    },
     /// Sub-step detail update (e.g. "Downloading nixpkgs (2/5)")
     StepDetail { step: String, detail: String },
     /// Command fully completed
@@ -76,8 +79,6 @@ pub enum CommandMessage {
         /// Pending commits for nixos-config (hash, message)
         commits: Vec<(String, String)>,
     },
-    /// Reboot recommended after update (kernel/bootloader/firmware changes)
-    RebootRecommended { reasons: Vec<String> },
     /// Repository clone completed (for install host discovery)
     CloneComplete { success: bool },
     /// Update summary data (sent before Done for update command)

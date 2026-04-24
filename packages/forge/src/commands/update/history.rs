@@ -326,25 +326,3 @@ fn print_record_details(record: &UpdateRecord) {
 
     println!();
 }
-
-/// Get a short summary string for display in the modal
-pub fn format_short_summary(summary: &UpdateSummary) -> String {
-    let mut parts = Vec::new();
-
-    // Flake changes
-    let total_commits: usize = summary.flake_changes.iter().map(|c| c.total_commits).sum();
-    if total_commits > 0 {
-        parts.push(format!("+{} commits", total_commits));
-    }
-
-    // Package changes
-    if !summary.package_changes.is_empty() {
-        parts.push(format!("{} packages", summary.package_changes.len()));
-    }
-
-    if parts.is_empty() {
-        "No changes".to_string()
-    } else {
-        parts.join(", ")
-    }
-}

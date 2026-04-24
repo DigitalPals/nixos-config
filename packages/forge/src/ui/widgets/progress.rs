@@ -75,6 +75,17 @@ impl Widget for ProgressSteps<'_> {
                 Span::styled(format!(" {} ", icon), style),
                 Span::styled(&step.name, theme::text()),
             ]));
+            if matches!(
+                step.status,
+                StepState::Skipped | StepState::Warning | StepState::Failed
+            ) {
+                if let Some(ref detail) = step.detail {
+                    lines.push(Line::from(vec![
+                        Span::styled("       ", theme::dim()),
+                        Span::styled(detail.clone(), theme::dim()),
+                    ]));
+                }
+            }
         }
 
         let mut block = Block::default()

@@ -4,6 +4,7 @@ use crate::commands::executor::command_exists;
 
 /// Operations that can be health-checked
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum Operation {
     Install,
     Update,

@@ -40,8 +40,8 @@ impl App {
             CommandMessage::StepWarning { step, detail } => {
                 self.mark_step_warning(&step, &detail);
             }
-            CommandMessage::StepSkipped { step } => {
-                self.mark_step_skipped(&step);
+            CommandMessage::StepSkipped { step, reason } => {
+                self.mark_step_skipped(&step, reason.as_deref());
             }
             CommandMessage::StepDetail { step, detail } => {
                 self.set_step_detail(&step, &detail);
@@ -75,9 +75,6 @@ impl App {
                     generation,
                     selected: 0,
                 });
-            }
-            CommandMessage::RebootRecommended { reasons } => {
-                self.push_modal(super::ModalDialog::RebootConfirm { reasons });
             }
             CommandMessage::CloneComplete { success } => {
                 self.handle_clone_complete(success);
@@ -325,14 +322,17 @@ impl App {
         }
     }
 
-    fn mark_step_skipped(&mut self, step_id: &str) {
+    fn mark_step_skipped(&mut self, step_id: &str, reason: Option<&str>) {
         self.log_to_screen(&format!("[-] Step skipped: {}", step_id));
+        if let Some(reason) = reason {
+            self.log_to_screen(&format!("  {}", reason));
+        }
 
         match &mut self.mode {
             AppMode::Update(UpdateState::Preparing { steps, .. }) => {
                 if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Skipped;
-                    s.detail = None;
+                    s.detail = reason.map(ToString::to_string);
                 }
                 if let Some(next_index) = steps
                     .iter()
@@ -346,7 +346,7 @@ impl App {
             AppMode::Update(UpdateState::Running { steps, step, .. }) => {
                 if let Some(s) = Self::find_step_mut(steps, step_id) {
                     s.status = StepState::Skipped;
-                    s.detail = None;
+                    s.detail = reason.map(ToString::to_string);
                 }
                 *step = (*step + 1).min(steps.len());
                 if *step < steps.len() {

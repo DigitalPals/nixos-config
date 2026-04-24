@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::CommandMessage;
-use crate::constants::DEFAULT_COMMAND_TIMEOUT_SECS;
+use crate::constants::{BUILD_COMMAND_TIMEOUT_SECS, DEFAULT_COMMAND_TIMEOUT_SECS};
 
 /// Execute a command and stream output to the channel
 pub async fn run_command(
@@ -448,17 +448,6 @@ pub enum CommandResult {
     Cancelled,
 }
 
-/// Execute a command with cancellation support
-/// Returns Cancelled if the token is triggered, Completed otherwise
-pub async fn run_command_cancellable(
-    tx: &mpsc::Sender<CommandMessage>,
-    cmd: &str,
-    args: &[&str],
-    cancel: CancellationToken,
-) -> Result<CommandResult> {
-    run_command_cancellable_with_timeout(tx, cmd, args, None, cancel).await
-}
-
 /// Execute a command with cancellation and timeout support
 pub async fn run_command_cancellable_with_timeout(
     tx: &mpsc::Sender<CommandMessage>,
@@ -621,7 +610,7 @@ where
         }
     });
 
-    let timeout = Duration::from_secs(DEFAULT_COMMAND_TIMEOUT_SECS);
+    let timeout = Duration::from_secs(BUILD_COMMAND_TIMEOUT_SECS);
 
     // Race between: command completion, timeout, and cancellation
     let result = tokio::select! {

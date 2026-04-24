@@ -130,38 +130,11 @@ impl App {
         self.modal_stack.last()
     }
 
-    /// Dismiss all modals
-    pub fn dismiss_modals(&mut self) {
-        self.modal_stack.clear();
-    }
-
     /// Check if a specific modal type is showing (convenience for backward compatibility)
     pub fn show_exit_confirm(&self) -> bool {
         self.modal_stack
             .iter()
             .any(|m| matches!(m, ModalDialog::ExitConfirm))
-    }
-
-    pub fn show_reboot_confirm(&self) -> bool {
-        self.modal_stack
-            .iter()
-            .any(|m| matches!(m, ModalDialog::RebootConfirm { .. }))
-    }
-
-    pub fn show_help(&self) -> bool {
-        self.modal_stack
-            .iter()
-            .any(|m| matches!(m, ModalDialog::Help))
-    }
-
-    /// Get reboot reasons from the modal stack
-    pub fn reboot_reasons(&self) -> Vec<String> {
-        for modal in self.modal_stack.iter().rev() {
-            if let ModalDialog::RebootConfirm { reasons } = modal {
-                return reasons.clone();
-            }
-        }
-        Vec::new()
     }
 
     /// Write a line to the screen log file
