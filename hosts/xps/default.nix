@@ -15,8 +15,8 @@ let
 
       """Haptic feedback daemon for the Dell XPS Synaptics touchpad.
 
-      The device uses the HID Manual Trigger protocol, so we listen for
-      click-like input events and send a short haptic pulse through hidraw.
+      The device initiates haptic feedback itself, but needs its HID haptic
+      settings restored after enumeration or device reset.
       """
 
       import fcntl
@@ -24,24 +24,16 @@ let
       import os
       import struct
       import sys
-      import time
 
       VENDOR = "06CB"
-      REPORT_ID = 0x37
-      INTENSITY = 40
-      PRESSURE_TRIGGER = 45
-      PRESSURE_RELEASE = 8
-      MIN_PULSE_INTERVAL = 0.08
+      BUTTON_SWITCH_REPORT = 0x06
+      HAPTIC_INTENSITY_REPORT = 0x37
+      # Bit 0 = surface switch, bit 1 = button switch.
+      BUTTON_SWITCHES = 0x03
+      INTENSITY = 100
 
       EVENT_FORMAT = "llHHi"
       EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
-      EV_KEY = 0x01
-      EV_ABS = 0x03
-      BUTTONS = {272, 273, 274}
-      BTN_TOUCH = 330
-      BTN_TOOL_FINGER = 325
-      ABS_PRESSURE = 24
-      ABS_MT_PRESSURE = 58
 
 
       def hid_ioctl(length):
@@ -90,6 +82,11 @@ let
           return None, None
 
 
+      def set_feature(fd, report_id, value):
+          report = struct.pack("BB", report_id, value)
+          fcntl.ioctl(fd, hid_ioctl(len(report)), report)
+
+
       def main():
           event, phys = find_touchpad_event()
           if not event:
@@ -101,43 +98,25 @@ let
               print("No Synaptics haptic hidraw device found", file=sys.stderr)
               sys.exit(1)
 
-          print(f"Haptic touchpad: hidraw={hidraw} input={event} intensity={INTENSITY}", flush=True)
-
-          report = struct.pack("BB", REPORT_ID, INTENSITY)
-          ioctl_request = hid_ioctl(len(report))
-
           hidraw_fd = os.open(hidraw, os.O_RDWR)
           event_fd = os.open(event, os.O_RDONLY)
-          pressure_active = False
-          last_pulse = 0.0
-
-          def pulse():
-              nonlocal last_pulse
-              now = time.monotonic()
-              if now - last_pulse < MIN_PULSE_INTERVAL:
-                  return
-              try:
-                  fcntl.ioctl(hidraw_fd, ioctl_request, report)
-                  last_pulse = now
-              except OSError:
-                  pass
 
           try:
+              set_feature(hidraw_fd, BUTTON_SWITCH_REPORT, BUTTON_SWITCHES)
+              set_feature(hidraw_fd, HAPTIC_INTENSITY_REPORT, INTENSITY)
+              print(
+                  f"Haptic touchpad: hidraw={hidraw} input={event} "
+                  f"switches={BUTTON_SWITCHES} intensity={INTENSITY}",
+                  flush=True,
+              )
+
+              # Keep the service tied to the input device. If the touchpad
+              # resets after suspend, read() fails and systemd restarts us,
+              # which reapplies the haptic feature reports.
               while True:
                   data = os.read(event_fd, EVENT_SIZE)
                   if len(data) < EVENT_SIZE:
                       continue
-                  _, _, event_type, code, value = struct.unpack(EVENT_FORMAT, data)
-                  if event_type == EV_KEY and code in BUTTONS and value == 1:
-                      pulse()
-                  elif event_type == EV_KEY and code in {BTN_TOUCH, BTN_TOOL_FINGER} and value == 0:
-                      pressure_active = False
-                  elif event_type == EV_ABS and code in {ABS_PRESSURE, ABS_MT_PRESSURE}:
-                      if value >= PRESSURE_TRIGGER and not pressure_active:
-                          pulse()
-                          pressure_active = True
-                      elif value <= PRESSURE_RELEASE:
-                          pressure_active = False
           except KeyboardInterrupt:
               pass
           finally:
