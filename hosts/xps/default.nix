@@ -16,7 +16,7 @@ let
       """Haptic feedback daemon for the Dell XPS Synaptics touchpad.
 
       The device uses the HID Manual Trigger protocol, so we listen for
-      button press events and send a short haptic pulse through hidraw.
+      click-like input events and send a short haptic pulse through hidraw.
       """
 
       import fcntl
@@ -24,15 +24,24 @@ let
       import os
       import struct
       import sys
+      import time
 
       VENDOR = "06CB"
       REPORT_ID = 0x37
       INTENSITY = 40
+      PRESSURE_TRIGGER = 45
+      PRESSURE_RELEASE = 8
+      MIN_PULSE_INTERVAL = 0.08
 
       EVENT_FORMAT = "llHHi"
       EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
       EV_KEY = 0x01
+      EV_ABS = 0x03
       BUTTONS = {272, 273, 274}
+      BTN_TOUCH = 330
+      BTN_TOOL_FINGER = 325
+      ABS_PRESSURE = 24
+      ABS_MT_PRESSURE = 58
 
 
       def hid_ioctl(length):
@@ -99,6 +108,19 @@ let
 
           hidraw_fd = os.open(hidraw, os.O_RDWR)
           event_fd = os.open(event, os.O_RDONLY)
+          pressure_active = False
+          last_pulse = 0.0
+
+          def pulse():
+              nonlocal last_pulse
+              now = time.monotonic()
+              if now - last_pulse < MIN_PULSE_INTERVAL:
+                  return
+              try:
+                  fcntl.ioctl(hidraw_fd, ioctl_request, report)
+                  last_pulse = now
+              except OSError:
+                  pass
 
           try:
               while True:
@@ -107,10 +129,15 @@ let
                       continue
                   _, _, event_type, code, value = struct.unpack(EVENT_FORMAT, data)
                   if event_type == EV_KEY and code in BUTTONS and value == 1:
-                      try:
-                          fcntl.ioctl(hidraw_fd, ioctl_request, report)
-                      except OSError:
-                          pass
+                      pulse()
+                  elif event_type == EV_KEY and code in {BTN_TOUCH, BTN_TOOL_FINGER} and value == 0:
+                      pressure_active = False
+                  elif event_type == EV_ABS and code in {ABS_PRESSURE, ABS_MT_PRESSURE}:
+                      if value >= PRESSURE_TRIGGER and not pressure_active:
+                          pulse()
+                          pressure_active = True
+                      elif value <= PRESSURE_RELEASE:
+                          pressure_active = False
           except KeyboardInterrupt:
               pass
           finally:
