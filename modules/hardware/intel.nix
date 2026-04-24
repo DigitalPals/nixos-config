@@ -27,13 +27,10 @@
     ];
   };
 
-  # Panther Lake display fix for the Dell XPS OLED panel: Panel Replay causes
-  # a 10Hz regression after resume, and PSR1 can introduce lag/stutters. The
-  # upstream QUIRK_DISABLE_PANEL_REPLAY for DA14260 lands in 7.1; retest both
-  # params once linuxPackages_latest reaches 7.1+.
+  # Disable Panel Replay on the Dell XPS OLED panel until the DA14260 driver
+  # quirk is available in the kernel used by this host.
   boot.kernelParams = [
-    "xe.enable_psr=0"          # Disable Panel Self Refresh (PSR1 stutters)
-    "xe.enable_panel_replay=0" # Disable Panel Replay (fixed in 7.1 via driver quirk)
+    "xe.enable_panel_replay=0"
   ];
 
   # Environment variables for Intel Wayland

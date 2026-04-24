@@ -511,18 +511,11 @@ cat /proc/acpi/wakeup | grep enabled                 # Wakeup sources
 
 **Host:** Dell XPS 14 DA14260 (Intel Core Ultra X7 358H, Intel Arc Xe3, 32GB LPDDR5x)
 
-### Panther Lake Display Fix
+### Panther Lake Display
 
 **Problem:** The Dell XPS OLED panel can drop to 10Hz and window dragging becomes laggy after suspend/resume on Panther Lake systems using the `xe` kernel module. Root cause is Panel Replay.
 
-**Solution:** Kernel parameter in `modules/hardware/intel.nix`:
-```nix
-boot.kernelParams = [
-  "xe.enable_panel_replay=0"
-];
-```
-
-**When fixed:** The upstream `QUIRK_DISABLE_PANEL_REPLAY` for DA14260 lands in kernel **7.1**. Remove this parameter once `linuxPackages_latest` reaches 7.1+.
+**Status:** `xe.enable_panel_replay=0` remains enabled in `modules/hardware/intel.nix` for the DA14260 OLED panel. The broader `xe.enable_psr=0` workaround was removed after Omarchy dropped it from their RC branch. Re-test after kernel or BIOS changes before changing display power-saving overrides.
 
 ### Dell XPS Haptic Touchpad
 

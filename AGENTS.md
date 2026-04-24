@@ -20,7 +20,7 @@ Look especially for changes in:
 Current baseline in this repo:
 - Wi-Fi workaround is already present
 - Haptic touchpad daemon approach is already present
-- Display workaround was updated to the newer narrower Omarchy approach
+- Display workaround keeps `xe.enable_panel_replay=0`; broader `xe.enable_psr=0` was removed after Omarchy dropped the temporary xe params
 - Audio is handled by kernel 7.0+ mainline SDCA support rather than Omarchy's older temporary blacklist
 
 Default research approach:

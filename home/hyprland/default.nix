@@ -14,7 +14,27 @@ let
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''
+    physical_external_monitor_connected() {
+      for status in /sys/class/drm/card*-*/status; do
+        [ -e "$status" ] || continue
+        case "$status" in
+          *-eDP-*/status) continue ;;
+        esac
+
+        if [ "$(<"$status")" = "connected" ]; then
+          return 0
+        fi
+      done
+
+      return 1
+    }
+
     apply_monitor_state() {
+      if ! physical_external_monitor_connected; then
+        ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+        return 0
+      fi
+
       monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || return 0
 
       if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '
