@@ -30,7 +30,7 @@ let
       HAPTIC_INTENSITY_REPORT = 0x37
       # Bit 0 = surface switch, bit 1 = button switch.
       BUTTON_SWITCHES = 0x03
-      INTENSITY = 100
+      INTENSITY = 1
 
       EVENT_FORMAT = "llHHi"
       EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
