@@ -1,6 +1,18 @@
 # Common NixOS configuration shared across all machines
 { config, pkgs, lib, forge, username, ... }:
 
+let
+  hostsWithMicMuteLed = [ "G1a" "proart" "xps" ];
+  micMuteLedKernel = if config.networking.hostName == "xps" then "*::micmute" else "hda::micmute";
+  micMuteLedPermissions = pkgs.writeShellScript "mic-mute-led-permissions" ''
+    set -eu
+    brightness="$1"
+
+    [ -e "$brightness" ] || exit 0
+    ${pkgs.coreutils}/bin/chown ${username}:users "$brightness" || exit 0
+    ${pkgs.coreutils}/bin/chmod 0660 "$brightness" || exit 0
+  '';
+in
 {
   imports = [
     ./gaming.nix      # Steam and gaming tools
@@ -68,10 +80,6 @@
       libxi
     ];
   };
-
-  # Make nix-ld libraries available to dlopen (for NixOS-compiled binaries
-  # that load shared libs at runtime, e.g. ONNX runtime via fastembed)
-  environment.sessionVariables.LD_LIBRARY_PATH = [ "/run/current-system/sw/share/nix-ld/lib" ];
 
   # Networking
   networking.networkmanager = {
@@ -325,7 +333,10 @@
   };
 
   # I/O scheduler tuning for NVMe (use none/mq-deadline for best performance)
-  services.udev.extraRules = ''
+  services.udev.extraRules = lib.optionalString (builtins.elem config.networking.hostName hostsWithMicMuteLed) ''
+    # Allow the active user service to sync the hardware mic mute LED.
+    SUBSYSTEM=="leds", KERNEL=="${micMuteLedKernel}", RUN+="${micMuteLedPermissions} %S%p/brightness"
+  '' + ''
     # Apple Studio Display brightness control (allow user access to HID devices)
     SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="1114", MODE="0666"
     SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="1116", MODE="0666"

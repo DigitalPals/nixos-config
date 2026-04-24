@@ -129,13 +129,8 @@
   # LUKS configuration is handled by disko (modules/disko/G1a.nix)
   # Disko sets allowDiscards and bypassWorkqueues automatically
 
-  # === Mic mute LED fix ===
-  # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
-  # This udev rule allows the user service to control the LED.
+  # === Hardware-specific udev fixes ===
   services.udev.extraRules = ''
-    # Allow users to control mic mute LED (for WirePlumber sync service)
-    SUBSYSTEM=="leds", KERNEL=="hda::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
-
     # Prevent USB autosuspend for Synaptics fingerprint reader (06cb:0106)
     ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="0106", ATTR{power/control}="on"
   '';

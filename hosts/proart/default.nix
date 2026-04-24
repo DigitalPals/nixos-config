@@ -95,12 +95,8 @@
     '';
   };
 
-  # === Mic mute LED fix ===
-  # The kernel's audio-micmute LED trigger doesn't sync with WirePlumber/PipeWire.
-  # This udev rule allows the user service to control the LED.
+  # === Hardware-specific udev fixes ===
   services.udev.extraRules = ''
-    # Allow users to control mic mute LED (for WirePlumber sync service)
-    SUBSYSTEM=="leds", KERNEL=="hda::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
     # Enable PCI runtime PM for NVIDIA dGPU (RTD3) when unused
     ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
     ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"

@@ -26,8 +26,6 @@ let
       import sys
 
       VENDOR = "06CB"
-      # Dell has shipped at least two Synaptics product IDs on this XPS generation.
-      PRODUCTS = {"D01A", "D01D"}
       REPORT_ID = 0x37
       INTENSITY = 40
 
@@ -41,19 +39,32 @@ let
           return 0xC0000000 | (length << 16) | (ord("H") << 8) | 0x06
 
 
-      def find_hidraw():
+      def read_uevent(path):
+          values = {}
+          try:
+              with open(path, encoding="utf-8") as handle:
+                  for line in handle:
+                      key, _, value = line.strip().partition("=")
+                      if key:
+                          values[key] = value
+          except OSError:
+              pass
+          return values
+
+
+      def find_hidraw(phys):
+          fallback = None
           for path in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
-              uevent = os.path.join(path, "device", "uevent")
-              try:
-                  with open(uevent, encoding="utf-8") as handle:
-                      content = handle.read().upper()
-                  if f"0000{VENDOR}" in content and any(
-                      f"0000{product}" in content for product in PRODUCTS
-                  ):
-                      return os.path.join("/dev", os.path.basename(path))
-              except OSError:
+              values = read_uevent(os.path.join(path, "device", "uevent"))
+              if f"0000{VENDOR}" not in values.get("HID_ID", "").upper():
                   continue
-          return None
+
+              hidraw = os.path.join("/dev", os.path.basename(path))
+              if fallback is None:
+                  fallback = hidraw
+              if phys and values.get("HID_PHYS") == phys:
+                  return hidraw
+          return fallback
 
 
       def find_touchpad_event():
@@ -61,24 +72,27 @@ let
               try:
                   with open(path, encoding="utf-8") as handle:
                       name = handle.read().strip().upper()
-                  if VENDOR in name and any(product in name for product in PRODUCTS) and "TOUCHPAD" in name:
+                  if VENDOR in name and "TOUCHPAD" in name:
+                      values = read_uevent(os.path.join(os.path.dirname(path), "uevent"))
                       event = path.split("/")[-3]
-                      return os.path.join("/dev/input", event)
+                      return os.path.join("/dev/input", event), values.get("PHYS")
               except OSError:
                   continue
-          return None
+          return None, None
 
 
       def main():
-          hidraw = find_hidraw()
+          event, phys = find_touchpad_event()
+          if not event:
+              print("No Synaptics touchpad input device found", file=sys.stderr)
+              sys.exit(1)
+
+          hidraw = find_hidraw(phys)
           if not hidraw:
               print("No Synaptics haptic hidraw device found", file=sys.stderr)
               sys.exit(1)
 
-          event = find_touchpad_event()
-          if not event:
-              print("No Synaptics touchpad input device found", file=sys.stderr)
-              sys.exit(1)
+          print(f"Haptic touchpad: hidraw={hidraw} input={event} intensity={INTENSITY}", flush=True)
 
           report = struct.pack("BB", REPORT_ID, INTENSITY)
           ioctl_request = hid_ioctl(len(report))
@@ -108,6 +122,20 @@ let
           main()
     '';
   };
+  xpsHapticTouchpadWait = pkgs.writeShellScript "xps-haptic-touchpad-wait" ''
+    set -eu
+
+    for _ in $(${pkgs.coreutils}/bin/seq 1 30); do
+      if ${pkgs.gnugrep}/bin/grep -qi 'HID_ID=.*000006CB' /sys/class/hidraw/hidraw*/device/uevent 2>/dev/null \
+        && ${pkgs.gnugrep}/bin/grep -qli '06CB.*Touchpad' /sys/class/input/event*/device/name 2>/dev/null; then
+        exit 0
+      fi
+      ${pkgs.coreutils}/bin/sleep 0.5
+    done
+
+    echo "Timed out waiting for Synaptics haptic touchpad devices" >&2
+    exit 1
+  '';
 in
 {
   imports = [
@@ -169,28 +197,28 @@ in
     # Keep the Synaptics touchpad path powered to preserve haptic state.
     ACTION=="add", SUBSYSTEM=="pci", KERNEL=="0000:00:19.0", ATTR{power/control}="on"
     ACTION=="add", SUBSYSTEM=="platform", KERNEL=="i2c_designware.0", ATTR{power/control}="on"
-    ACTION=="add|change", SUBSYSTEM=="i2c", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="d01a", ATTR{power/control}="on"
-    ACTION=="add|change", SUBSYSTEM=="i2c", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="d01d", ATTR{power/control}="on"
+    ACTION=="add|change", SUBSYSTEM=="i2c", KERNEL=="i2c-VEN_06CB:*", ATTR{power/control}="on"
 
     # Make the virtual camera device accessible to the desktop session
     KERNEL=="video50", GROUP="video", MODE="0660"
-
-    # Allow users to control mic mute LED (for WirePlumber sync service)
-    SUBSYSTEM=="leds", KERNEL=="*::micmute", RUN+="${pkgs.coreutils}/bin/chmod 666 %S%p/brightness"
   '';
 
   # Generate haptic click feedback in userspace until the kernel path matures.
   systemd.services.xps-haptic-touchpad = {
     description = "Dell XPS haptic touchpad feedback";
-    after = [ "systemd-udev-settle.service" ];
-    wants = [ "systemd-udev-settle.service" ];
+    after = [ "systemd-udev-trigger.service" ];
     wantedBy = [ "multi-user.target" ];
+    unitConfig = {
+      StartLimitIntervalSec = 120;
+      StartLimitBurst = 3;
+    };
 
     serviceConfig = {
       Type = "simple";
+      ExecStartPre = "${xpsHapticTouchpadWait}";
       ExecStart = "${xpsHapticTouchpad}/bin/xps-haptic-touchpad";
       Restart = "on-failure";
-      RestartSec = 2;
+      RestartSec = 10;
     };
   };
 

@@ -185,5 +185,16 @@
       icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
       default = forge;
     };
+
+    devShells.${system}.default = pkgs.mkShell {
+      packages = with pkgs; [
+        cargo
+        rustc
+        rustfmt
+        clippy
+        pkg-config
+        dbus
+      ];
+    };
   };
 }
