@@ -423,6 +423,23 @@ in
     fi
   '';
 
+  # Install opencode via npm so `opencode upgrade --method npm` can keep it current
+  home.activation.installOpencodeCLI = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ -L "$HOME/.npm-global/bin/opencode" ] && [ ! -e "$HOME/.npm-global/bin/opencode" ]; then
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$HOME/.npm-global/bin/opencode"
+    fi
+
+    if [ ! -x "$HOME/.npm-global/bin/opencode" ]; then
+      # Use 3 second timeout for connectivity check
+      if ${pkgs.curl}/bin/curl -m 3 -fsSL https://registry.npmjs.org/ >/dev/null 2>&1; then
+        $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm --prefix "$HOME/.npm-global" install -g opencode-ai || \
+          echo "opencode install failed (offline or npm issue)"
+      else
+        echo "opencode install skipped (offline)"
+      fi
+    fi
+  '';
+
   # GTK theme settings (affects Nautilus and other GTK apps)
   dconf.settings = {
     "org/gnome/desktop/interface" = {

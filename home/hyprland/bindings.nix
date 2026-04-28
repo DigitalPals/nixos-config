@@ -1,6 +1,6 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl, homeDirectory }:
+{ brightnessControl, homeDirectory, portalDevLauncher }:
 
 ''
   # Variables
@@ -18,6 +18,7 @@
   bind = $mainMod, B, exec, $browser
   bind = $mainMod SHIFT, B, exec, $browser --incognito
   bind = $mainMod, M, exec, $browser --app=https://mail.google.com/mail/u/1/#inbox
+  bind = $mainMod, P, exec, ${portalDevLauncher}
   bind = $mainMod, S, exec, spotify
   bind = $mainMod SHIFT, SLASH, exec, 1password
   bind = $mainMod, D, exec, $terminal -e lazydocker
@@ -40,7 +41,6 @@
   # Windows
   bind = $mainMod, Q, killactive,
   bind = $mainMod, F, togglefloating,
-  bind = $mainMod, P, pseudo,
   bind = $mainMod, J, togglesplit,
   bind = $mainMod, BACKSPACE, exec, hyprctl dispatch setprop address:$(hyprctl activewindow -j | jq -r '.address') alpha 0.85 toggle
   bind = $mainMod SHIFT, M, exit,

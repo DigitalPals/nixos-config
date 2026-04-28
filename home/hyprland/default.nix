@@ -9,8 +9,25 @@ let
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
   brightnessControl = import ./brightness.nix { inherit pkgs; };
+  portalDevLauncher = pkgs.writeShellScript "portal-dev" ''
+    set -euo pipefail
+
+    repo="${config.home.homeDirectory}/Code/portal"
+    log_dir="''${XDG_STATE_HOME:-$HOME/.local/state}/portal"
+    log_file="$log_dir/dev-launch.log"
+
+    mkdir -p "$log_dir"
+
+    if [ ! -x "$repo/run.sh" ]; then
+      ${pkgs.libnotify}/bin/notify-send "Portal dev launcher" "Missing executable: $repo/run.sh" || true
+      exit 1
+    fi
+
+    cd "$repo"
+    exec ./run.sh dev >> "$log_file" 2>&1
+  '';
   bindingsConfig = import ./bindings.nix {
-    inherit brightnessControl;
+    inherit brightnessControl portalDevLauncher;
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''

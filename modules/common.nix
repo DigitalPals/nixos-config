@@ -251,7 +251,6 @@ in
     cmake
     rustup
     bun
-    opencode
     balena-cli
     distrobox
     podman
