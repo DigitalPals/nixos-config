@@ -2,8 +2,8 @@
   description = "NixOS configuration with Home Manager, Hyprland, and Noctalia Desktop Shell";
 
   inputs = {
-    # Use nixpkgs master so latest hardware kernels reach these hosts quickly.
-    nixpkgs.url = "github:NixOS/nixpkgs/master";
+    # Use nixos-unstable so updates stay close to Hydra cache availability.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     # Home Manager following nixpkgs-unstable
     home-manager = {
