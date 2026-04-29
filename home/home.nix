@@ -291,7 +291,8 @@ in
 
     # Media
     ffmpeg           # audio/video processing
-    mpv              # video player
+    mpv-unwrapped    # video player
+    yt-dlp-light     # cached video URL helper for mpv
     imv              # image viewer
     pinta            # image editor
 
