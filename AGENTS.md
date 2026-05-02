@@ -21,6 +21,7 @@ Current baseline in this repo:
 - Wi-Fi workaround is already present
 - Haptic touchpad daemon approach is already present
 - Display workaround keeps `xe.enable_panel_replay=0`; broader `xe.enable_psr=0` was removed after Omarchy dropped the temporary xe params
+- Do not remove `xe.enable_panel_replay=0` on kernel 7.0.x. The Dell XPS 14 DA14260 Panel Replay quirk is expected in Linux 7.1, or via an explicit backport of upstream commits `45c77d4bf8d4` and `1de647abdfda9`.
 - Audio is handled by kernel 7.0+ mainline SDCA support rather than Omarchy's older temporary blacklist
 
 Default research approach:

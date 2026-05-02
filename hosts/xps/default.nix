@@ -155,7 +155,10 @@ in
   # WiFi regulatory domain (enables proper 5GHz/6GHz channels and power levels)
   # Use kernel param (not extraModprobeConfig) since cfg80211 is built-in on testing kernels.
   hardware.wirelessRegulatoryDatabase = true;
-  boot.kernelParams = [ "cfg80211.ieee80211_regdom=NL" ];
+  boot.kernelParams = [
+    "cfg80211.ieee80211_regdom=NL"
+    "fred=on"
+  ];
   boot.extraModprobeConfig = ''
     # WiFi 7 (EHT/802.11be) causes poor performance with some routers/environments;
     # fall back to WiFi 6/802.11ax until the iwlwifi BE211 driver matures further.
