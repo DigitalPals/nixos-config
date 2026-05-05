@@ -10,6 +10,9 @@ let
     value = { source = wallpapersDir + "/${name}"; };
   }) (lib.filterAttrs (name: type: type == "regular") wallpaperFiles);
   hostsWithMicMuteLed = [ "G1a" "proart" "xps" ];
+  papirusAppIcon = name: "${pkgs.papirus-icon-theme}/share/icons/Papirus/64x64/apps/${name}.svg";
+  devIcon = name: papirusAppIcon "distributor-logo-${name}";
+  localSendIcon = "${pkgs.localsend}/share/icons/hicolor/256x256/apps/localsend.png";
 in
 {
   imports = [
@@ -304,7 +307,7 @@ in
   xdg.desktopEntries."dev-fedora" = {
     name = "Dev Fedora";
     exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-fedora-shell";
-    icon = "utilities-terminal";
+    icon = devIcon "fedora";
     comment = "Open the Fedora Distrobox development shell";
     categories = [ "Development" "System" ];
   };
@@ -312,7 +315,7 @@ in
   xdg.desktopEntries."dev-arch" = {
     name = "Dev Arch";
     exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-arch-shell";
-    icon = "utilities-terminal";
+    icon = devIcon "archlinux";
     comment = "Open the Arch Distrobox development shell";
     categories = [ "Development" "System" ];
   };
@@ -320,7 +323,7 @@ in
   xdg.desktopEntries."dev-debian" = {
     name = "Dev Debian";
     exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-debian-shell";
-    icon = "utilities-terminal";
+    icon = devIcon "debian";
     comment = "Open the Debian Distrobox development shell";
     categories = [ "Development" "System" ];
   };
@@ -328,7 +331,7 @@ in
   xdg.desktopEntries."tui-btop" = {
     name = "System Monitor";
     exec = "${config.home.homeDirectory}/.local/bin/tui-btop";
-    icon = "utilities-system-monitor";
+    icon = "${pkgs.btop}/share/icons/hicolor/scalable/apps/btop.svg";
     comment = "Open btop in Ghostty";
     categories = [ "System" "Monitor" ];
   };
@@ -336,7 +339,7 @@ in
   xdg.desktopEntries."tui-disk-usage" = {
     name = "Disk Usage";
     exec = "${config.home.homeDirectory}/.local/bin/tui-dust";
-    icon = "drive-harddisk";
+    icon = papirusAppIcon "disk-usage-analyzer";
     comment = "Open dust in Ghostty";
     categories = [ "System" "Utility" ];
   };
@@ -344,7 +347,7 @@ in
   xdg.desktopEntries."tui-ghui" = {
     name = "GitHub";
     exec = "${config.home.homeDirectory}/.local/bin/tui-ghui";
-    icon = "github";
+    icon = papirusAppIcon "github";
     comment = "Open ghui in Ghostty";
     categories = [ "Development" ];
   };
@@ -352,7 +355,7 @@ in
   xdg.desktopEntries."tui-lazydocker" = {
     name = "Docker";
     exec = "${config.home.homeDirectory}/.local/bin/tui-lazydocker";
-    icon = "docker";
+    icon = papirusAppIcon "docker-desktop";
     comment = "Open lazydocker in Ghostty";
     categories = [ "Development" "System" ];
   };
@@ -360,7 +363,7 @@ in
   xdg.desktopEntries."localsend-share-clipboard" = {
     name = "Share Clipboard";
     exec = "${config.home.homeDirectory}/.local/bin/localsend-share clipboard";
-    icon = "localsend";
+    icon = localSendIcon;
     comment = "Share clipboard text with LocalSend";
     categories = [ "Utility" ];
   };
@@ -368,7 +371,7 @@ in
   xdg.desktopEntries."localsend-share-file" = {
     name = "Share File";
     exec = "${config.home.homeDirectory}/.local/bin/localsend-share-file";
-    icon = "localsend";
+    icon = localSendIcon;
     comment = "Pick files to share with LocalSend";
     categories = [ "Utility" ];
   };
@@ -376,7 +379,7 @@ in
   xdg.desktopEntries."localsend-share-folder" = {
     name = "Share Folder";
     exec = "${config.home.homeDirectory}/.local/bin/localsend-share-folder";
-    icon = "localsend";
+    icon = localSendIcon;
     comment = "Pick a folder to share with LocalSend";
     categories = [ "Utility" ];
   };
