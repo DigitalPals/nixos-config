@@ -20,6 +20,7 @@ Look especially for changes in:
 Current baseline in this repo:
 - Wi-Fi workaround is already present
 - Haptic touchpad daemon approach is already present
+- Do not replace the XPS haptic touchpad daemon with Omarchy's newer manual event-pulse approach unless new evidence shows it works on this exact machine. It found the devices but produced no haptic feedback here. Keep the local feature-restore approach that sets button/surface switches and intensity, then lets the touchpad generate feedback itself.
 - Do not implement Omarchy's IPU7 camera fix in this repo for now. Their working path relies on out-of-tree/patched camera modules such as `intel_cvs` plus matching userspace relay packaging. The preferred policy is to wait for upstream kernel/libcamera/PipeWire support for the built-in Dell XPS IPU7 camera instead of carrying that stack locally.
 - Display workaround keeps `xe.enable_panel_replay=0`; broader `xe.enable_psr=0` was removed after Omarchy dropped the temporary xe params
 - Do not remove `xe.enable_panel_replay=0` on kernel 7.0.x. The Dell XPS 14 DA14260 Panel Replay quirk is expected in Linux 7.1, or via an explicit backport of upstream commits `45c77d4bf8d4` and `1de647abdfda9`.
