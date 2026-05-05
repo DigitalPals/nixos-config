@@ -15,25 +15,27 @@ let
 
       """Haptic feedback daemon for the Dell XPS Synaptics touchpad.
 
-      The device initiates haptic feedback itself, but needs its HID haptic
-      settings restored after enumeration or device reset.
+      Current kernels expose button press events but do not reliably trigger
+      click feedback, so send the Synaptics manual haptic trigger on each click.
       """
 
       import fcntl
       import glob
       import os
+      import select
       import struct
       import sys
 
       VENDOR = "06CB"
-      BUTTON_SWITCH_REPORT = 0x06
-      HAPTIC_INTENSITY_REPORT = 0x37
-      # Bit 0 = surface switch, bit 1 = button switch.
-      BUTTON_SWITCHES = 0x03
-      INTENSITY = 1
+      REPORT_ID = 0x37
+      INTENSITY = 100
 
       EVENT_FORMAT = "llHHi"
       EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
+      EV_KEY = 0x01
+      BTN_LEFT = 272
+      BTN_RIGHT = 273
+      BTN_MIDDLE = 274
 
 
       def hid_ioctl(length):
@@ -82,9 +84,11 @@ let
           return None, None
 
 
-      def set_feature(fd, report_id, value):
-          report = struct.pack("BB", report_id, value)
-          fcntl.ioctl(fd, hid_ioctl(len(report)), report)
+      def send_haptic(fd, ioctl_req, report):
+          try:
+              fcntl.ioctl(fd, ioctl_req, report)
+          except OSError as error:
+              print(f"Failed to send haptic report: {error}", file=sys.stderr, flush=True)
 
 
       def main():
@@ -100,23 +104,29 @@ let
 
           hidraw_fd = os.open(hidraw, os.O_RDWR)
           event_fd = os.open(event, os.O_RDONLY)
+          report = struct.pack("BB", REPORT_ID, INTENSITY)
+          ioctl_req = hid_ioctl(len(report))
 
           try:
-              set_feature(hidraw_fd, BUTTON_SWITCH_REPORT, BUTTON_SWITCHES)
-              set_feature(hidraw_fd, HAPTIC_INTENSITY_REPORT, INTENSITY)
               print(
                   f"Haptic touchpad: hidraw={hidraw} input={event} "
-                  f"switches={BUTTON_SWITCHES} intensity={INTENSITY}",
+                  f"intensity={INTENSITY}",
                   flush=True,
               )
+              send_haptic(hidraw_fd, ioctl_req, report)
 
-              # Keep the service tied to the input device. If the touchpad
-              # resets after suspend, read() fails and systemd restarts us,
-              # which reapplies the haptic feature reports.
               while True:
+                  ready, _, _ = select.select([event_fd], [], [], 1.0)
+                  if not ready:
+                      continue
+
                   data = os.read(event_fd, EVENT_SIZE)
                   if len(data) < EVENT_SIZE:
                       continue
+
+                  _, _, ev_type, code, value = struct.unpack(EVENT_FORMAT, data)
+                  if ev_type == EV_KEY and code in (BTN_LEFT, BTN_RIGHT, BTN_MIDDLE) and value == 1:
+                      send_haptic(hidraw_fd, ioctl_req, report)
           except KeyboardInterrupt:
               pass
           finally:
@@ -142,6 +152,40 @@ let
     echo "Timed out waiting for Synaptics haptic touchpad devices" >&2
     exit 1
   '';
+  xpsIpu7CameraInit = pkgs.writeShellScript "xps-ipu7-camera-init" ''
+    set -eu
+
+    ${pkgs.kmod}/bin/modprobe intel_cvs 2>/dev/null || true
+    ${pkgs.coreutils}/bin/sleep 2
+    ${pkgs.kmod}/bin/modprobe ov08x40 2>/dev/null || true
+    ${pkgs.kmod}/bin/modprobe v4l2loopback
+  '';
+  xpsIpu7CameraRelay = pkgs.writeShellScript "xps-ipu7-camera-relay" ''
+    set -eu
+
+    for _ in $(${pkgs.coreutils}/bin/seq 1 30); do
+      [ -e /dev/video50 ] && break
+      ${pkgs.coreutils}/bin/sleep 0.5
+    done
+
+    if [ ! -e /dev/video50 ]; then
+      echo "Timed out waiting for /dev/video50" >&2
+      exit 1
+    fi
+
+    export GST_PLUGIN_SYSTEM_PATH_1_0="${lib.makeSearchPath "lib/gstreamer-1.0" [
+      pkgs.icamerasrcIpu75xa
+      pkgs.gst_all_1.gstreamer
+      pkgs.gst_all_1.gst-plugins-base
+      pkgs.gst_all_1.gst-plugins-good
+      pkgs.gst_all_1.gst-plugins-bad
+    ]}"
+    export GST_PLUGIN_PATH_1_0="$GST_PLUGIN_SYSTEM_PATH_1_0"
+
+    exec ${pkgs.v4l2-relayd}/bin/v4l2-relayd \
+      -i "icamerasrc device-name=ov08x40-uf sharpness=80 ev=-1 saturation=10 ! videoflip method=rotate-180" \
+      -o "appsrc name=appsrc caps=video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1 ! videoconvert ! v4l2sink name=v4l2sink device=/dev/video50"
+  '';
 in
 {
   imports = [
@@ -163,12 +207,14 @@ in
     # WiFi 7 (EHT/802.11be) causes poor performance with some routers/environments;
     # fall back to WiFi 6/802.11ax until the iwlwifi BE211 driver matures further.
     options iwlwifi disable_11be=Y
-    options v4l2loopback video_nr=50 card_label="Intel IPU7 Camera" exclusive_caps=1
+    options v4l2loopback video_nr=50 card_label="Hardware ISP Camera" exclusive_caps=1 max_buffers=16
   '';
 
   # Intel CPU configuration
   hardware.cpu.intel.updateMicrocode = true;
   boot.kernelModules = [ "v4l2loopback" ];
+  # This builds only the small out-of-tree v4l2loopback module for the active
+  # kernel. It does not rebuild the kernel itself.
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
 
   # Intel thermald for thermal management (Dell DPTF integration)
@@ -178,11 +224,54 @@ in
     icamerasrcIpu75xa
     ipu7CameraBins
     ipu7CameraHal
+    v4l2-relayd
     v4l-utils
   ];
 
   environment.etc = {
+    "camera/ipu75xa".source = "${pkgs.ipu7CameraHal}/etc/camera/ipu75xa";
     "intel_lpmd".source = "${pkgs.intelLpmd}/etc/intel_lpmd";
+    "systemd/system-sleep/xps-ipu7-camera".text = ''
+      #!${pkgs.bash}/bin/bash
+
+      case "$1" in
+        pre)
+          ${pkgs.systemd}/bin/systemctl stop xps-ipu7-camera-relay.service 2>/dev/null || true
+          ;;
+        post)
+          ${pkgs.systemd}/bin/systemd-run --no-block --unit=xps-ipu7-camera-resume ${pkgs.bash}/bin/bash -c '
+            ${pkgs.systemd}/bin/systemctl restart xps-ipu7-camera-init.service 2>/dev/null || true
+            ${pkgs.systemd}/bin/systemctl reset-failed xps-ipu7-camera-relay.service 2>/dev/null || true
+            ${pkgs.systemd}/bin/systemctl start xps-ipu7-camera-relay.service 2>/dev/null || true
+          '
+          ;;
+      esac
+    '';
+    "systemd/system-sleep/xps-ipu7-camera".mode = "0755";
+    "wireplumber/wireplumber.conf.d/70-hide-ipu7-v4l2.conf".text = ''
+      # Hide raw IPU7 ISP nodes; desktop apps should use the v4l2loopback camera.
+      monitor.v4l2.rules = [
+        {
+          matches = [
+            {
+              device.bus-path = "pci-0000:00:05.0"
+            }
+          ]
+          actions = {
+            update-props = {
+              device.disabled = true
+            }
+          }
+        }
+      ]
+    '';
+    "wireplumber/wireplumber.conf.d/71-disable-libcamera.conf".text = ''
+      wireplumber.profiles = {
+        main = {
+          "monitor.libcamera" = disabled
+        }
+      }
+    '';
   };
 
   services.dbus.packages = [ pkgs.intelLpmd ];
@@ -208,6 +297,10 @@ in
     ACTION=="add", SUBSYSTEM=="platform", KERNEL=="i2c_designware.0", ATTR{power/control}="on"
     ACTION=="add|change", SUBSYSTEM=="i2c", KERNEL=="i2c-VEN_06CB:*", ATTR{power/control}="on"
 
+    # Hide raw IPU7 ISYS capture nodes; they expose raw Bayer frames.
+    SUBSYSTEM=="video4linux", ATTR{name}=="Intel IPU7 ISYS Capture *", TAG-="uaccess", TAG-="seat", MODE="0600", GROUP="root"
+    KERNEL=="ipu7-psys0", MODE="0666", SYMLINK+="ipu-psys0"
+
     # Make the virtual camera device accessible to the desktop session
     KERNEL=="video50", GROUP="video", MODE="0660"
   '';
@@ -228,6 +321,33 @@ in
       ExecStart = "${xpsHapticTouchpad}/bin/xps-haptic-touchpad";
       Restart = "on-failure";
       RestartSec = 10;
+    };
+  };
+
+  systemd.services.xps-ipu7-camera-init = {
+    description = "Initialize Dell XPS IPU7 camera";
+    after = [ "systemd-modules-load.service" ];
+    before = [ "graphical.target" "xps-ipu7-camera-relay.service" ];
+    wantedBy = [ "multi-user.target" ];
+
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${xpsIpu7CameraInit}";
+    };
+  };
+
+  systemd.services.xps-ipu7-camera-relay = {
+    description = "Relay Dell XPS IPU7 camera to v4l2loopback";
+    after = [ "xps-ipu7-camera-init.service" "graphical.target" ];
+    wants = [ "xps-ipu7-camera-init.service" ];
+    wantedBy = [ "graphical.target" ];
+
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${xpsIpu7CameraRelay}";
+      Restart = "on-failure";
+      RestartSec = 3;
     };
   };
 
