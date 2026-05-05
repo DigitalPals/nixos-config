@@ -73,6 +73,16 @@ in
       source = ./scripts/screenshot;
       executable = true;
     };
+    # LocalSend share helper
+    ".local/bin/localsend-share" = {
+      source = ./scripts/localsend-share;
+      executable = true;
+    };
+    # Screen OCR script
+    ".local/bin/screen-ocr" = {
+      source = ./scripts/screen-ocr;
+      executable = true;
+    };
     # Clipboard image -> file helper (for CLI tools expecting file URLs)
     ".local/bin/clipboard-image-to-file" = {
       source = ./scripts/clipboard-image-to-file;
@@ -180,6 +190,57 @@ in
       source = ./scripts/clipboard-copy-image;
       executable = true;
     };
+    # NPX wrapper for ghui, matching Omarchy's lazy-install approach.
+    ".local/bin/ghui" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.nodejs}/bin/npx --yes --prefer-online --package @kitlangton/ghui -- ghui "$@"
+      '';
+    };
+    # TUI desktop launcher wrappers
+    ".local/bin/tui-btop" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.ghostty}/bin/ghostty -e ${pkgs.btop}/bin/btop
+      '';
+    };
+    ".local/bin/tui-dust" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.ghostty}/bin/ghostty -e ${pkgs.bash}/bin/bash -lc 'cd "$HOME"; ${pkgs.dust}/bin/dust -r; printf "\nPress any key to close..."; read -r -n 1 -s'
+      '';
+    };
+    ".local/bin/tui-ghui" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.ghostty}/bin/ghostty -e ${config.home.homeDirectory}/.local/bin/ghui
+      '';
+    };
+    ".local/bin/tui-lazydocker" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.ghostty}/bin/ghostty -e ${pkgs.lazydocker}/bin/lazydocker
+      '';
+    };
+    ".local/bin/localsend-share-file" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.ghostty}/bin/ghostty -e ${config.home.homeDirectory}/.local/bin/localsend-share file
+      '';
+    };
+    ".local/bin/localsend-share-folder" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        exec ${pkgs.ghostty}/bin/ghostty -e ${config.home.homeDirectory}/.local/bin/localsend-share folder
+      '';
+    };
 
     # User profile picture (used by GDM, SDDM, etc.)
     ".face".source = ../face;
@@ -193,6 +254,19 @@ in
   xdg.configFile."distrobox/distrobox.conf".text = ''
     container_init_hook="${config.home.homeDirectory}/.local/bin/dev-distrobox-init"
   '';
+
+  # Distrobox can export Terminal=true desktop files for these boxes. Noctalia
+  # launches those through its terminalCommand, so stale exports can point at a
+  # missing terminal or old distrobox store path. Replace them declaratively.
+  home.activation.removeStaleDistroboxDevDesktopEntries =
+    lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
+        "$HOME/.local/share/applications/dev-fedora.desktop" \
+        "$HOME/.local/share/applications/dev-arch.desktop" \
+        "$HOME/.local/share/applications/dev-debian.desktop"
+    '';
+
+  xdg.dataFile."nautilus-python/extensions/localsend.py".source = ./nautilus-localsend.py;
 
   # Desktop entry overrides for Wayland
   xdg.desktopEntries."1password" = {
@@ -227,6 +301,86 @@ in
     ];
   };
 
+  xdg.desktopEntries."dev-fedora" = {
+    name = "Dev Fedora";
+    exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-fedora-shell";
+    icon = "utilities-terminal";
+    comment = "Open the Fedora Distrobox development shell";
+    categories = [ "Development" "System" ];
+  };
+
+  xdg.desktopEntries."dev-arch" = {
+    name = "Dev Arch";
+    exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-arch-shell";
+    icon = "utilities-terminal";
+    comment = "Open the Arch Distrobox development shell";
+    categories = [ "Development" "System" ];
+  };
+
+  xdg.desktopEntries."dev-debian" = {
+    name = "Dev Debian";
+    exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-debian-shell";
+    icon = "utilities-terminal";
+    comment = "Open the Debian Distrobox development shell";
+    categories = [ "Development" "System" ];
+  };
+
+  xdg.desktopEntries."tui-btop" = {
+    name = "System Monitor";
+    exec = "${config.home.homeDirectory}/.local/bin/tui-btop";
+    icon = "utilities-system-monitor";
+    comment = "Open btop in Ghostty";
+    categories = [ "System" "Monitor" ];
+  };
+
+  xdg.desktopEntries."tui-disk-usage" = {
+    name = "Disk Usage";
+    exec = "${config.home.homeDirectory}/.local/bin/tui-dust";
+    icon = "drive-harddisk";
+    comment = "Open dust in Ghostty";
+    categories = [ "System" "Utility" ];
+  };
+
+  xdg.desktopEntries."tui-ghui" = {
+    name = "GitHub";
+    exec = "${config.home.homeDirectory}/.local/bin/tui-ghui";
+    icon = "github";
+    comment = "Open ghui in Ghostty";
+    categories = [ "Development" ];
+  };
+
+  xdg.desktopEntries."tui-lazydocker" = {
+    name = "Docker";
+    exec = "${config.home.homeDirectory}/.local/bin/tui-lazydocker";
+    icon = "docker";
+    comment = "Open lazydocker in Ghostty";
+    categories = [ "Development" "System" ];
+  };
+
+  xdg.desktopEntries."localsend-share-clipboard" = {
+    name = "Share Clipboard";
+    exec = "${config.home.homeDirectory}/.local/bin/localsend-share clipboard";
+    icon = "localsend";
+    comment = "Share clipboard text with LocalSend";
+    categories = [ "Utility" ];
+  };
+
+  xdg.desktopEntries."localsend-share-file" = {
+    name = "Share File";
+    exec = "${config.home.homeDirectory}/.local/bin/localsend-share-file";
+    icon = "localsend";
+    comment = "Pick files to share with LocalSend";
+    categories = [ "Utility" ];
+  };
+
+  xdg.desktopEntries."localsend-share-folder" = {
+    name = "Share Folder";
+    exec = "${config.home.homeDirectory}/.local/bin/localsend-share-folder";
+    icon = "localsend";
+    comment = "Pick a folder to share with LocalSend";
+    categories = [ "Utility" ];
+  };
+
   # User packages
   home.packages = with pkgs; [
     # XDG portal for GTK apps (dark mode, file dialogs)
@@ -239,9 +393,11 @@ in
     wayfreeze
     wl-clipboard
     hyprpicker
+    tesseract
 
     # File management
     nautilus
+    nautilus-python
     sushi # Quick preview for Nautilus (press SPACE)
 
     # Theming
@@ -268,6 +424,7 @@ in
     lazygit
     ripgrep
     fd
+    dust
 
     # CLI enhancements
     bat              # cat with syntax highlighting
@@ -457,7 +614,6 @@ in
     # Wayland-specific (NIXOS_OZONE_WL is set in configuration.nix)
     MOZ_ENABLE_WAYLAND = "1";
     QT_QPA_PLATFORM = "wayland";
-    SDL_VIDEODRIVER = "wayland";
     XDG_SESSION_TYPE = "wayland";
     NOCTALIA_PAM_SERVICE = "noctalia";
   };

@@ -77,9 +77,10 @@
   bind = $mainMod, mouse_up, workspace, e-1
 
   # Screenshots
-  bind = $mainMod, grave, exec, ~/.local/bin/screenshot region
-  bind = , Print, exec, ~/.local/bin/screenshot region
+  bind = $mainMod, grave, exec, ~/.local/bin/screenshot smart
+  bind = , Print, exec, ~/.local/bin/screenshot smart
   bind = SHIFT, Print, exec, ~/.local/bin/screenshot fullscreen
+  bind = $mainMod SHIFT, Print, exec, ~/.local/bin/screen-ocr
 
   # Media
   bindel = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+

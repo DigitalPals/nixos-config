@@ -1,6 +1,6 @@
 #!/bin/bash
 # Screenshot tool with Satty editor
-# Usage: screenshot [region|fullscreen]
+# Usage: screenshot [smart|region|windows|fullscreen]
 
 OUTPUT_DIR="$HOME/Pictures/Screenshots"
 mkdir -p "$OUTPUT_DIR"
@@ -8,20 +8,79 @@ mkdir -p "$OUTPUT_DIR"
 # Cancel any existing slurp
 pkill slurp && exit 0
 
-MODE="${1:-region}"
+MODE="${1:-smart}"
 TS="$(date +'%Y-%m-%d_%H-%M-%S')"
 RAW_FILE="$OUTPUT_DIR/screenshot-${TS}-raw.png"
 OUTPUT_FILE="$OUTPUT_DIR/screenshot-${TS}.png"
 
+JQ_MONITOR_GEO='
+  def format_geo:
+    .x as $x | .y as $y |
+    (.width / .scale | floor) as $w |
+    (.height / .scale | floor) as $h |
+    .transform as $t |
+    if $t == 1 or $t == 3 then
+      "\($x),\($y) \($h)x\($w)"
+    else
+      "\($x),\($y) \($w)x\($h)"
+    end;
+'
+
+get_rectangles() {
+  active_workspace=$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .activeWorkspace.id')
+  hyprctl monitors -j | jq -r --arg ws "$active_workspace" "${JQ_MONITOR_GEO} .[] | select(.activeWorkspace.id == (\$ws | tonumber)) | format_geo"
+  hyprctl clients -j | jq -r --arg ws "$active_workspace" '.[] | select(.workspace.id == ($ws | tonumber)) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"'
+}
+
+start_freeze() {
+  hyprpicker -r -z >/dev/null 2>&1 &
+  FREEZE_PID=$!
+  sleep 0.1
+}
+
+cleanup_freeze() {
+  [ -n "${FREEZE_PID:-}" ] && kill "$FREEZE_PID" 2>/dev/null
+}
+trap cleanup_freeze EXIT
+
 case "$MODE" in
   fullscreen)
-    SELECTION=$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | "\(.x),\(.y) \((.width / .scale) | floor)x\((.height / .scale) | floor)"')
+    SELECTION=$(hyprctl monitors -j | jq -r "${JQ_MONITOR_GEO} .[] | select(.focused == true) | format_geo")
     ;;
-  region|*)
-    wayfreeze & PID=$!
-    sleep 0.1
+  windows)
+    start_freeze
+    SELECTION=$(get_rectangles | slurp -r 2>/dev/null)
+    ;;
+  region)
+    start_freeze
     SELECTION=$(slurp 2>/dev/null)
-    kill $PID 2>/dev/null
+    ;;
+  smart|*)
+    RECTS=$(get_rectangles)
+    start_freeze
+    SELECTION=$(echo "$RECTS" | slurp 2>/dev/null)
+
+    # Tiny drag/click selections snap to the window or monitor underneath.
+    if [[ $SELECTION =~ ^(-?[0-9]+),(-?[0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
+      if ((${BASH_REMATCH[3]} * ${BASH_REMATCH[4]} < 20)); then
+        click_x="${BASH_REMATCH[1]}"
+        click_y="${BASH_REMATCH[2]}"
+
+        while IFS= read -r rect; do
+          if [[ $rect =~ ^(-?[0-9]+),(-?[0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
+            rect_x="${BASH_REMATCH[1]}"
+            rect_y="${BASH_REMATCH[2]}"
+            rect_width="${BASH_REMATCH[3]}"
+            rect_height="${BASH_REMATCH[4]}"
+
+            if ((click_x >= rect_x && click_x < rect_x + rect_width && click_y >= rect_y && click_y < rect_y + rect_height)); then
+              SELECTION="${rect_x},${rect_y} ${rect_width}x${rect_height}"
+              break
+            fi
+          fi
+        done <<<"$RECTS"
+      fi
+    fi
     ;;
 esac
 
