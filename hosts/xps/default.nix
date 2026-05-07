@@ -152,6 +152,10 @@ in
 
   networking.hostName = "xps";
 
+  # Keep the Limine menu available for rollbacks, but avoid spending multiple
+  # seconds there on every normal boot.
+  boot.loader.timeout = lib.mkForce 1;
+
   # WiFi regulatory domain (enables proper 5GHz/6GHz channels and power levels)
   # Use kernel param (not extraModprobeConfig) since cfg80211 is built-in on testing kernels.
   hardware.wirelessRegulatoryDatabase = true;
@@ -185,6 +189,14 @@ in
     "hid-generic"  # Input: generic HID driver for keyboards
     "usbhid"       # Input: USB HID for external keyboards
   ];
+
+  # The shared Plymouth module waits for udev-settle to help NVIDIA framebuffer
+  # handoff. On this Intel-only XPS, early KMS is provided by xe in initrd and
+  # the extra settle ordering only risks delaying the LUKS prompt.
+  boot.initrd.systemd.services.plymouth-start = {
+    wants = lib.mkForce [ ];
+    after = lib.mkForce [ ];
+  };
 
   # === Haptic Touchpad Fix ===
   # Dell XPS uses a Synaptics haptic touchpad (06CB:D01A) whose haptic engine
