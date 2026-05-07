@@ -26,6 +26,7 @@ pub struct FlakeInputChange {
     pub repo: String,
     pub old_rev: String,
     pub new_rev: String,
+    pub new_last_modified: Option<i64>,
     pub commits: Vec<CommitInfo>,
     pub total_commits: usize,
     pub compare_url: Option<String>,
@@ -47,6 +48,8 @@ struct LockedInfo {
     owner: Option<String>,
     repo: Option<String>,
     rev: Option<String>,
+    #[serde(rename = "lastModified")]
+    last_modified: Option<i64>,
     #[serde(rename = "type")]
     source_type: Option<String>,
 }
@@ -163,6 +166,7 @@ pub async fn parse_flake_changes(dir: &Path, backup_path: &Path) -> Result<Vec<F
                             repo: repo.clone(),
                             old_rev: old_rev.clone(),
                             new_rev: new_rev.clone(),
+                            new_last_modified: new_locked.last_modified,
                             commits: Vec::new(),
                             total_commits: 0,
                             compare_url: Some(format!(

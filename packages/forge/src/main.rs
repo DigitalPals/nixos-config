@@ -17,8 +17,10 @@ use crossterm::{
 };
 use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io::{self, Write};
+use std::collections::HashSet;
+use std::io::{self, IsTerminal, Write};
 use std::time::Duration;
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -70,6 +72,9 @@ enum Commands {
         /// Update specific flake inputs only
         #[arg(long = "input", global = true)]
         inputs: Vec<String>,
+        /// Show full command output, per-commit logs, and inline Nix warnings
+        #[arg(long, global = true)]
+        verbose: bool,
     },
     /// App profile management (browsers, Portal, etc.)
     #[command(alias = "browser")]
@@ -169,6 +174,7 @@ async fn main() -> Result<()> {
             rebuild_only,
             flake_only,
             inputs,
+            verbose,
         }) => match action {
             Some(UpdateAction::History { details }) => {
                 // Run history command directly (no TUI)
@@ -182,7 +188,7 @@ async fn main() -> Result<()> {
                     inputs,
                     presentation: app::UpdatePresentation::Modern,
                 };
-                run_cli_update(options).await
+                run_cli_update(options, verbose).await
             }
         },
         Some(Commands::Apps { action }) => match action {
@@ -247,10 +253,13 @@ async fn run_tui(initial_mode: AppMode) -> Result<()> {
     Ok(())
 }
 
-async fn run_cli_update(options: app::UpdateOptions) -> Result<()> {
+async fn run_cli_update(options: app::UpdateOptions, verbose: bool) -> Result<()> {
     if let Some(error) = options.validate() {
         anyhow::bail!(error);
     }
+
+    let started_at = Instant::now();
+    print_cli_header();
 
     if !handle_cli_local_changes()? {
         return Ok(());
@@ -259,7 +268,7 @@ async fn run_cli_update(options: app::UpdateOptions) -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<CommandMessage>(constants::COMMAND_CHANNEL_SIZE);
     commands::update::start_update(tx, CancellationToken::new(), options).await?;
 
-    let mut renderer = CliUpdateRenderer::default();
+    let mut renderer = CliUpdateRenderer::new(verbose, started_at);
     let mut success = false;
 
     while let Some(msg) = rx.recv().await {
@@ -268,25 +277,26 @@ async fn run_cli_update(options: app::UpdateOptions) -> Result<()> {
             CommandMessage::Stderr(line) => renderer.line(&line, true),
             CommandMessage::StepFailed { step, error } => {
                 renderer.finish_progress_line();
-                eprintln!("{} {}: {}", ansi_red("error"), step, error.summary);
+                eprintln!("  {} {}: {}", failure("✗"), step, error.summary);
                 if let Some(detail) = error.detail {
                     eprintln!("  {}", detail);
                 }
                 eprintln!("  {}", error.suggestion);
+                renderer.dump_log();
             }
             CommandMessage::StepWarning { step, detail } => {
                 renderer.finish_progress_line();
-                println!("{} {}: {}", ansi_yellow("warning"), step, detail);
-            }
-            CommandMessage::StepSkipped { step, reason } => {
-                renderer.finish_progress_line();
-                if let Some(reason) = reason {
-                    println!("{} {} ({})", ansi_dim("skipped"), step, reason);
+                if verbose {
+                    println!("  {} {}: {}", warn("!"), step, detail);
+                } else {
+                    renderer.note(format!("{}: {}", step, detail));
                 }
             }
+            CommandMessage::StepSkipped { step, reason } => {
+                renderer.step_skipped(&step, reason.as_deref());
+            }
             CommandMessage::StepDetail { detail, .. } => {
-                renderer.finish_progress_line();
-                println!("{} {}", ansi_cyan("::"), detail);
+                renderer.step_detail(&detail);
             }
             CommandMessage::StepComplete { .. } => {}
             CommandMessage::NixProgress(event) => renderer.nix_progress(event),
@@ -297,19 +307,19 @@ async fn run_cli_update(options: app::UpdateOptions) -> Result<()> {
             }
             CommandMessage::Cancelled => {
                 renderer.finish_progress_line();
-                println!("{}", ansi_yellow("Update cancelled."));
+                println!("  {}", warn("! update cancelled"));
                 break;
             }
             CommandMessage::RollbackAvailable { generation } => {
                 renderer.finish_progress_line();
                 println!(
                     "{} rollback available to generation {}",
-                    ansi_yellow("warning"),
+                    warn("!"),
                     generation
                 );
             }
-            CommandMessage::UpdateSummaryData { .. }
-            | CommandMessage::UpdatePreflightReady { .. }
+            CommandMessage::UpdateSummaryData { summary } => renderer.summary(summary),
+            CommandMessage::UpdatePreflightReady { .. }
             | CommandMessage::UpdatePreflightFailed { .. }
             | CommandMessage::UpdatesAvailable { .. }
             | CommandMessage::CloneComplete { .. } => {}
@@ -317,6 +327,7 @@ async fn run_cli_update(options: app::UpdateOptions) -> Result<()> {
     }
 
     if success {
+        renderer.done();
         Ok(())
     } else {
         anyhow::bail!("forge update failed")
@@ -325,11 +336,28 @@ async fn run_cli_update(options: app::UpdateOptions) -> Result<()> {
 
 fn handle_cli_local_changes() -> Result<bool> {
     let changes = commands::update::check_local_changes();
+    section("Pre-flight");
     if changes.is_empty() {
+        println!("  {} working tree clean", skipped("◦"));
+        println!();
         return Ok(true);
     }
 
-    println!("{}", ansi_yellow("Uncommitted files detected:"));
+    let modified = changes.iter().filter(|change| change.tracked).count();
+    let untracked = changes.len().saturating_sub(modified);
+    let description = if untracked > 0 {
+        format!(
+            "Working tree dirty — {} modified, {} untracked",
+            modified, untracked
+        )
+    } else {
+        format!(
+            "Working tree dirty — {} file{} modified",
+            modified,
+            if modified == 1 { "" } else { "s" }
+        )
+    };
+    println!("  {} {}", warn("!"), description);
     for change in &changes {
         let marker = if change.tracked {
             "modified"
@@ -348,8 +376,19 @@ fn handle_cli_local_changes() -> Result<bool> {
     io::stdin().read_line(&mut choice)?;
     match choice.trim() {
         "2" => {
-            println!("Codex prompt: Commit and push all files to main/master");
-            commit_and_push_all_changes("Commit and push all files to main/master")?;
+            println!(
+                "{} Codex: Commit and push all files to main/master",
+                action("→")
+            );
+            let commit = commit_and_push_all_changes("Commit and push all files to main/master")?;
+            println!("  {} Committed and pushed via Codex", success("✓"));
+            println!(
+                "    {} · {} · origin/{}",
+                dim(&commit.hash),
+                commit.shortstat,
+                commit.branch
+            );
+            println!();
             Ok(true)
         }
         _ => {
@@ -359,7 +398,14 @@ fn handle_cli_local_changes() -> Result<bool> {
     }
 }
 
-fn commit_and_push_all_changes(description: &str) -> Result<()> {
+#[derive(Debug)]
+struct CliCommitResult {
+    hash: String,
+    shortstat: String,
+    branch: String,
+}
+
+fn commit_and_push_all_changes(prompt: &str) -> Result<CliCommitResult> {
     let config_dir = constants::nixos_config_dir();
     let branch = git_output(&config_dir, &["branch", "--show-current"])?;
     if branch != "main" && branch != "master" {
@@ -368,28 +414,79 @@ fn commit_and_push_all_changes(description: &str) -> Result<()> {
             branch
         );
     }
+    let before = git_output(&config_dir, &["rev-parse", "HEAD"]).ok();
 
-    run_git(&config_dir, &["add", "-A"])?;
-    run_git(&config_dir, &["commit", "-m", description])?;
-    run_git(&config_dir, &["push", "origin", &branch])?;
-    println!(
-        "{} committed and pushed to origin/{}",
-        ansi_green("✓"),
-        branch
-    );
-    Ok(())
+    let mut codex = if constants::codex_cli_path().exists() {
+        std::process::Command::new(constants::codex_cli_path())
+    } else {
+        std::process::Command::new("codex")
+    };
+    let output = codex
+        .arg("exec")
+        .arg("--dangerously-bypass-approvals-and-sandbox")
+        .arg("-C")
+        .arg(&config_dir)
+        .arg(prompt)
+        .output()?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "Codex failed to commit and push changes\n{}\n{}",
+            stdout.trim(),
+            stderr.trim()
+        );
+    }
+
+    let branch = git_output(&config_dir, &["branch", "--show-current"])?;
+    if branch != "main" && branch != "master" {
+        anyhow::bail!("Codex left the repository on branch '{}'", branch);
+    }
+
+    let hash = git_output(&config_dir, &["rev-parse", "--short", "HEAD"])?;
+    if before
+        .as_deref()
+        .map(|old| short_hash(old) == hash)
+        .unwrap_or(false)
+    {
+        anyhow::bail!("Codex finished without creating a new commit");
+    }
+
+    let range = before
+        .as_deref()
+        .map(|old| format!("{}..HEAD", old))
+        .unwrap_or_else(|| "HEAD~1..HEAD".to_string());
+    let shortstat = git_output(&config_dir, &["diff", "--shortstat", &range])
+        .unwrap_or_else(|_| "changes committed".to_string());
+    run_git_quiet(&config_dir, &["push", "origin", &branch])?;
+    let remaining = commands::update::check_local_changes();
+    if !remaining.is_empty() {
+        let paths = remaining
+            .iter()
+            .map(|change| change.path.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!("Codex left uncommitted changes: {}", paths);
+    }
+    Ok(CliCommitResult {
+        hash,
+        shortstat: normalize_shortstat(&shortstat),
+        branch,
+    })
 }
 
-fn run_git(config_dir: &std::path::Path, args: &[&str]) -> Result<()> {
-    let status = std::process::Command::new("git")
+fn run_git_quiet(config_dir: &std::path::Path, args: &[&str]) -> Result<()> {
+    let output = std::process::Command::new("git")
         .arg("-C")
         .arg(config_dir)
         .args(args)
-        .status()?;
-    if status.success() {
+        .output()?;
+    if output.status.success() {
         Ok(())
     } else {
-        anyhow::bail!("git {} failed", args.join(" "))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git {} failed: {}", args.join(" "), stderr.trim())
     }
 }
 
@@ -405,16 +502,62 @@ fn git_output(config_dir: &std::path::Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-#[derive(Default)]
+fn print_cli_header() {
+    let host = std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    println!(
+        "{:<44} {}",
+        "forge update",
+        format!("{} · {}", host, nixos_version_label())
+    );
+    println!();
+}
+
 struct CliUpdateRenderer {
+    verbose: bool,
+    started_at: Instant,
+    shown_sections: HashSet<&'static str>,
+    notes: Vec<String>,
+    log_buffer: Vec<String>,
+    build_seen: HashSet<String>,
+    build_done: HashSet<String>,
     progress_active: bool,
 }
 
 impl CliUpdateRenderer {
+    fn new(verbose: bool, started_at: Instant) -> Self {
+        Self {
+            verbose,
+            started_at,
+            shown_sections: HashSet::new(),
+            notes: Vec::new(),
+            log_buffer: Vec::new(),
+            build_seen: HashSet::new(),
+            build_done: HashSet::new(),
+            progress_active: false,
+        }
+    }
+
     fn line(&mut self, line: &str, stderr: bool) {
-        if line.trim().is_empty() {
+        if !line.trim().is_empty() {
+            self.log_buffer.push(line.to_string());
+        }
+
+        if line.trim().is_empty() || should_suppress_default_line(line) {
             return;
         }
+
+        if !self.verbose {
+            if is_nix_warning(line) {
+                self.note(strip_ansi(line).trim().to_string());
+            }
+            return;
+        }
+
         self.finish_progress_line();
         if stderr {
             eprintln!("{}", line);
@@ -423,84 +566,241 @@ impl CliUpdateRenderer {
         }
     }
 
+    fn step_skipped(&mut self, step: &str, reason: Option<&str>) {
+        match step {
+            "update.pull" => self.inline_skipped(
+                "Pulling configuration",
+                reason.unwrap_or("already up to date"),
+            ),
+            "update.rebuild" => {
+                self.inline_skipped("Rebuilding system", reason.unwrap_or("no changes"))
+            }
+            "update.packages" => {
+                self.inline_skipped("Comparing packages", reason.unwrap_or("no changes"))
+            }
+            _ if self.verbose => {
+                self.finish_progress_line();
+                println!(
+                    "  {} {} {}",
+                    skipped("◦"),
+                    step,
+                    dim(reason.unwrap_or("skipped"))
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn step_detail(&mut self, detail: &str) {
+        if detail.starts_with("Tracking Noctalia") {
+            self.ensure_section("Updating flake inputs");
+            println!("  {} {}", action("→"), detail.to_lowercase());
+        } else if self.verbose {
+            self.finish_progress_line();
+            println!("  {} {}", action("→"), detail);
+        }
+    }
+
     fn nix_progress(&mut self, event: NixProgressEvent) {
         match event {
-            NixProgressEvent::Section { title } => {
-                self.finish_progress_line();
-                println!("{} {}", ansi_cyan("::"), ansi_cyan(&title));
+            NixProgressEvent::Section { .. } => {
+                self.ensure_section("Rebuilding system");
             }
-            NixProgressEvent::Download {
-                name,
-                transferred,
-                total,
-                speed_bps,
-                eta_secs,
-            } => self.render_download(&name, transferred, total, speed_bps, eta_secs),
             NixProgressEvent::Building { name } => {
-                self.finish_progress_line();
-                println!(
-                    "{:<34} {}",
-                    truncate_name(&name, 34),
-                    ansi_yellow("building")
-                );
-            }
-            NixProgressEvent::Activating => {
-                self.finish_progress_line();
-                println!("{}", ansi_cyan(":: Activating new system generation..."));
+                self.ensure_section("Rebuilding system");
+                self.build_seen.insert(name);
+                self.render_build_progress();
             }
             NixProgressEvent::Complete { name } => {
-                self.finish_progress_line();
-                println!(
-                    "{:<34} {}",
-                    truncate_name(&name, 34),
-                    ansi_green("complete")
-                );
+                if name.ends_with(".drv") {
+                    self.build_done.insert(name);
+                    self.render_build_progress();
+                }
             }
             NixProgressEvent::Failed { name } => {
                 self.finish_progress_line();
-                println!("{:<34} {}", truncate_name(&name, 34), ansi_red("failed"));
+                println!("  {} {}", failure("✗"), name);
+            }
+            NixProgressEvent::Activating => {
+                self.finish_progress_line();
+                println!("  {} activating new system generation", action("→"));
+            }
+            NixProgressEvent::Download { .. } => {}
+        }
+    }
+
+    fn summary(&mut self, summary: app::UpdateSummary) {
+        self.finish_progress_line();
+
+        for warning in &summary.follow_up_warnings {
+            self.note(warning.clone());
+        }
+        self.render_flake_summary(&summary);
+        self.render_rebuild_summary(&summary);
+        self.render_post_update(&summary);
+        self.render_notes();
+        self.render_final_summary(&summary);
+    }
+
+    fn done(&mut self) {
+        println!();
+        println!("{}", success("✓ done."));
+    }
+
+    fn render_flake_summary(&mut self, summary: &app::UpdateSummary) {
+        if summary.flake_changes.is_empty() {
+            return;
+        }
+
+        self.ensure_section("Updating flake inputs");
+        for change in &summary.flake_changes {
+            let old = short_hash(&change.old_rev);
+            let new = short_hash(&change.new_rev);
+            let commits = if change.total_commits == 0 {
+                "unknown commits".to_string()
+            } else {
+                format!(
+                    "{} commit{}",
+                    format_count(change.total_commits),
+                    if change.total_commits == 1 { "" } else { "s" }
+                )
+            };
+            let age = change
+                .new_last_modified
+                .map(relative_time)
+                .unwrap_or_else(|| "unknown".to_string());
+            println!(
+                "  {} {:14} {} {} {}     {:<14} {}",
+                upgrade("↑"),
+                change.name,
+                dim(&old),
+                dim("→"),
+                new,
+                commits,
+                dim(&age)
+            );
+            if self.verbose {
+                for commit in &change.commits {
+                    println!("    {} {}", dim(&commit.hash), commit.message);
+                }
+                if let Some(url) = &change.compare_url {
+                    println!("    {}", dim(url));
+                }
             }
         }
     }
 
-    fn render_download(
-        &mut self,
-        name: &str,
-        transferred: u64,
-        total: Option<u64>,
-        speed_bps: Option<f64>,
-        eta_secs: Option<u64>,
-    ) {
-        let row = if let Some(total) = total {
-            let (filled, empty, percent) = progress_parts(transferred, total, 28);
-            format!(
-                "\r{:<34} {:>9} {:>11} {:>6} [{}{}] {:>3}%",
-                truncate_name(name, 34),
-                format_bytes(total),
-                speed_bps
-                    .map(format_speed)
-                    .unwrap_or_else(|| "--".to_string()),
-                eta_secs
-                    .map(format_eta)
-                    .unwrap_or_else(|| "--:--".to_string()),
-                ansi_green(&"█".repeat(filled)),
-                ansi_dim(&"░".repeat(empty)),
-                percent
-            )
-        } else {
-            format!(
-                "\r{:<34} {:>11} {:>9} {:>11}",
-                truncate_name(name, 34),
-                ansi_cyan("downloading"),
-                format_bytes(transferred),
-                speed_bps
-                    .map(format_speed)
-                    .unwrap_or_else(|| "--".to_string())
-            )
+    fn render_rebuild_summary(&mut self, summary: &app::UpdateSummary) {
+        if matches!(
+            summary.core_status,
+            app::UpdateCoreStatus::Success | app::UpdateCoreStatus::UpToDate
+        ) {
+            self.ensure_section("Rebuilding system");
+            let generation = summary
+                .system_after
+                .as_deref()
+                .map(short_store_hash)
+                .unwrap_or_else(|| "current".to_string());
+            println!("  {} Activated generation {}", success("✓"), generation);
+        }
+    }
+
+    fn render_post_update(&mut self, summary: &app::UpdateSummary) {
+        self.ensure_section("Post-update");
+        render_tool_version("claude code", &summary.claude_old, &summary.claude_new);
+        render_tool_version("codex cli", &summary.codex_old, &summary.codex_new);
+        render_status_line("browser profiles", &summary.browser_status);
+        render_status_line("firmware", &summary.firmware_status);
+    }
+
+    fn render_notes(&mut self) {
+        if self.notes.is_empty() {
+            return;
+        }
+        self.ensure_section("Notes");
+        for note in &self.notes {
+            println!("  {} {}", warn("!"), note);
+        }
+    }
+
+    fn render_final_summary(&self, summary: &app::UpdateSummary) {
+        println!("{}", dim("─".repeat(65).as_str()));
+        if let Some(closure) = &summary.closure_summary {
+            summary_row("closure", closure);
+        }
+        summary_row(
+            "duration",
+            &format_duration(self.started_at.elapsed().as_secs()),
+        );
+        let snapshot = match (&summary.system_before, &summary.system_after) {
+            (Some(before), Some(after)) if before != after => "before/after captured",
+            (Some(_), Some(_)) => "before/after unchanged",
+            _ => "unavailable",
         };
-        print!("{}", row);
+        summary_row("snapshot", snapshot);
+    }
+
+    fn ensure_section(&mut self, title: &'static str) {
+        if self.shown_sections.insert(title) {
+            self.finish_progress_line();
+            section(title);
+        }
+    }
+
+    fn inline_skipped(&mut self, title: &'static str, reason: &str) {
+        if self.shown_sections.insert(title) {
+            self.finish_progress_line();
+            println!(
+                "{:<44} {} · {}",
+                header_text(title),
+                dim("skipped"),
+                reason.trim()
+            );
+            println!();
+        }
+    }
+
+    fn note(&mut self, note: String) {
+        if !note.is_empty() && !self.notes.iter().any(|existing| existing == &note) {
+            self.notes.push(note);
+        }
+    }
+
+    fn render_build_progress(&mut self) {
+        if !progress_enabled() {
+            if !self.progress_active {
+                println!("  {} building derivations", action("→"));
+                self.progress_active = true;
+            }
+            return;
+        }
+
+        let total = self.build_seen.len().max(1);
+        let done = self.build_done.len().min(total);
+        let (filled, empty, _) = progress_parts(done as u64, total as u64, 20);
+        print!(
+            "\r  {} building {} derivation{}  {}{}  {}/{}",
+            action("→"),
+            total,
+            if total == 1 { "" } else { "s" },
+            "█".repeat(filled),
+            dim(&"░".repeat(empty)),
+            done,
+            total
+        );
         let _ = io::stdout().flush();
         self.progress_active = true;
+    }
+
+    fn dump_log(&mut self) {
+        if self.log_buffer.is_empty() {
+            return;
+        }
+        eprintln!();
+        eprintln!("{}", header_text("Verbose log"));
+        for line in &self.log_buffer {
+            eprintln!("{}", line);
+        }
     }
 
     fn finish_progress_line(&mut self) {
@@ -509,6 +809,209 @@ impl CliUpdateRenderer {
             self.progress_active = false;
         }
     }
+}
+
+fn render_tool_version(label: &str, old: &Option<String>, new: &Option<String>) {
+    match (old.as_deref(), new.as_deref()) {
+        (Some(old), Some(new)) if old != new => {
+            println!(
+                "  {} {:18} {} {} {}",
+                success("✓"),
+                label,
+                dim(old),
+                dim("→"),
+                new
+            );
+        }
+        (Some(_), Some(new)) => {
+            println!("  {} {:32} {}", skipped("◦"), label, new);
+        }
+        _ => {}
+    }
+}
+
+fn render_status_line(label: &str, status: &str) {
+    if status.is_empty() {
+        return;
+    }
+    if status.contains("failed") || status.contains("available") {
+        println!("  {} {:32} {}", warn("!"), label, status);
+    } else {
+        println!("  {} {:32} {}", skipped("◦"), label, status);
+    }
+}
+
+fn summary_row(label: &str, value: &str) {
+    let width = 61usize.saturating_sub(label.chars().count());
+    println!("  {}{:>width$}", dim(label), value, width = width);
+}
+
+fn section(title: &'static str) {
+    println!("{}", header_text(title));
+}
+
+fn header_text(title: &str) -> String {
+    format!("{} {}", accent("❯"), emphasize(title))
+}
+
+fn should_suppress_default_line(line: &str) -> bool {
+    let trimmed = strip_ansi(line);
+    let trimmed = trimmed.trim();
+    trimmed.is_empty()
+        || trimmed
+            .chars()
+            .all(|c| matches!(c, '=' | '═' | '╔' | '╗' | '╚' | '╝' | '─' | ' '))
+        || trimmed.contains("NixOS System Update")
+        || trimmed.contains("Updating Flake Inputs")
+        || trimmed.contains("Rebuilding System")
+        || trimmed.contains("Update Summary")
+        || trimmed.starts_with("Closure:")
+        || trimmed.starts_with("System:")
+        || trimmed.starts_with("Snapshot:")
+}
+
+fn is_nix_warning(line: &str) -> bool {
+    strip_ansi(line).to_ascii_lowercase().contains("warning:")
+}
+
+fn strip_ansi(value: &str) -> String {
+    static ANSI: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
+    ANSI.replace_all(value, "").to_string()
+}
+
+fn normalize_shortstat(value: &str) -> String {
+    let mut parts = Vec::new();
+    for segment in value.trim().split(',').map(str::trim) {
+        if segment.contains("insertion") {
+            if let Some(count) = segment.split_whitespace().next() {
+                parts.push(format!("+{}", count));
+            }
+        } else if segment.contains("deletion") {
+            if let Some(count) = segment.split_whitespace().next() {
+                parts.push(format!("−{}", count));
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        value.trim().to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
+fn nixos_version_label() -> String {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|content| {
+            content.lines().find_map(|line| {
+                let value = line.strip_prefix("VERSION_ID=")?;
+                Some(format!("nixos {}", value.trim_matches('"')))
+            })
+        })
+        .unwrap_or_else(|| "nixos".to_string())
+}
+
+fn short_hash(value: &str) -> String {
+    value.chars().take(7).collect()
+}
+
+fn short_store_hash(value: &str) -> String {
+    value
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.split('-').next())
+        .map(short_hash)
+        .unwrap_or_else(|| short_hash(value))
+}
+
+fn format_count(value: usize) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (idx, ch) in digits.chars().rev().enumerate() {
+        if idx > 0 && idx % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
+}
+
+fn format_duration(seconds: u64) -> String {
+    if seconds >= 60 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
+fn relative_time(unix_seconds: i64) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let elapsed = now.saturating_sub(unix_seconds).max(0);
+    let days = elapsed / 86_400;
+    if days > 0 {
+        format!("{}d ago", days)
+    } else {
+        let hours = elapsed / 3_600;
+        if hours > 0 {
+            format!("{}h ago", hours)
+        } else {
+            "today".to_string()
+        }
+    }
+}
+
+fn color_enabled() -> bool {
+    io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn progress_enabled() -> bool {
+    color_enabled()
+}
+
+fn style(code: &str, text: &str) -> String {
+    if color_enabled() {
+        format!("\x1b[{}m{}\x1b[0m", code, text)
+    } else {
+        text.to_string()
+    }
+}
+
+fn accent(text: &str) -> String {
+    style("36;1", text)
+}
+
+fn emphasize(text: &str) -> String {
+    style("1", text)
+}
+
+fn success(text: &str) -> String {
+    style("32;1", text)
+}
+
+fn upgrade(text: &str) -> String {
+    style("34;1", text)
+}
+
+fn action(text: &str) -> String {
+    style("34;1", text)
+}
+
+fn skipped(text: &str) -> String {
+    dim(text)
+}
+
+fn warn(text: &str) -> String {
+    style("33;1", text)
+}
+
+fn failure(text: &str) -> String {
+    style("31;1", text)
+}
+
+fn dim(text: &str) -> String {
+    style("2", text)
 }
 
 fn progress_parts(transferred: u64, total: u64, width: usize) -> (usize, usize, u64) {
@@ -520,62 +1023,6 @@ fn progress_parts(transferred: u64, total: u64, width: usize) -> (usize, usize, 
     let filled = filled.min(width);
     let percent = ((clamped as f64 / total as f64) * 100.0).round() as u64;
     (filled, width.saturating_sub(filled), percent.min(100))
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const KIB: f64 = 1024.0;
-    const MIB: f64 = KIB * 1024.0;
-    const GIB: f64 = MIB * 1024.0;
-    let value = bytes as f64;
-    if value >= GIB {
-        format!("{:.1} GiB", value / GIB)
-    } else if value >= MIB {
-        format!("{:.1} MiB", value / MIB)
-    } else if value >= KIB {
-        format!("{:.1} KiB", value / KIB)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
-fn format_speed(bytes_per_second: f64) -> String {
-    format!("{}/s", format_bytes(bytes_per_second.max(0.0) as u64))
-}
-
-fn format_eta(seconds: u64) -> String {
-    format!("{:02}:{:02}", seconds / 60, seconds % 60)
-}
-
-fn truncate_name(value: &str, max_len: usize) -> String {
-    if value.chars().count() <= max_len {
-        return value.to_string();
-    }
-    if max_len <= 3 {
-        return ".".repeat(max_len);
-    }
-    let head_len = max_len - 3;
-    let head: String = value.chars().take(head_len).collect();
-    format!("{}...", head)
-}
-
-fn ansi_cyan(text: &str) -> String {
-    format!("\x1b[36;1m{}\x1b[0m", text)
-}
-
-fn ansi_green(text: &str) -> String {
-    format!("\x1b[32;1m{}\x1b[0m", text)
-}
-
-fn ansi_yellow(text: &str) -> String {
-    format!("\x1b[33;1m{}\x1b[0m", text)
-}
-
-fn ansi_red(text: &str) -> String {
-    format!("\x1b[31;1m{}\x1b[0m", text)
-}
-
-fn ansi_dim(text: &str) -> String {
-    format!("\x1b[2m{}\x1b[0m", text)
 }
 
 async fn run_app(
