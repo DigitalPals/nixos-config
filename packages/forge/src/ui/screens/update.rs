@@ -8,8 +8,9 @@ use ratatui::{
 };
 
 use crate::app::{
-    App, LocalChange, LocalChangesResolution, StepStatus, UpdateCoreStatus, UpdateDryRunStatus,
-    UpdateOptions, UpdatePreflightField, UpdatePreflightReport, UpdateSummary,
+    App, LocalChange, LocalChangesResolution, NixProgressRow, NixProgressState, NixProgressStatus,
+    StepStatus, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions, UpdatePreflightField,
+    UpdatePreflightReport, UpdateSummary,
 };
 use crate::ui::layout::{centered_fixed, footer_hints, progress_layout};
 use crate::ui::theme;
@@ -466,6 +467,252 @@ pub fn draw_running(
     }
     .alignment(Alignment::Center);
     frame.render_widget(footer, chunks[2]);
+}
+
+/// Draw direct `forge update` with structured Nix progress.
+pub fn draw_modern_running(
+    frame: &mut Frame,
+    steps: &[StepStatus],
+    nix_progress: &NixProgressState,
+    output: &[String],
+    complete: bool,
+    scroll_offset: Option<usize>,
+    app: &App,
+) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(2),
+        ])
+        .split(area);
+
+    let title = if complete {
+        " Update Complete "
+    } else {
+        " NixOS System Update "
+    };
+    let header = Paragraph::new(Line::from(Span::styled(title, theme::title())))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::border_active()),
+        );
+    frame.render_widget(header, chunks[0]);
+
+    let body = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(if chunks[1].height < 18 { 7 } else { 9 }),
+            Constraint::Min(7),
+            Constraint::Length(6.min(chunks[1].height.saturating_sub(9)).max(3)),
+        ])
+        .split(chunks[1]);
+
+    let progress = ProgressSteps::new(steps, app.spinner_state).title(" Progress ");
+    frame.render_widget(progress, body[0]);
+
+    draw_nix_progress_table(frame, body[1], nix_progress);
+
+    let mut log = LogView::new(output).title(" Log ");
+    if let Some(offset) = scroll_offset {
+        log = log.scroll_offset(offset);
+    }
+    frame.render_widget(log, body[2]);
+
+    let footer = if complete {
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Scroll"),
+            ("f", "Follow"),
+            ("Enter", "Menu"),
+            ("Esc", "Back"),
+            ("q", "Quit"),
+        ]))
+    } else {
+        Paragraph::new(footer_hints(&[
+            ("↑↓/jk", "Scroll"),
+            ("f", "Follow"),
+            ("Ctrl+C", "Cancel"),
+        ]))
+    }
+    .alignment(Alignment::Center);
+    frame.render_widget(footer, chunks[2]);
+}
+
+fn draw_nix_progress_table(frame: &mut Frame, area: Rect, progress: &NixProgressState) {
+    let inner_width = area.width.saturating_sub(4).max(20) as usize;
+    let name_width = if inner_width >= 92 {
+        34
+    } else if inner_width >= 72 {
+        28
+    } else {
+        22
+    };
+    let bar_width = if inner_width >= 92 {
+        28
+    } else if inner_width >= 72 {
+        22
+    } else {
+        14
+    };
+
+    let mut lines: Vec<Line<'static>> = vec![Line::from(vec![
+        Span::styled(":: ", theme::title()),
+        Span::styled(progress.section.clone(), theme::title()),
+    ])];
+
+    if progress.rows.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Waiting for Nix progress events...",
+            theme::dim(),
+        )));
+    } else {
+        for row in progress.rows.iter().rev().take(8).rev() {
+            lines.push(render_progress_row(row, name_width, bar_width));
+        }
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::border())
+        .title(Span::styled(" Downloads and Builds ", theme::title()));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn render_progress_row(row: &NixProgressRow, name_width: usize, bar_width: usize) -> Line<'static> {
+    let name = truncate_middle(&row.name, name_width);
+    let mut spans = vec![Span::styled(
+        format!("{:<width$} ", name, width = name_width),
+        theme::text(),
+    )];
+
+    match row.status {
+        NixProgressStatus::Downloading => {
+            let transferred = row.transferred.unwrap_or(0);
+            if let Some(total) = row.total {
+                spans.push(Span::styled(
+                    format!("{:>9} ", format_bytes(total)),
+                    theme::dim(),
+                ));
+                spans.push(Span::styled(
+                    format!(
+                        "{:>10} ",
+                        row.speed_bps
+                            .map(format_speed)
+                            .unwrap_or_else(|| "--".to_string())
+                    ),
+                    theme::dim(),
+                ));
+                spans.push(Span::styled(
+                    format!(
+                        "{:>6} ",
+                        row.eta_secs
+                            .map(format_eta)
+                            .unwrap_or_else(|| "--:--".to_string())
+                    ),
+                    theme::dim(),
+                ));
+                spans.push(Span::styled("[", theme::dim()));
+                let (filled, empty, percent) = progress_parts(transferred, total, bar_width);
+                spans.push(Span::styled("█".repeat(filled), theme::success()));
+                spans.push(Span::styled("░".repeat(empty), theme::dim()));
+                spans.push(Span::styled("] ", theme::dim()));
+                spans.push(Span::styled(format!("{:>3}%", percent), theme::success()));
+            } else {
+                spans.push(Span::styled(
+                    format!("{:>12} ", "downloading"),
+                    theme::info(),
+                ));
+                spans.push(Span::styled(
+                    format!("{:>9} ", format_bytes(transferred)),
+                    theme::dim(),
+                ));
+                if let Some(speed) = row.speed_bps {
+                    spans.push(Span::styled(
+                        format!("{:>10}", format_speed(speed)),
+                        theme::dim(),
+                    ));
+                }
+            }
+        }
+        NixProgressStatus::Building => {
+            spans.push(Span::styled("building", theme::warning()));
+        }
+        NixProgressStatus::Activating => {
+            spans.push(Span::styled(
+                "activating new system generation",
+                theme::title(),
+            ));
+        }
+        NixProgressStatus::Complete => {
+            spans.push(Span::styled("complete", theme::success()));
+        }
+        NixProgressStatus::Failed => {
+            spans.push(Span::styled("failed", theme::error()));
+        }
+    }
+
+    Line::from(spans)
+}
+
+fn progress_parts(transferred: u64, total: u64, width: usize) -> (usize, usize, u64) {
+    if total == 0 || width == 0 {
+        return (0, width, 0);
+    }
+    let clamped = transferred.min(total);
+    let filled = ((clamped as f64 / total as f64) * width as f64).round() as usize;
+    let filled = filled.min(width);
+    let percent = ((clamped as f64 / total as f64) * 100.0).round() as u64;
+    (filled, width.saturating_sub(filled), percent.min(100))
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let value = bytes as f64;
+    if value >= GIB {
+        format!("{:.1} GiB", value / GIB)
+    } else if value >= MIB {
+        format!("{:.1} MiB", value / MIB)
+    } else if value >= KIB {
+        format!("{:.1} KiB", value / KIB)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+fn format_speed(bytes_per_second: f64) -> String {
+    format!("{}/s", format_bytes(bytes_per_second.max(0.0) as u64))
+}
+
+fn format_eta(seconds: u64) -> String {
+    format!("{:02}:{:02}", seconds / 60, seconds % 60)
+}
+
+fn truncate_middle(value: &str, max_len: usize) -> String {
+    if value.chars().count() <= max_len {
+        return value.to_string();
+    }
+    if max_len <= 3 {
+        return ".".repeat(max_len);
+    }
+    let head_len = (max_len - 3) / 2;
+    let tail_len = max_len - 3 - head_len;
+    let head: String = value.chars().take(head_len).collect();
+    let tail: String = value
+        .chars()
+        .rev()
+        .take(tail_len)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{}...{}", head, tail)
 }
 
 /// Options for local changes resolution

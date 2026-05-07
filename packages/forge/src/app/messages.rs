@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 use std::time::Instant;
 
 use super::state::{
-    AppMode, AppProfileState, CommitInfo, CreateHostState, InstallState, KeysState, StepState,
-    StepStatus, UpdateState,
+    AppMode, AppProfileState, CommitInfo, CreateHostState, InstallState, KeysState,
+    NixProgressEvent, NixProgressRow, NixProgressStatus, StepState, StepStatus, UpdateState,
 };
 use super::App;
 use crate::commands::errors::ParsedError;
@@ -22,6 +22,14 @@ static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-
 /// Strip ANSI escape codes from a string
 fn strip_ansi_codes(s: &str) -> String {
     ANSI_RE.replace_all(s, "").to_string()
+}
+
+fn upsert_progress_row(rows: &mut Vec<NixProgressRow>, row: NixProgressRow) {
+    if let Some(existing) = rows.iter_mut().find(|existing| existing.name == row.name) {
+        *existing = row;
+    } else {
+        rows.push(row);
+    }
 }
 
 impl App {
@@ -45,6 +53,9 @@ impl App {
             }
             CommandMessage::StepDetail { step, detail } => {
                 self.set_step_detail(&step, &detail);
+            }
+            CommandMessage::NixProgress(event) => {
+                self.apply_nix_progress(event);
             }
             CommandMessage::Done { success } => {
                 self.handle_command_done(success).await;
@@ -319,6 +330,93 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn apply_nix_progress(&mut self, event: NixProgressEvent) {
+        let AppMode::Update(UpdateState::Running { nix_progress, .. }) = &mut self.mode else {
+            return;
+        };
+
+        match event {
+            NixProgressEvent::Section { title } => {
+                nix_progress.section = title;
+            }
+            NixProgressEvent::Activating => {
+                nix_progress.section = "Activating new system generation".to_string();
+                upsert_progress_row(
+                    &mut nix_progress.rows,
+                    NixProgressRow {
+                        name: "system generation".to_string(),
+                        status: NixProgressStatus::Activating,
+                        transferred: None,
+                        total: None,
+                        speed_bps: None,
+                        eta_secs: None,
+                    },
+                );
+            }
+            NixProgressEvent::Building { name } => {
+                nix_progress.section = "Building derivations".to_string();
+                upsert_progress_row(
+                    &mut nix_progress.rows,
+                    NixProgressRow {
+                        name,
+                        status: NixProgressStatus::Building,
+                        transferred: None,
+                        total: None,
+                        speed_bps: None,
+                        eta_secs: None,
+                    },
+                );
+            }
+            NixProgressEvent::Download {
+                name,
+                transferred,
+                total,
+                speed_bps,
+                eta_secs,
+            } => {
+                nix_progress.section = "Downloading paths from cache".to_string();
+                upsert_progress_row(
+                    &mut nix_progress.rows,
+                    NixProgressRow {
+                        name,
+                        status: NixProgressStatus::Downloading,
+                        transferred: Some(transferred),
+                        total,
+                        speed_bps,
+                        eta_secs,
+                    },
+                );
+            }
+            NixProgressEvent::Complete { name } => {
+                if let Some(row) = nix_progress.rows.iter_mut().find(|row| row.name == name) {
+                    row.status = NixProgressStatus::Complete;
+                    if let Some(total) = row.total {
+                        row.transferred = Some(total);
+                    }
+                    row.speed_bps = None;
+                    row.eta_secs = None;
+                }
+            }
+            NixProgressEvent::Failed { name } => {
+                upsert_progress_row(
+                    &mut nix_progress.rows,
+                    NixProgressRow {
+                        name,
+                        status: NixProgressStatus::Failed,
+                        transferred: None,
+                        total: None,
+                        speed_bps: None,
+                        eta_secs: None,
+                    },
+                );
+            }
+        }
+
+        while nix_progress.rows.len() > 12 {
+            nix_progress.rows.remove(0);
         }
     }
 

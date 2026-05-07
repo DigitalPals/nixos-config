@@ -26,7 +26,8 @@ use crate::app::{
 use crate::commands::errors::{ErrorContext, ParsedError};
 use crate::commands::executor::{
     command_exists, get_output, run_capture, run_command_cancellable_transformed,
-    run_command_cancellable_with_timeout, CommandResult,
+    run_command_cancellable_transformed_with_timeout, run_command_cancellable_with_timeout,
+    CommandResult,
 };
 use crate::commands::retry::{retry_with_backoff, RetryConfig};
 use crate::commands::CommandMessage;
@@ -615,6 +616,16 @@ fn transform_nix_output(line: &str) -> Option<String> {
     Some(line.to_string())
 }
 
+fn transform_internal_nix_message(line: &str) -> Option<String> {
+    let payload = line.trim_start().strip_prefix("@nix ")?;
+    let value = serde_json::from_str::<serde_json::Value>(payload).ok()?;
+    if value.get("action").and_then(serde_json::Value::as_str) != Some("msg") {
+        return None;
+    }
+    let msg = value.get("msg").and_then(serde_json::Value::as_str)?;
+    transform_nix_output(msg)
+}
+
 fn should_track_noctalia_release(options: &UpdateOptions) -> bool {
     options.inputs.is_empty() || options.inputs.iter().any(|input| input == NOCTALIA_INPUT)
 }
@@ -939,14 +950,65 @@ async fn run_update(
 
         // Use configurable timeout for rebuild (default 30 minutes, override with FORGE_REBUILD_TIMEOUT)
         let timeout = crate::constants::rebuild_timeout_secs();
-        let result = run_command_cancellable_with_timeout(
-            tx,
-            "sudo",
-            &["nixos-rebuild", "switch", "--flake", &flake_ref],
-            Some(timeout),
-            cancel.clone(),
-        )
-        .await?;
+        let result = if options.is_modern() {
+            use std::sync::{Arc, Mutex};
+
+            let _ = tx
+                .send(CommandMessage::NixProgress(
+                    crate::app::NixProgressEvent::Section {
+                        title: "Rebuilding NixOS system".to_string(),
+                    },
+                ))
+                .await;
+
+            let parser = Arc::new(Mutex::new(NixProgressParser::default()));
+            let tx_progress = tx.clone();
+            run_command_cancellable_transformed_with_timeout(
+                tx,
+                "sudo",
+                &[
+                    "nixos-rebuild",
+                    "--log-format",
+                    "internal-json",
+                    "switch",
+                    "--flake",
+                    &flake_ref,
+                ],
+                Some(timeout),
+                cancel.clone(),
+                move |line: &str| {
+                    let events = parser
+                        .lock()
+                        .map(|mut parser| parser.parse_line(line))
+                        .unwrap_or_default();
+
+                    if !events.is_empty() {
+                        let tx = tx_progress.clone();
+                        tokio::spawn(async move {
+                            for event in events {
+                                let _ = tx.send(CommandMessage::NixProgress(event)).await;
+                            }
+                        });
+                    }
+
+                    if line.trim_start().starts_with("@nix ") {
+                        transform_internal_nix_message(line)
+                    } else {
+                        transform_nix_output(line)
+                    }
+                },
+            )
+            .await?
+        } else {
+            run_command_cancellable_with_timeout(
+                tx,
+                "sudo",
+                &["nixos-rebuild", "switch", "--flake", &flake_ref],
+                Some(timeout),
+                cancel.clone(),
+            )
+            .await?
+        };
 
         out(tx, "").await;
         match result {
@@ -1767,4 +1829,268 @@ async fn pull_config_updates(
 /// Helper to send stdout message
 pub(crate) async fn out(tx: &mpsc::Sender<CommandMessage>, msg: &str) {
     let _ = tx.send(CommandMessage::Stdout(msg.to_string())).await;
+}
+
+#[derive(Debug, Default)]
+struct NixProgressParser {
+    activities: std::collections::HashMap<u64, NixActivity>,
+    download_parents: std::collections::HashMap<u64, u64>,
+}
+
+#[derive(Debug)]
+struct NixActivity {
+    name: String,
+    started_at: std::time::Instant,
+}
+
+impl NixProgressParser {
+    fn parse_line(&mut self, line: &str) -> Vec<crate::app::NixProgressEvent> {
+        let Some(payload) = line.trim().strip_prefix("@nix ") else {
+            return parse_nix_plain_progress_line(line);
+        };
+
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+            return Vec::new();
+        };
+
+        let action = value
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let id = value.get("id").and_then(serde_json::Value::as_u64);
+
+        match action {
+            "start" => self.parse_start(id, &value),
+            "result" => self.parse_result(id, &value),
+            "stop" => self.parse_stop(id),
+            "msg" => value
+                .get("msg")
+                .and_then(serde_json::Value::as_str)
+                .map(parse_nix_plain_progress_line)
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn parse_start(
+        &mut self,
+        id: Option<u64>,
+        value: &serde_json::Value,
+    ) -> Vec<crate::app::NixProgressEvent> {
+        let Some(id) = id else {
+            return Vec::new();
+        };
+        let event_type = value
+            .get("type")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+
+        if event_type == 100 {
+            if let Some(path) = value
+                .get("fields")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|fields| fields.first())
+                .and_then(serde_json::Value::as_str)
+            {
+                let name = display_name_from_store_path(path);
+                self.activities.insert(
+                    id,
+                    NixActivity {
+                        name: name.clone(),
+                        started_at: std::time::Instant::now(),
+                    },
+                );
+                return vec![crate::app::NixProgressEvent::Download {
+                    name,
+                    transferred: 0,
+                    total: None,
+                    speed_bps: None,
+                    eta_secs: None,
+                }];
+            }
+        }
+
+        if event_type == 101 {
+            if let Some(parent) = value.get("parent").and_then(serde_json::Value::as_u64) {
+                self.download_parents.insert(id, parent);
+            }
+        }
+
+        let text = value
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        parse_nix_plain_progress_line(text)
+    }
+
+    fn parse_result(
+        &mut self,
+        id: Option<u64>,
+        value: &serde_json::Value,
+    ) -> Vec<crate::app::NixProgressEvent> {
+        let Some(id) = id else {
+            return Vec::new();
+        };
+        let Some(parent_id) = self.download_parents.get(&id).copied() else {
+            return Vec::new();
+        };
+        let Some(activity) = self.activities.get(&parent_id) else {
+            return Vec::new();
+        };
+
+        let Some(fields) = value.get("fields").and_then(serde_json::Value::as_array) else {
+            return Vec::new();
+        };
+        let transferred = fields
+            .first()
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let total = fields
+            .get(1)
+            .and_then(serde_json::Value::as_u64)
+            .filter(|total| *total > 0);
+
+        let elapsed = activity.started_at.elapsed().as_secs_f64();
+        let speed_bps = (elapsed > 0.2 && transferred > 0).then_some(transferred as f64 / elapsed);
+        let eta_secs = match (total, speed_bps) {
+            (Some(total), Some(speed)) if speed > 0.0 && total > transferred => {
+                Some(((total - transferred) as f64 / speed).ceil() as u64)
+            }
+            _ => None,
+        };
+
+        vec![crate::app::NixProgressEvent::Download {
+            name: activity.name.clone(),
+            transferred,
+            total,
+            speed_bps,
+            eta_secs,
+        }]
+    }
+
+    fn parse_stop(&mut self, id: Option<u64>) -> Vec<crate::app::NixProgressEvent> {
+        let Some(id) = id else {
+            return Vec::new();
+        };
+
+        if let Some(parent_id) = self.download_parents.remove(&id) {
+            if let Some(activity) = self.activities.get(&parent_id) {
+                return vec![crate::app::NixProgressEvent::Complete {
+                    name: activity.name.clone(),
+                }];
+            }
+        }
+
+        if let Some(activity) = self.activities.remove(&id) {
+            return vec![crate::app::NixProgressEvent::Complete {
+                name: activity.name,
+            }];
+        }
+
+        Vec::new()
+    }
+}
+
+fn parse_nix_plain_progress_line(line: &str) -> Vec<crate::app::NixProgressEvent> {
+    let lower = line.to_ascii_lowercase();
+    if lower.contains("activating the configuration")
+        || lower.contains("activating new configuration")
+        || lower.contains("activating new system")
+    {
+        return vec![crate::app::NixProgressEvent::Activating];
+    }
+
+    if let Some(path) = quoted_store_path_after(line, "building ") {
+        return vec![crate::app::NixProgressEvent::Building {
+            name: display_name_from_store_path(path),
+        }];
+    }
+
+    if let Some(path) = quoted_store_path_after(line, "error: builder for ") {
+        return vec![crate::app::NixProgressEvent::Failed {
+            name: display_name_from_store_path(path),
+        }];
+    }
+
+    Vec::new()
+}
+
+fn quoted_store_path_after<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
+    let lower = line.to_ascii_lowercase();
+    let pos = lower.find(prefix)?;
+    let rest = &line[pos + prefix.len()..];
+    let start = rest.find("/nix/store/")?;
+    let rest = &rest[start..];
+    let end = rest
+        .find('\'')
+        .or_else(|| rest.find('"'))
+        .unwrap_or(rest.len());
+    Some(&rest[..end])
+}
+
+fn display_name_from_store_path(path: &str) -> String {
+    let base = path.rsplit('/').next().unwrap_or(path);
+    if base.len() > 33 && base.as_bytes().get(32) == Some(&b'-') {
+        base[33..].to_string()
+    } else {
+        base.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_download_progress_with_total() {
+        let mut parser = NixProgressParser::default();
+        let start = r#"@nix {"action":"start","fields":["/nix/store/3pcn0admdqrrd0k405y9hyad4579wgb3-hello-2.12.3","https://cache.nixos.org","local"],"id":10,"parent":9,"type":100}"#;
+        let download = r#"@nix {"action":"start","fields":["https://cache/nar.xz"],"id":11,"parent":10,"type":101}"#;
+        let progress = r#"@nix {"action":"result","fields":[50,100,0,0],"id":11,"type":105}"#;
+
+        parser.parse_line(start);
+        parser.parse_line(download);
+        let events = parser.parse_line(progress);
+
+        match &events[0] {
+            crate::app::NixProgressEvent::Download {
+                name,
+                transferred,
+                total,
+                ..
+            } => {
+                assert_eq!(name, "hello-2.12.3");
+                assert_eq!(*transferred, 50);
+                assert_eq!(*total, Some(100));
+            }
+            _ => panic!("expected download event"),
+        }
+    }
+
+    #[test]
+    fn omits_unknown_total() {
+        let mut parser = NixProgressParser::default();
+        parser.parse_line(r#"@nix {"action":"start","fields":["/nix/store/3pcn0admdqrrd0k405y9hyad4579wgb3-hello-2.12.3"],"id":10,"type":100}"#);
+        parser.parse_line(r#"@nix {"action":"start","id":11,"parent":10,"type":101}"#);
+        let events = parser.parse_line(r#"@nix {"action":"result","fields":[50,0,0,0],"id":11}"#);
+
+        match &events[0] {
+            crate::app::NixProgressEvent::Download { total, .. } => assert_eq!(*total, None),
+            _ => panic!("expected download event"),
+        }
+    }
+
+    #[test]
+    fn parses_building_line() {
+        let mut parser = NixProgressParser::default();
+        let events = parser
+            .parse_line("building '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-linux-7.0.2.drv'");
+
+        match &events[0] {
+            crate::app::NixProgressEvent::Building { name } => {
+                assert_eq!(name, "linux-7.0.2.drv")
+            }
+            _ => panic!("expected building event"),
+        }
+    }
 }

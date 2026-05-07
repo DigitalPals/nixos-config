@@ -179,6 +179,7 @@ async fn main() -> Result<()> {
                     rebuild_only,
                     flake_only,
                     inputs,
+                    presentation: app::UpdatePresentation::Modern,
                 };
                 run_tui(AppMode::Update(app::UpdateState::preflight(options, true))).await
             }

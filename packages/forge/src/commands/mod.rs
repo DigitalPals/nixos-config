@@ -46,7 +46,7 @@ pub mod steps {
     pub const FLAKE_NIX: &str = "flake";
 }
 
-use crate::app::{UpdatePreflightReport, UpdateSummary};
+use crate::app::{NixProgressEvent, UpdatePreflightReport, UpdateSummary};
 
 /// Messages sent from command execution to UI
 #[derive(Debug, Clone)]
@@ -68,6 +68,8 @@ pub enum CommandMessage {
     },
     /// Sub-step detail update (e.g. "Downloading nixpkgs (2/5)")
     StepDetail { step: String, detail: String },
+    /// Structured Nix build/download progress for the modern update screen
+    NixProgress(NixProgressEvent),
     /// Command fully completed
     Done { success: bool },
     /// Operation was cancelled by user

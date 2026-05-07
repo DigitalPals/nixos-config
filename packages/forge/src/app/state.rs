@@ -453,6 +453,8 @@ pub enum UpdateState {
         step: usize,
         steps: Vec<StepStatus>,
         output: VecDeque<String>,
+        /// Structured Nix build/download progress for the modern direct update view
+        nix_progress: NixProgressState,
         /// Manual scroll position for the live log
         scroll_offset: Option<usize>,
         /// Autostash metadata that should be restored at the end of a successful update
@@ -481,12 +483,91 @@ pub enum UpdateState {
     },
 }
 
+/// Update presentation selected by the entrypoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UpdatePresentation {
+    #[default]
+    Classic,
+    Modern,
+}
+
 /// Options for selective updates
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct UpdateOptions {
     pub rebuild_only: bool,
     pub flake_only: bool,
     pub inputs: Vec<String>,
+    pub presentation: UpdatePresentation,
+}
+
+impl Default for UpdateOptions {
+    fn default() -> Self {
+        Self {
+            rebuild_only: false,
+            flake_only: false,
+            inputs: Vec::new(),
+            presentation: UpdatePresentation::Classic,
+        }
+    }
+}
+
+/// Live rebuild progress shown by the modern direct update screen.
+#[derive(Debug, Clone)]
+pub struct NixProgressState {
+    pub section: String,
+    pub rows: Vec<NixProgressRow>,
+}
+
+impl Default for NixProgressState {
+    fn default() -> Self {
+        Self {
+            section: "Waiting for rebuild".to_string(),
+            rows: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NixProgressRow {
+    pub name: String,
+    pub status: NixProgressStatus,
+    pub transferred: Option<u64>,
+    pub total: Option<u64>,
+    pub speed_bps: Option<f64>,
+    pub eta_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NixProgressStatus {
+    Downloading,
+    Building,
+    Activating,
+    Complete,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
+pub enum NixProgressEvent {
+    Download {
+        name: String,
+        transferred: u64,
+        total: Option<u64>,
+        speed_bps: Option<f64>,
+        eta_secs: Option<u64>,
+    },
+    Building {
+        name: String,
+    },
+    Activating,
+    Complete {
+        name: String,
+    },
+    Failed {
+        name: String,
+    },
+    Section {
+        title: String,
+    },
 }
 
 impl UpdateOptions {
@@ -523,6 +604,10 @@ impl UpdateOptions {
                 self.flake_only = false;
             }
         }
+    }
+
+    pub fn is_modern(&self) -> bool {
+        self.presentation == UpdatePresentation::Modern
     }
 }
 
@@ -590,6 +675,7 @@ impl UpdateState {
             step: 0,
             steps,
             output: VecDeque::new(),
+            nix_progress: NixProgressState::default(),
             scroll_offset: None,
             stash,
             options,

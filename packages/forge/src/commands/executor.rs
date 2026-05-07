@@ -561,6 +561,29 @@ pub async fn run_command_cancellable_transformed<F>(
 where
     F: Fn(&str) -> Option<String> + Send + Sync + 'static,
 {
+    run_command_cancellable_transformed_with_timeout(
+        tx,
+        cmd,
+        args,
+        Some(BUILD_COMMAND_TIMEOUT_SECS),
+        cancel,
+        transform,
+    )
+    .await
+}
+
+/// Execute a command with transform, configurable timeout, and cancellation support
+pub async fn run_command_cancellable_transformed_with_timeout<F>(
+    tx: &mpsc::Sender<CommandMessage>,
+    cmd: &str,
+    args: &[&str],
+    timeout_secs: Option<u64>,
+    cancel: CancellationToken,
+    transform: F,
+) -> Result<CommandResult>
+where
+    F: Fn(&str) -> Option<String> + Send + Sync + 'static,
+{
     use std::sync::Arc;
     let transform = Arc::new(transform);
 
@@ -610,7 +633,7 @@ where
         }
     });
 
-    let timeout = Duration::from_secs(BUILD_COMMAND_TIMEOUT_SECS);
+    let timeout = Duration::from_secs(timeout_secs.unwrap_or(BUILD_COMMAND_TIMEOUT_SECS));
 
     // Race between: command completion, timeout, and cancellation
     let result = tokio::select! {

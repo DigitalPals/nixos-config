@@ -195,18 +195,32 @@ pub fn draw(frame: &mut Frame, app: &App) {
             UpdateState::Running {
                 steps,
                 output,
+                nix_progress,
+                options,
                 scroll_offset,
                 ..
             } => {
                 let output_vec: Vec<String> = output.iter().cloned().collect();
-                screens::update::draw_running(
-                    frame,
-                    steps,
-                    &output_vec,
-                    false,
-                    *scroll_offset,
-                    app,
-                );
+                if options.is_modern() {
+                    screens::update::draw_modern_running(
+                        frame,
+                        steps,
+                        nix_progress,
+                        &output_vec,
+                        false,
+                        *scroll_offset,
+                        app,
+                    );
+                } else {
+                    screens::update::draw_running(
+                        frame,
+                        steps,
+                        &output_vec,
+                        false,
+                        *scroll_offset,
+                        app,
+                    );
+                }
             }
             UpdateState::ShowingSummary {
                 steps,
