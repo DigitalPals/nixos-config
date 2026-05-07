@@ -488,7 +488,12 @@ in
     ];
   };
 
-  programs.firefox.enable = true;
+  programs.firefox = {
+    enable = true;
+    # Keep the existing profile location explicit. Home Manager 26.05 changes
+    # the default to the XDG config directory and warns for older state versions.
+    configPath = ".mozilla/firefox";
+  };
 
   # Direnv - auto-activate nix develop shells when entering directories
   # Add `.envrc` with `use flake` to your Rust projects

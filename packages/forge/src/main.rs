@@ -11,9 +11,15 @@ mod ui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind},
+    cursor::{MoveToColumn, MoveUp},
+    event::{
+        read, DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
@@ -366,43 +372,149 @@ fn handle_cli_local_changes() -> Result<bool> {
         };
         println!("  {:9} {}", marker, change.path);
     }
-    println!();
-    println!("1) Exit");
-    println!("2) Use Codex to commit and push");
-    print!("Select an option [1/2]: ");
-    io::stdout().flush()?;
-
-    let mut choice = String::new();
-    io::stdin().read_line(&mut choice)?;
-    match choice.trim() {
-        "2" => {
+    match choose_preflight_action()? {
+        CliPreflightAction::CommitAndPush => {
             println!(
-                "{} Codex: Commit and push all files to main/master",
+                "  {} Codex: Commit and push all files to main/master",
                 action("→")
             );
             let commit = commit_and_push_all_changes("Commit and push all files to main/master")?;
             println!("  {} Committed and pushed via Codex", success("✓"));
+            println!("    {}", commit.subject);
             println!(
-                "    {} · {} · origin/{}",
+                "    {} · {} · {}",
                 dim(&commit.hash),
                 commit.shortstat,
-                commit.branch
+                commit.pushed_ref
             );
             println!();
             Ok(true)
         }
-        _ => {
-            println!("Exiting without updating.");
+        CliPreflightAction::Exit => {
+            println!("  {} update cancelled", skipped("◦"));
             Ok(false)
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CliPreflightAction {
+    Exit,
+    CommitAndPush,
+}
+
+fn choose_preflight_action() -> Result<CliPreflightAction> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return choose_preflight_action_from_stdin();
+    }
+
+    let mut selected = CliPreflightAction::Exit;
+    render_preflight_selector(selected)?;
+
+    loop {
+        if let Event::Key(key) = read_raw_event()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
+                    selected = match selected {
+                        CliPreflightAction::Exit => CliPreflightAction::CommitAndPush,
+                        CliPreflightAction::CommitAndPush => CliPreflightAction::Exit,
+                    };
+                    redraw_preflight_selector(selected)?;
+                }
+                KeyCode::Enter => {
+                    println!();
+                    return Ok(selected);
+                }
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    println!();
+                    return Ok(CliPreflightAction::Exit);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn choose_preflight_action_from_stdin() -> Result<CliPreflightAction> {
+    println!();
+    println!("  {} Choose how to continue", action("→"));
+    println!("    {} Exit", dim("[1]"));
+    println!("    {} Commit and push with Codex", dim("[2]"));
+    println!();
+    print!("  choice {} ", dim("›"));
+    io::stdout().flush()?;
+
+    let mut choice = String::new();
+    io::stdin().read_line(&mut choice)?;
+    println!();
+    Ok(match choice.trim().to_ascii_lowercase().as_str() {
+        "2" | "c" | "codex" | "commit" => CliPreflightAction::CommitAndPush,
+        _ => CliPreflightAction::Exit,
+    })
+}
+
+fn render_preflight_selector(selected: CliPreflightAction) -> Result<()> {
+    println!();
+    render_preflight_selector_body(selected)
+}
+
+fn render_preflight_selector_body(selected: CliPreflightAction) -> Result<()> {
+    println!("  {} Choose how to continue", action("→"));
+    print_preflight_option("Exit", selected == CliPreflightAction::Exit);
+    print_preflight_option(
+        "Commit and push with Codex",
+        selected == CliPreflightAction::CommitAndPush,
+    );
+    println!("  {}", dim("↑/↓ select · Enter confirm · Esc exit"));
+    io::stdout().flush()?;
+    Ok(())
+}
+
+fn redraw_preflight_selector(selected: CliPreflightAction) -> Result<()> {
+    let mut stdout = io::stdout();
+    execute!(
+        stdout,
+        MoveUp(4),
+        MoveToColumn(0),
+        Clear(ClearType::FromCursorDown)
+    )?;
+    render_preflight_selector_body(selected)
+}
+
+fn print_preflight_option(label: &str, selected: bool) {
+    let marker = if selected { action("›") } else { dim(" ") };
+    println!("    {} {}", marker, label);
+}
+
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn new() -> Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
+
+fn read_raw_event() -> Result<Event> {
+    let _raw_mode = RawModeGuard::new()?;
+    Ok(read()?)
+}
+
 #[derive(Debug)]
 struct CliCommitResult {
     hash: String,
+    subject: String,
     shortstat: String,
-    branch: String,
+    pushed_ref: String,
 }
 
 fn commit_and_push_all_changes(prompt: &str) -> Result<CliCommitResult> {
@@ -457,9 +569,19 @@ fn commit_and_push_all_changes(prompt: &str) -> Result<CliCommitResult> {
         .as_deref()
         .map(|old| format!("{}..HEAD", old))
         .unwrap_or_else(|| "HEAD~1..HEAD".to_string());
+    let subject = git_output(&config_dir, &["log", "-1", "--format=%s"])?;
     let shortstat = git_output(&config_dir, &["diff", "--shortstat", &range])
         .unwrap_or_else(|_| "changes committed".to_string());
     run_git_quiet(&config_dir, &["push", "origin", &branch])?;
+    let pushed_ref = format!("origin/{}", branch);
+    let local_head = git_output(&config_dir, &["rev-parse", "HEAD"])?;
+    let remote_head = git_output(&config_dir, &["rev-parse", &pushed_ref])?;
+    if local_head != remote_head {
+        anyhow::bail!(
+            "push verification failed: HEAD does not match {}",
+            pushed_ref
+        );
+    }
     let remaining = commands::update::check_local_changes();
     if !remaining.is_empty() {
         let paths = remaining
@@ -471,8 +593,9 @@ fn commit_and_push_all_changes(prompt: &str) -> Result<CliCommitResult> {
     }
     Ok(CliCommitResult {
         hash,
+        subject,
         shortstat: normalize_shortstat(&shortstat),
-        branch,
+        pushed_ref,
     })
 }
 
@@ -842,8 +965,8 @@ fn render_status_line(label: &str, status: &str) {
 }
 
 fn summary_row(label: &str, value: &str) {
-    let width = 61usize.saturating_sub(label.chars().count());
-    println!("  {}{:>width$}", dim(label), value, width = width);
+    let label = format!("{:<12}", label);
+    println!("  {} {}", dim(&label), value);
 }
 
 fn section(title: &'static str) {

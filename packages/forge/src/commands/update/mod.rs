@@ -1920,7 +1920,17 @@ impl NixProgressParser {
             .get("text")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        parse_nix_plain_progress_line(text)
+        let events = parse_nix_plain_progress_line(text);
+        if let Some(crate::app::NixProgressEvent::Building { name }) = events.first() {
+            self.activities.insert(
+                id,
+                NixActivity {
+                    name: name.clone(),
+                    started_at: std::time::Instant::now(),
+                },
+            );
+        }
+        events
     }
 
     fn parse_result(
@@ -2091,6 +2101,30 @@ mod tests {
                 assert_eq!(name, "linux-7.0.2.drv")
             }
             _ => panic!("expected building event"),
+        }
+    }
+
+    #[test]
+    fn completes_internal_json_build_activity() {
+        let mut parser = NixProgressParser::default();
+        let start = r#"@nix {"action":"start","id":10,"level":5,"parent":0,"text":"building '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-linux-7.0.2.drv'","type":0}"#;
+        let stop = r#"@nix {"action":"stop","id":10}"#;
+
+        let start_events = parser.parse_line(start);
+        let stop_events = parser.parse_line(stop);
+
+        match &start_events[0] {
+            crate::app::NixProgressEvent::Building { name } => {
+                assert_eq!(name, "linux-7.0.2.drv")
+            }
+            _ => panic!("expected building event"),
+        }
+
+        match &stop_events[0] {
+            crate::app::NixProgressEvent::Complete { name } => {
+                assert_eq!(name, "linux-7.0.2.drv")
+            }
+            _ => panic!("expected complete event"),
         }
     }
 }
