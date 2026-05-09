@@ -5,12 +5,14 @@
 # - GUI changes persist locally across rebuilds
 # - When repo configs are updated (hash changes), local files are overwritten
 # - To sync local changes back to repo, ask Claude to copy the files
-{ config, pkgs, lib, inputs, hostname, ... }:
+{ config, pkgs, lib, inputs, hostname, osConfig ? null, ... }:
 
 let
   # Load base settings from JSON
   baseSettings = builtins.fromJSON (builtins.readFile ./settings.json);
   noctaliaPackage = inputs.noctalia.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  hasFingerprintAuth =
+    if osConfig == null then false else osConfig.services.fprintd.enable or false;
 
   # Filter out Battery widget for hosts without a battery (desktop PCs)
   hostsWithoutBattery = [ "kraken" ];
@@ -18,6 +20,11 @@ let
 
   # Generate host-specific settings
   settings = baseSettings // {
+    general = baseSettings.general // {
+      autoStartAuth = hasFingerprintAuth;
+      allowPasswordWithFprintd = hasFingerprintAuth;
+    };
+
     bar = baseSettings.bar // {
       widgets = baseSettings.bar.widgets // {
         right = builtins.filter
