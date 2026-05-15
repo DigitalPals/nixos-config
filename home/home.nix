@@ -101,11 +101,11 @@ in
         box_name="dev-fedora"
         image="registry.fedoraproject.org/fedora-toolbox:latest"
 
-        if ! ${pkgs.distrobox}/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
-          ${pkgs.distrobox}/bin/distrobox create --yes --name "$box_name" --image "$image"
+        if ! /run/current-system/sw/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
+          /run/current-system/sw/bin/distrobox create --yes --name "$box_name" --image "$image"
         fi
 
-        exec ${pkgs.distrobox}/bin/distrobox enter --name "$box_name" -- bash -lc '
+        exec /run/current-system/sw/bin/distrobox enter --name "$box_name" -- bash -lc '
           printf "\033]0;dev-fedora\007"
           printf "Fedora Distrobox: dev-fedora\n"
           exec "''${SHELL:-/bin/bash}" -l
@@ -122,11 +122,11 @@ in
         box_name="dev-arch"
         image="docker.io/library/archlinux:latest"
 
-        if ! ${pkgs.distrobox}/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
-          ${pkgs.distrobox}/bin/distrobox create --yes --name "$box_name" --image "$image"
+        if ! /run/current-system/sw/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
+          /run/current-system/sw/bin/distrobox create --yes --name "$box_name" --image "$image"
         fi
 
-        exec ${pkgs.distrobox}/bin/distrobox enter --name "$box_name" -- bash -lc '
+        exec /run/current-system/sw/bin/distrobox enter --name "$box_name" -- bash -lc '
           printf "\033]0;dev-arch\007"
           printf "Arch Distrobox: dev-arch\n"
           exec "''${SHELL:-/bin/bash}" -l
@@ -143,11 +143,11 @@ in
         box_name="dev-debian"
         image="docker.io/library/debian:latest"
 
-        if ! ${pkgs.distrobox}/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
-          ${pkgs.distrobox}/bin/distrobox create --yes --name "$box_name" --image "$image"
+        if ! /run/current-system/sw/bin/distrobox list | ${pkgs.gawk}/bin/awk -F'|' 'NR > 1 { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }' | ${pkgs.gnugrep}/bin/grep -Fxq "$box_name"; then
+          /run/current-system/sw/bin/distrobox create --yes --name "$box_name" --image "$image"
         fi
 
-        exec ${pkgs.distrobox}/bin/distrobox enter --name "$box_name" -- bash -lc '
+        exec /run/current-system/sw/bin/distrobox enter --name "$box_name" -- bash -lc '
           printf "\033]0;dev-debian\007"
           printf "Debian Distrobox: dev-debian\n"
           exec "''${SHELL:-/bin/bash}" -l
@@ -164,6 +164,42 @@ in
         if command -v sudo >/dev/null 2>&1 && [ -d /etc/sudoers.d ]; then
           printf '%s ALL=(ALL) NOPASSWD:ALL\n' ${username} > /etc/sudoers.d/99-${username}-nopasswd
           chmod 0440 /etc/sudoers.d/99-${username}-nopasswd
+        fi
+
+        marker=/etc/distrobox-dev-init-v2
+
+        have_dev_tools() {
+          for command in fish sudo curl ssh git git-lfs fzf eza zoxide gh nvim rg jq yq node npm python3 gcc g++ cmake make cargo btop fastfetch direnv unzip tar gzip xz find less; do
+            command -v "$command" >/dev/null 2>&1 || return 1
+          done
+
+          { command -v fd >/dev/null 2>&1 || command -v fdfind >/dev/null 2>&1; } || return 1
+          { command -v bat >/dev/null 2>&1 || command -v batcat >/dev/null 2>&1; } || return 1
+          { command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1; } || return 1
+          return 0
+        }
+
+        mark_provisioned() {
+          : > "$marker" 2>/dev/null || true
+        }
+
+        host_has_network() {
+          if [ -x /run/host/run/current-system/sw/bin/nm-online ]; then
+            /run/host/run/current-system/sw/bin/nm-online -q -t 2 >/dev/null 2>&1
+            return $?
+          fi
+
+          return 0
+        }
+
+        if [ -f "$marker" ] || have_dev_tools; then
+          mark_provisioned
+          exit 0
+        fi
+
+        if ! host_has_network; then
+          printf '%s\n' "dev-distrobox-init: offline; skipping package bootstrap for now."
+          exit 0
         fi
 
         if command -v dnf >/dev/null 2>&1; then
@@ -183,6 +219,10 @@ in
           packages="fish sudo curl ca-certificates openssh-client git git-lfs fzf eza zoxide github-cli neovim ripgrep fd bat jq yq nodejs npm py3-pip gcc g++ cmake make cargo btop fastfetch direnv unzip tar gzip xz findutils util-linux procps less"
           apk update || true
           apk add ''${packages} || for package in ''${packages}; do apk add "$package" || true; done
+        fi
+
+        if have_dev_tools; then
+          mark_provisioned
         fi
 
         true
