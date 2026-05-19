@@ -4,5 +4,5 @@
 {
   imports = [ ./default.nix ];
 
-  disko.devices.disk.main.device = "/dev/nvme0n1";
+  disko.devices.disk.main.device = "/dev/disk/by-id/nvme-KXG80ZNV1T02_KIOXIA_45TA20GXKWTK";
 }
