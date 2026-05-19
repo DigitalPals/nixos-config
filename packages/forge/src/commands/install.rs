@@ -148,6 +148,28 @@ fn get_symlink_target(username: &str) -> String {
     format!("/home/{}/{}", username, NIXOS_CONFIG_HOME_DIR)
 }
 
+fn target_config_dir(mount_root: &Path, username: &str) -> PathBuf {
+    mount_root
+        .join("home")
+        .join(username)
+        .join(NIXOS_CONFIG_HOME_DIR)
+}
+
+fn target_etc_nixos_path(mount_root: &Path) -> PathBuf {
+    mount_root.join("etc").join("nixos")
+}
+
+fn installed_absolute_path_under_mount(mount_root: &Path, installed_path: &Path) -> PathBuf {
+    if installed_path.is_absolute() {
+        match installed_path.strip_prefix("/") {
+            Ok(relative) => mount_root.join(relative),
+            Err(_) => mount_root.join(installed_path),
+        }
+    } else {
+        mount_root.join(installed_path)
+    }
+}
+
 fn host_dir(temp_config: &Path, hostname: &str) -> PathBuf {
     temp_config.join(constants::HOSTS_SUBDIR).join(hostname)
 }
@@ -187,6 +209,93 @@ fn host_uses_lvm(temp_config: &Path, hostname: &str) -> Result<bool> {
     let disko_content = std::fs::read_to_string(&disko_file)
         .with_context(|| format!("Failed to read disko config: {}", disko_file.display()))?;
     Ok(LVM_PV_RE.is_match(&disko_content))
+}
+
+fn validate_config_tree(config_dir: &Path, hostname: &str) -> Result<()> {
+    let required_paths = [
+        PathBuf::from(constants::FLAKE_NIX),
+        PathBuf::from("flake.lock"),
+        PathBuf::from(constants::HOSTS_SUBDIR),
+        PathBuf::from("home"),
+        PathBuf::from("modules"),
+        PathBuf::from("packages"),
+        PathBuf::from(constants::HOSTS_SUBDIR)
+            .join(hostname)
+            .join("default.nix"),
+        PathBuf::from("modules")
+            .join("disko")
+            .join(format!("{hostname}.nix")),
+    ];
+
+    for relative_path in required_paths {
+        let path = config_dir.join(&relative_path);
+        if !path.exists() {
+            anyhow::bail!(
+                "NixOS configuration is incomplete: missing {} in {}",
+                relative_path.display(),
+                config_dir.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_installed_config_layout_at(
+    mount_root: &Path,
+    username: &str,
+    hostname: &str,
+) -> Result<()> {
+    let config_dir = target_config_dir(mount_root, username);
+    validate_config_tree(&config_dir, hostname).with_context(|| {
+        format!(
+            "Installed config verification failed at {}",
+            config_dir.display()
+        )
+    })?;
+
+    let home_flake = config_dir.join(constants::FLAKE_NIX);
+    if !home_flake.is_file() {
+        anyhow::bail!("Missing installed flake: {}", home_flake.display());
+    }
+
+    let etc_nixos = target_etc_nixos_path(mount_root);
+    let etc_metadata = std::fs::symlink_metadata(&etc_nixos)
+        .with_context(|| format!("Missing installed /etc/nixos at {}", etc_nixos.display()))?;
+
+    if etc_metadata.file_type().is_symlink() {
+        let actual_target = std::fs::read_link(&etc_nixos)
+            .with_context(|| format!("Failed to read symlink {}", etc_nixos.display()))?;
+        let expected_target = PathBuf::from(get_symlink_target(username));
+
+        if actual_target != expected_target {
+            anyhow::bail!(
+                "Invalid /etc/nixos symlink target: expected {}, got {}",
+                expected_target.display(),
+                actual_target.display()
+            );
+        }
+
+        let resolved_flake = installed_absolute_path_under_mount(mount_root, &actual_target)
+            .join(constants::FLAKE_NIX);
+        if !resolved_flake.is_file() {
+            anyhow::bail!(
+                "/etc/nixos symlink does not resolve to a flake in the mounted target: {} -> {}",
+                etc_nixos.display(),
+                resolved_flake.display()
+            );
+        }
+    } else {
+        let etc_flake = etc_nixos.join(constants::FLAKE_NIX);
+        if !etc_flake.is_file() {
+            anyhow::bail!(
+                "Missing installed /etc/nixos flake: {}",
+                etc_flake.display()
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn build_local_install_config(
@@ -555,6 +664,14 @@ async fn step_prepare_repository(
             return Ok(None);
         }
     }
+
+    validate_config_tree(&temp_config, hostname).with_context(|| {
+        format!(
+            "Source configuration is not usable for host '{}': {}",
+            hostname,
+            temp_config.display()
+        )
+    })?;
 
     runner.step_complete("repository").await?;
     Ok(Some(temp_config))
@@ -1234,6 +1351,12 @@ async fn step_install_nixos(
     let temp_config_str = temp_config.to_string_lossy();
 
     runner.out("Installing NixOS...").await;
+    validate_config_tree(temp_config, hostname).with_context(|| {
+        format!(
+            "Source configuration is incomplete before install copy: {}",
+            temp_config.display()
+        )
+    })?;
 
     let config_dir = get_config_dir(username);
     let symlink_target = get_symlink_target(username);
@@ -1354,12 +1477,28 @@ async fn step_install_nixos(
         return Ok(false);
     }
 
-    // Copy configuration using sudo cp -r
+    let mkdir_config_ok = runner.run("sudo", &["mkdir", "-p", &config_dir]).await?;
+    if !mkdir_config_ok {
+        runner
+            .step_failed(
+                "NixOS",
+                &format!("Failed to create {}", config_dir),
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    // Copy configuration contents using sudo. The trailing "/." keeps the
+    // installed layout as /mnt/home/<user>/nixos-config/flake.nix and avoids
+    // accidentally nesting the repo under nixos-config/nixos-config.
     runner.out("  Copying configuration...").await;
+    let source_contents = format!("{}/.", temp_config_str);
     let copy_ok = runner
         .run(
             "sudo",
-            &["cp", "-r", &temp_config_str.to_string(), &config_dir],
+            &["cp", "-a", &source_contents, &format!("{}/.", config_dir)],
         )
         .await?;
     if !copy_ok {
@@ -1400,11 +1539,40 @@ async fn step_install_nixos(
         return Ok(false);
     }
 
+    if let Err(error) = verify_installed_config_layout_at(
+        std::path::Path::new(INSTALL_MOUNT_POINT),
+        username,
+        hostname,
+    ) {
+        runner
+            .step_failed(
+                "NixOS",
+                &format!("Installed config verification failed: {:#}", error),
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+    runner
+        .out("  Verified installed config flake and /etc/nixos link")
+        .await;
+
     // Initialize git repo (optional, log failures)
     init_git_repo(runner, &config_dir).await;
 
     // Set ownership
-    set_config_ownership(runner, config_parent, &config_dir).await;
+    if !set_config_ownership(runner, config_parent, &config_dir).await? {
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to set configuration ownership",
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
 
     runner.out("  Configuration ready.").await;
 
@@ -1470,6 +1638,28 @@ async fn step_install_nixos(
         runner.done(false).await?;
         return Ok(false);
     }
+
+    if let Err(error) = verify_installed_config_layout_at(
+        std::path::Path::new(INSTALL_MOUNT_POINT),
+        username,
+        hostname,
+    ) {
+        runner
+            .step_failed(
+                "NixOS",
+                &format!(
+                    "Post-install config verification failed; refusing to mark install successful: {:#}",
+                    error
+                ),
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+    runner
+        .out("  Post-install config verification passed")
+        .await;
 
     runner.step_complete("NixOS").await?;
     Ok(true)
@@ -1604,7 +1794,7 @@ async fn set_config_ownership(
     runner: &CommandRunner<'_>,
     config_parent: &std::path::Path,
     config_dir: &str,
-) {
+) -> Result<bool> {
     let uid_gid = format!("{}:{}", PRIMARY_USER_UID, PRIMARY_USER_GID);
     let config_parent_str = config_parent.to_str().unwrap_or(".");
 
@@ -1614,7 +1804,25 @@ async fn set_config_ownership(
         .await
     {
         Ok(true) => tracing::info!("Set ownership on config parent directory"),
-        Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config parent directory"),
+        Ok(false) => {
+            runner
+                .err(&format!(
+                    "Failed to set ownership on {}",
+                    config_parent.display()
+                ))
+                .await;
+            return Ok(false);
+        }
+        Err(e) => {
+            runner
+                .err(&format!(
+                    "Failed to set ownership on {}: {}",
+                    config_parent.display(),
+                    e
+                ))
+                .await;
+            return Ok(false);
+        }
     }
 
     match runner
@@ -1622,8 +1830,21 @@ async fn set_config_ownership(
         .await
     {
         Ok(true) => tracing::info!("Set ownership on config directory"),
-        Ok(false) | Err(_) => tracing::warn!("Failed to set ownership on config directory"),
+        Ok(false) => {
+            runner
+                .err(&format!("Failed to set ownership on {}", config_dir))
+                .await;
+            return Ok(false);
+        }
+        Err(e) => {
+            runner
+                .err(&format!("Failed to set ownership on {}: {}", config_dir, e))
+                .await;
+            return Ok(false);
+        }
     }
+
+    Ok(true)
 }
 
 // =============================================================================
@@ -1726,6 +1947,41 @@ fn update_gpu_bus_ids(content: &str, amd_bus_id: &str, nvidia_bus_id: &str) -> S
 mod tests {
     use super::*;
 
+    fn unique_temp_root(test_name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "forge-install-{}-{}-{}",
+            test_name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn create_minimal_config_tree(root: &Path, hostname: &str) {
+        std::fs::create_dir_all(root.join(constants::HOSTS_SUBDIR).join(hostname)).unwrap();
+        std::fs::create_dir_all(root.join("modules").join("disko")).unwrap();
+        std::fs::create_dir_all(root.join("home")).unwrap();
+        std::fs::create_dir_all(root.join("packages")).unwrap();
+        std::fs::write(root.join(constants::FLAKE_NIX), "{}\n").unwrap();
+        std::fs::write(root.join("flake.lock"), "{}\n").unwrap();
+        std::fs::write(
+            root.join(constants::HOSTS_SUBDIR)
+                .join(hostname)
+                .join("default.nix"),
+            "{}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("modules")
+                .join("disko")
+                .join(format!("{hostname}.nix")),
+            "{}\n",
+        )
+        .unwrap();
+    }
+
     #[test]
     fn generated_install_config_renders_persisted_overrides() {
         let config = GeneratedInstallConfig {
@@ -1787,5 +2043,57 @@ mod tests {
         assert_eq!(detected.as_deref(), Some("uuid-from-test"));
 
         let _ = std::fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn verify_installed_config_layout_accepts_installed_system_symlink() {
+        let mount_root = unique_temp_root("layout-ok");
+        let hostname = "z2-mini-g1a";
+        let username = "alice";
+        let config_dir = target_config_dir(&mount_root, username);
+        create_minimal_config_tree(&config_dir, hostname);
+        std::fs::create_dir_all(mount_root.join("etc")).unwrap();
+        std::os::unix::fs::symlink(
+            get_symlink_target(username),
+            target_etc_nixos_path(&mount_root),
+        )
+        .unwrap();
+
+        verify_installed_config_layout_at(&mount_root, username, hostname).unwrap();
+
+        let _ = std::fs::remove_dir_all(&mount_root);
+    }
+
+    #[test]
+    fn verify_installed_config_layout_rejects_mnt_symlink_target() {
+        let mount_root = unique_temp_root("layout-bad-symlink");
+        let hostname = "z2-mini-g1a";
+        let username = "alice";
+        let config_dir = target_config_dir(&mount_root, username);
+        create_minimal_config_tree(&config_dir, hostname);
+        std::fs::create_dir_all(mount_root.join("etc")).unwrap();
+        std::os::unix::fs::symlink(
+            format!("/mnt/home/{}/{}", username, NIXOS_CONFIG_HOME_DIR),
+            target_etc_nixos_path(&mount_root),
+        )
+        .unwrap();
+
+        let error = verify_installed_config_layout_at(&mount_root, username, hostname).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Invalid /etc/nixos symlink target"));
+
+        let _ = std::fs::remove_dir_all(&mount_root);
+    }
+
+    #[test]
+    fn validate_config_tree_rejects_missing_flake() {
+        let root = unique_temp_root("missing-flake");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let error = validate_config_tree(&root, "xps").unwrap_err();
+        assert!(error.to_string().contains("missing flake.nix"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
