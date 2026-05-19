@@ -461,7 +461,7 @@
         "ghostty": true,
         "gtk": false,
         "helix": false,
-        "hyprland": true,
+        "hyprland": false,
         "kcolorscheme": false,
         "kitty": false,
         "mango": false,

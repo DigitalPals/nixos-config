@@ -82,23 +82,6 @@ in
     fi
   '';
 
-  # Noctalia generates Hyprland snippets via templating. If the target file ends up
-  # read-only (or as a symlink), templating fails with "Permission denied".
-  home.activation.noctaliaHyprColorsWritable = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    dir="$HOME/.config/hypr/noctalia"
-    file="$dir/noctalia-colors.conf"
-
-    mkdir -p "$dir"
-
-    # If something created a symlink here, replace it with a real file so Noctalia can write.
-    if [ -L "$file" ]; then
-      rm -f "$file"
-    fi
-
-    touch "$file"
-    chmod 0644 "$file"
-  '';
-
   # Noctalia-specific packages
   home.packages = with pkgs; [
     quickshell  # For Noctalia IPC commands

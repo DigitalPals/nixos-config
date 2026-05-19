@@ -3,40 +3,45 @@
 { }:
 
 ''
-  # Control your input devices
-  # See https://wiki.hyprland.org/Configuring/Variables/#input
+  -- Control your input devices.
+  -- See https://wiki.hyprland.org/Configuring/Basics/Variables/#input
 
-  input {
-    # Keyboard layout
-    kb_layout = us
-    kb_options = compose:caps
+  hl.config({
+    input = {
+      -- Keyboard layout.
+      kb_layout = "us",
+      kb_options = "compose:caps",
 
-    # Mouse
-    follow_mouse = 1
-    natural_scroll = true
+      -- Mouse.
+      follow_mouse = 1,
+      natural_scroll = true,
 
-    # Change speed of keyboard repeat
-    repeat_rate = 40
-    repeat_delay = 600
+      -- Change speed of keyboard repeat.
+      repeat_rate = 40,
+      repeat_delay = 600,
 
-    # Start with numlock on by default
-    numlock_by_default = true
+      -- Start with numlock on by default.
+      numlock_by_default = true,
 
-    touchpad {
-      # Use natural (inverse) scrolling
-      natural_scroll = true
+      touchpad = {
+        -- Use natural (inverse) scrolling.
+        natural_scroll = true,
 
-      # Disable while typing
-      disable_while_typing = true
+        -- Disable while typing.
+        disable_while_typing = true,
 
-      # Enable tap-to-click
-      tap-to-click = true
+        -- Enable tap-to-click.
+        tap_to_click = true,
 
-      # Control the speed of scrolling
-      scroll_factor = 0.4
-    }
-  }
+        -- Control the speed of scrolling.
+        scroll_factor = 0.4,
+      },
+    },
+  })
 
-  # Keep Ghostty at normal compositor scroll speed; Ghostty itself adds extra acceleration.
-  windowrule = match:class com\.mitchellh\.ghostty, scroll_mouse 1.0
+  -- Keep Ghostty at normal compositor scroll speed; Ghostty itself adds extra acceleration.
+  hl.window_rule({
+    match = { class = [[com\.mitchellh\.ghostty]] },
+    scroll_mouse = 1.0,
+  })
 ''
