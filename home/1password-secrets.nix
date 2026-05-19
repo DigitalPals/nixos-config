@@ -1,14 +1,8 @@
 # SSH defaults
 #
-# SSH uses the local key file exported from 1Password. This avoids waking up
-# the desktop agent for CLI tools and works in sessions where SSH_AUTH_SOCK
-# is not set (Claude Code, cron, etc.).
-#
-# To refresh the local key from 1Password:
-#   op item get "SSH Key (Kraken)" --fields label=private_key --reveal \
-#     | install -m 600 /dev/stdin ~/.ssh/id_ed25519
-#   op item get "SSH Key (Kraken)" --fields label=public_key \
-#     > ~/.ssh/id_ed25519.pub
+# SSH keys live in 1Password and are exposed through the 1Password SSH agent.
+# Do not point OpenSSH at a local private key file; fresh installs may not have
+# ~/.ssh/id_ed25519, and forcing it breaks Git operations such as app-restore.
 #
 { config, pkgs, lib, ... }:
 
@@ -28,8 +22,7 @@
     rm -f "$HOME/.ssh/config"
     cat > "$HOME/.ssh/config" <<'EOF'
 Host *
-  IdentityFile ~/.ssh/id_ed25519
-  IdentitiesOnly yes
+  IdentityAgent ~/.1password/agent.sock
   StrictHostKeyChecking accept-new
   HashKnownHosts yes
 EOF

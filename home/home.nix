@@ -550,16 +550,15 @@ in
   };
 
   # App profile backup/restore (browsers - encrypted, synced via GitHub)
-  # Keys are stored locally with 1Password as fallback
+  # Age uses a local key with 1Password fallback. SSH uses the 1Password agent.
   programs.app-backup = {
     enable = true;
     ageRecipient = "age160gkdyge3henu4r643066rnkwnfqc4xhzx47tprcmqj9lxcr9cuqvvw4qu";
     # Age key - for encrypting/decrypting app backups
     ageKey1Password = "op://Private/age-key/private-key";
     ageKeyPath = "~/.config/age/key.txt";
-    # SSH key - for GitHub authentication
+    # SSH key - for GitHub authentication through the 1Password SSH agent
     sshKey1Password = "op://Private/kuhnsbkyjjmpjtvgpeiqqlczeu/private key";
-    sshKeyPath = "~/.ssh/id_ed25519";
   };
 
   # Default applications

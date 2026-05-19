@@ -654,10 +654,12 @@ SSH keys are managed through 1Password's SSH agent (`home/1password-secrets.nix`
 4. Add/import SSH keys to 1Password
 
 SSH commands will automatically use keys from 1Password after a single unlock.
+The generated `~/.ssh/config` points OpenSSH at `~/.1password/agent.sock`; it
+does not require or create a local `~/.ssh/id_ed25519` private key.
 
 ## App Profile Backup/Restore
 
-Encrypted app profile backup system using Age encryption and a private GitHub repository. Supports 1Password integration for automatic key retrieval across machines.
+Encrypted app profile backup system using Age encryption and a private GitHub repository. Supports 1Password integration for automatic age key retrieval and SSH agent authentication across machines.
 
 ### Supported Applications
 
@@ -733,14 +735,15 @@ browser-restore --pull     # Same as app-restore
 3. Run `forge apps restore`
 4. Open apps - sessions restored (Chrome, Firefox, Portal)
 
-The age key is retrieved from 1Password on-the-fly - no manual key management needed!
+The age key is retrieved from 1Password on-the-fly, and Git uses the 1Password
+SSH agent for the private backup repo. No local SSH private key file is needed.
 
 ### Troubleshooting
 
 - **"Apps are running"**: Close Chrome/Firefox/Portal or use `--force`
 - **"1Password not unlocked"**: Open 1Password app and sign in
 - **"op: command not found"**: Rebuild to install 1Password CLI
-- **"Git push failed"**: Check SSH key is in 1Password agent
+- **"Git push failed" / "Permission denied (publickey)"**: Check 1Password is unlocked and the SSH key is available in the 1Password SSH agent
 - **"Config not found"**: Enable `programs.app-backup` and rebuild
 
 ### Security Notes
