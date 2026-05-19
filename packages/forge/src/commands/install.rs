@@ -10,6 +10,7 @@
 //! 7. Set user password
 
 use anyhow::{Context, Result};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tokio::sync::mpsc;
@@ -55,6 +56,15 @@ struct GeneratedInstallConfig {
     hibernate_swap_size_gb: Option<u64>,
     luks_uuid: Option<String>,
     resume_offset: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetUser {
+    name: String,
+    uid: u32,
+    gid: u32,
+    home: PathBuf,
+    shell: PathBuf,
 }
 
 // =============================================================================
@@ -155,6 +165,14 @@ fn target_config_dir(mount_root: &Path, username: &str) -> PathBuf {
         .join(NIXOS_CONFIG_HOME_DIR)
 }
 
+fn target_home_dir(mount_root: &Path, username: &str) -> PathBuf {
+    mount_root.join("home").join(username)
+}
+
+fn target_xdg_config_dir(mount_root: &Path, username: &str) -> PathBuf {
+    target_home_dir(mount_root, username).join(".config")
+}
+
 fn target_etc_nixos_path(mount_root: &Path) -> PathBuf {
     mount_root.join("etc").join("nixos")
 }
@@ -168,6 +186,203 @@ fn installed_absolute_path_under_mount(mount_root: &Path, installed_path: &Path)
     } else {
         mount_root.join(installed_path)
     }
+}
+
+fn parse_passwd_user(line: &str, username: &str) -> Result<Option<TargetUser>> {
+    let fields: Vec<&str> = line.split(':').collect();
+    if fields.len() < 7 || fields[0] != username {
+        return Ok(None);
+    }
+
+    let uid = fields[2]
+        .parse::<u32>()
+        .with_context(|| format!("Invalid UID for user '{}': {}", username, fields[2]))?;
+    let gid = fields[3]
+        .parse::<u32>()
+        .with_context(|| format!("Invalid GID for user '{}': {}", username, fields[3]))?;
+
+    Ok(Some(TargetUser {
+        name: username.to_string(),
+        uid,
+        gid,
+        home: PathBuf::from(fields[5]),
+        shell: PathBuf::from(fields[6]),
+    }))
+}
+
+fn read_target_user(mount_root: &Path, username: &str) -> Result<TargetUser> {
+    let passwd_path = mount_root.join("etc/passwd");
+    let passwd = std::fs::read_to_string(&passwd_path)
+        .with_context(|| format!("Failed to read target passwd: {}", passwd_path.display()))?;
+
+    for line in passwd.lines() {
+        if let Some(user) = parse_passwd_user(line, username)? {
+            return Ok(user);
+        }
+    }
+
+    anyhow::bail!(
+        "Installed user '{}' was not found in {}",
+        username,
+        passwd_path.display()
+    )
+}
+
+fn mode_allows_user_dir_write(metadata: &std::fs::Metadata, uid: u32, gid: u32) -> bool {
+    let mode = metadata.permissions().mode();
+    if metadata.uid() == uid {
+        mode & 0o300 == 0o300
+    } else if metadata.gid() == gid {
+        mode & 0o030 == 0o030
+    } else {
+        mode & 0o003 == 0o003
+    }
+}
+
+fn verify_writable_dir_for_user(path: &Path, uid: u32, gid: u32) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(path).with_context(|| {
+        format!(
+            "Missing expected user-writable directory: {}",
+            path.display()
+        )
+    })?;
+
+    if !metadata.is_dir() {
+        anyhow::bail!("Expected a directory at {}", path.display());
+    }
+
+    if !mode_allows_user_dir_write(&metadata, uid, gid) {
+        anyhow::bail!(
+            "Directory is not writable by installed user {}:{}: {} (mode {:o}, owner {}:{})",
+            uid,
+            gid,
+            path.display(),
+            metadata.permissions().mode() & 0o777,
+            metadata.uid(),
+            metadata.gid()
+        );
+    }
+
+    Ok(())
+}
+
+fn verify_tree_owned_by_user(root: &Path, uid: u32, gid: u32) -> Result<()> {
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(path) = stack.pop() {
+        let metadata = std::fs::symlink_metadata(&path)
+            .with_context(|| format!("Failed to inspect {}", path.display()))?;
+
+        if metadata.uid() != uid || metadata.gid() != gid {
+            anyhow::bail!(
+                "Unexpected ownership for {}: expected {}:{}, got {}:{}",
+                path.display(),
+                uid,
+                gid,
+                metadata.uid(),
+                metadata.gid()
+            );
+        }
+
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(&path)
+                .with_context(|| format!("Failed to read directory {}", path.display()))?
+            {
+                let entry =
+                    entry.with_context(|| format!("Failed to read entry in {}", path.display()))?;
+                stack.push(entry.path());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_no_root_fish_artifacts(mount_root: &Path) -> Result<()> {
+    for relative_path in ["config.fish", "completions", "conf.d", "functions"] {
+        let path = mount_root.join(relative_path);
+        if path.exists() {
+            anyhow::bail!(
+                "Fish/XDG sanity check failed: unexpected root-level {} exists",
+                path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_fish_shell_path(mount_root: &Path, shell: &Path) -> Result<()> {
+    if shell.file_name().and_then(|name| name.to_str()) != Some("fish") {
+        anyhow::bail!("Installed user shell is not fish: {}", shell.display());
+    }
+
+    if shell.starts_with("/nix/store") {
+        let target_shell = installed_absolute_path_under_mount(mount_root, shell);
+        if !target_shell.exists() {
+            anyhow::bail!(
+                "Configured fish shell does not exist in mounted target: {}",
+                target_shell.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_home_sanity_at(mount_root: &Path, username: &str, uid: u32, gid: u32) -> Result<()> {
+    let home_dir = target_home_dir(mount_root, username);
+    verify_writable_dir_for_user(&home_dir, uid, gid)?;
+    verify_tree_owned_by_user(&home_dir, uid, gid)?;
+
+    for path in [
+        target_xdg_config_dir(mount_root, username),
+        target_xdg_config_dir(mount_root, username).join("fish"),
+        home_dir.join(".local"),
+        home_dir.join(".local/state"),
+        home_dir.join(".cache"),
+    ] {
+        verify_writable_dir_for_user(&path, uid, gid)?;
+    }
+
+    let fish_config_dir = target_xdg_config_dir(mount_root, username).join("fish");
+    if !fish_config_dir.starts_with(target_xdg_config_dir(mount_root, username)) {
+        anyhow::bail!(
+            "Fish config directory escaped XDG config home: {}",
+            fish_config_dir.display()
+        );
+    }
+
+    verify_no_root_fish_artifacts(mount_root)?;
+    Ok(())
+}
+
+fn verify_installed_home_sanity_at(mount_root: &Path, username: &str) -> Result<TargetUser> {
+    let user = read_target_user(mount_root, username)?;
+    let expected_home = PathBuf::from(format!("/home/{username}"));
+
+    if user.home != expected_home {
+        anyhow::bail!(
+            "Installed user '{}' has wrong home directory: expected {}, got {}",
+            username,
+            expected_home.display(),
+            user.home.display()
+        );
+    }
+
+    verify_fish_shell_path(mount_root, &user.shell)?;
+    verify_home_sanity_at(mount_root, username, user.uid, user.gid)?;
+
+    Ok(user)
+}
+
+fn verify_installed_sanity_at(
+    mount_root: &Path,
+    username: &str,
+    hostname: &str,
+) -> Result<TargetUser> {
+    verify_installed_config_layout_at(mount_root, username, hostname)?;
+    verify_installed_home_sanity_at(mount_root, username)
 }
 
 fn host_dir(temp_config: &Path, hostname: &str) -> PathBuf {
@@ -219,6 +434,7 @@ fn validate_config_tree(config_dir: &Path, hostname: &str) -> Result<()> {
         PathBuf::from("home"),
         PathBuf::from("modules"),
         PathBuf::from("packages"),
+        PathBuf::from("wallpapers"),
         PathBuf::from(constants::HOSTS_SUBDIR)
             .join(hostname)
             .join("default.nix"),
@@ -1463,6 +1679,18 @@ async fn step_install_nixos(
         .out(&format!("  Created: {}", config_parent.display()))
         .await;
 
+    if !ensure_home_skeleton_sudo(runner, config_parent).await? {
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to create user home skeleton",
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
     runner.out("  Cleaning target configuration...").await;
     let clean_target_ok = runner.run("sudo", &["rm", "-rf", &config_dir]).await?;
     if !clean_target_ok {
@@ -1561,12 +1789,29 @@ async fn step_install_nixos(
     // Initialize git repo (optional, log failures)
     init_git_repo(runner, &config_dir).await;
 
-    // Set ownership
-    if !set_config_ownership(runner, config_parent, &config_dir).await? {
+    // Set ownership after all copy/git work so generated files are not left root-owned.
+    if !set_home_ownership_sudo(runner, config_parent, PRIMARY_USER_UID, PRIMARY_USER_GID).await? {
         runner
             .step_failed(
                 "NixOS",
-                "Failed to set configuration ownership",
+                "Failed to set user home ownership",
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    if let Err(error) = verify_home_sanity_at(
+        std::path::Path::new(INSTALL_MOUNT_POINT),
+        username,
+        PRIMARY_USER_UID,
+        PRIMARY_USER_GID,
+    ) {
+        runner
+            .step_failed(
+                "NixOS",
+                &format!("Pre-install home sanity check failed: {:#}", error),
                 "NixOS installation",
             )
             .await?;
@@ -1576,30 +1821,41 @@ async fn step_install_nixos(
 
     runner.out("  Configuration ready.").await;
 
-    // Verify flake is valid before installing
+    // Verify the selected host evaluates before starting the long install build.
     runner.out("Checking NixOS configuration...").await;
     let flake_ref = format!("{}#{}", config_dir, hostname);
-    let check_ok = runner
+    let eval_attr = format!(
+        "{}#nixosConfigurations.{}.config.system.build.toplevel.drvPath",
+        config_dir, hostname
+    );
+    let eval_ok = runner
         .run(
             "sudo",
             &[
                 "env",
                 &format!("NIX_CONFIG={}", NIX_CONFIG_VALUE),
                 "nix",
-                "flake",
-                "check",
-                &config_dir,
-                "--no-build",
+                "eval",
+                &eval_attr,
+                "--raw",
             ],
         )
         .await
         .unwrap_or(false);
 
-    if !check_ok {
+    if !eval_ok {
         runner
-            .err("Flake check failed - there may be syntax errors in the configuration.")
+            .err("Selected host failed to evaluate - refusing to continue with an invalid configuration.")
             .await;
-        // Continue anyway - the actual build might still work
+        runner
+            .step_failed(
+                "NixOS",
+                "selected NixOS host evaluation failed",
+                "NixOS configuration evaluation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
     // Run nixos-install with sudo (nix run doesn't preserve root privileges).
@@ -1639,7 +1895,49 @@ async fn step_install_nixos(
         return Ok(false);
     }
 
-    if let Err(error) = verify_installed_config_layout_at(
+    if !ensure_home_skeleton_sudo(runner, config_parent).await? {
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to recreate user home skeleton after install",
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    let target_user = match read_target_user(std::path::Path::new(INSTALL_MOUNT_POINT), username) {
+        Ok(user) => user,
+        Err(error) => {
+            runner
+                .step_failed(
+                    "NixOS",
+                    &format!(
+                        "Failed to read installed user before ownership fix: {:#}",
+                        error
+                    ),
+                    "NixOS installation",
+                )
+                .await?;
+            runner.done(false).await?;
+            return Ok(false);
+        }
+    };
+
+    if !set_home_ownership_sudo(runner, config_parent, target_user.uid, target_user.gid).await? {
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to set final user home ownership",
+                "NixOS installation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    if let Err(error) = verify_installed_sanity_at(
         std::path::Path::new(INSTALL_MOUNT_POINT),
         username,
         hostname,
@@ -1648,7 +1946,7 @@ async fn step_install_nixos(
             .step_failed(
                 "NixOS",
                 &format!(
-                    "Post-install config verification failed; refusing to mark install successful: {:#}",
+                    "Post-install sanity gate failed; refusing to mark install successful: {:#}",
                     error
                 ),
                 "NixOS installation",
@@ -1658,7 +1956,7 @@ async fn step_install_nixos(
         return Ok(false);
     }
     runner
-        .out("  Post-install config verification passed")
+        .out("  Post-install config and home sanity checks passed")
         .await;
 
     runner.step_complete("NixOS").await?;
@@ -1668,6 +1966,7 @@ async fn step_install_nixos(
 /// Step 8: Set user password
 async fn step_set_user_password(
     runner: &CommandRunner<'_>,
+    hostname: &str,
     username: &str,
     password: &str,
 ) -> Result<bool> {
@@ -1683,9 +1982,38 @@ async fn step_set_user_password(
     let success = run_command_sensitive(runner.tx(), "sh", &["-c", &chpasswd_script]).await?;
 
     if !success {
-        runner.out("Warning: Failed to set user password. You can set it after first boot with 'passwd'.").await;
+        runner
+            .step_failed(
+                super::steps::INSTALL,
+                "Failed to set installed user password",
+                "Set user password",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
     }
 
+    runner.out("Running final install sanity gate...").await;
+    if let Err(error) = verify_installed_sanity_at(
+        std::path::Path::new(INSTALL_MOUNT_POINT),
+        username,
+        hostname,
+    ) {
+        runner
+            .step_failed(
+                super::steps::INSTALL,
+                &format!(
+                    "Final install sanity gate failed; refusing to mark install successful: {:#}",
+                    error
+                ),
+                "Install sanity verification",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
+    runner.out("  Final install sanity gate passed").await;
     runner.step_complete(super::steps::INSTALL).await?;
     Ok(true)
 }
@@ -1789,56 +2117,96 @@ async fn init_git_repo(runner: &CommandRunner<'_>, config_dir: &str) {
     }
 }
 
-/// Set ownership of config directory
-async fn set_config_ownership(
+/// Create the user-owned directory skeleton that first login and Home Manager expect.
+async fn ensure_home_skeleton_sudo(
     runner: &CommandRunner<'_>,
-    config_parent: &std::path::Path,
-    config_dir: &str,
+    home_dir: &std::path::Path,
 ) -> Result<bool> {
-    let uid_gid = format!("{}:{}", PRIMARY_USER_UID, PRIMARY_USER_GID);
-    let config_parent_str = config_parent.to_str().unwrap_or(".");
+    let home_dir = home_dir.to_string_lossy().to_string();
+    let paths = [
+        home_dir.clone(),
+        format!("{home_dir}/.config/fish"),
+        format!("{home_dir}/.local/state"),
+        format!("{home_dir}/.cache"),
+    ];
 
-    // Use sudo for chown since nix run doesn't preserve root privileges
-    match runner
-        .run("sudo", &["chown", &uid_gid, config_parent_str])
-        .await
-    {
-        Ok(true) => tracing::info!("Set ownership on config parent directory"),
+    let mut args = vec!["mkdir", "-p"];
+    args.extend(paths.iter().map(String::as_str));
+
+    match runner.run("sudo", &args).await {
+        Ok(true) => {
+            tracing::info!("Created target home skeleton");
+            Ok(true)
+        }
         Ok(false) => {
             runner
+                .err(&format!("Failed to create home skeleton under {home_dir}"))
+                .await;
+            Ok(false)
+        }
+        Err(e) => {
+            runner
                 .err(&format!(
-                    "Failed to set ownership on {}",
-                    config_parent.display()
+                    "Failed to create home skeleton under {home_dir}: {e}"
                 ))
+                .await;
+            Ok(false)
+        }
+    }
+}
+
+/// Set final ownership and directory permissions for the installed user's home.
+async fn set_home_ownership_sudo(
+    runner: &CommandRunner<'_>,
+    home_dir: &std::path::Path,
+    uid: u32,
+    gid: u32,
+) -> Result<bool> {
+    let uid_gid = format!("{uid}:{gid}");
+    let home_dir = home_dir.to_string_lossy().to_string();
+
+    match runner
+        .run("sudo", &["chown", "-R", &uid_gid, &home_dir])
+        .await
+    {
+        Ok(true) => tracing::info!("Set ownership on installed home directory"),
+        Ok(false) => {
+            runner
+                .err(&format!("Failed to set ownership on {home_dir}"))
                 .await;
             return Ok(false);
         }
         Err(e) => {
             runner
-                .err(&format!(
-                    "Failed to set ownership on {}: {}",
-                    config_parent.display(),
-                    e
-                ))
+                .err(&format!("Failed to set ownership on {home_dir}: {e}"))
                 .await;
             return Ok(false);
         }
     }
 
     match runner
-        .run("sudo", &["chown", "-R", &uid_gid, config_dir])
+        .run(
+            "sudo",
+            &[
+                "find", &home_dir, "-type", "d", "-exec", "chmod", "u+rwx", "{}", "+",
+            ],
+        )
         .await
     {
-        Ok(true) => tracing::info!("Set ownership on config directory"),
+        Ok(true) => tracing::info!("Ensured installed home directories are user-writable"),
         Ok(false) => {
             runner
-                .err(&format!("Failed to set ownership on {}", config_dir))
+                .err(&format!(
+                    "Failed to make home directories user-writable under {home_dir}"
+                ))
                 .await;
             return Ok(false);
         }
         Err(e) => {
             runner
-                .err(&format!("Failed to set ownership on {}: {}", config_dir, e))
+                .err(&format!(
+                    "Failed to make home directories user-writable under {home_dir}: {e}"
+                ))
                 .await;
             return Ok(false);
         }
@@ -1923,7 +2291,9 @@ async fn run_install(
     }
 
     // Step 8: Set user password
-    step_set_user_password(&runner, username, password).await?;
+    if !step_set_user_password(&runner, hostname, username, password).await? {
+        return Ok(());
+    }
 
     // Show completion message
     show_completion_message(&runner, username).await?;
@@ -1964,6 +2334,7 @@ mod tests {
         std::fs::create_dir_all(root.join("modules").join("disko")).unwrap();
         std::fs::create_dir_all(root.join("home")).unwrap();
         std::fs::create_dir_all(root.join("packages")).unwrap();
+        std::fs::create_dir_all(root.join("wallpapers")).unwrap();
         std::fs::write(root.join(constants::FLAKE_NIX), "{}\n").unwrap();
         std::fs::write(root.join("flake.lock"), "{}\n").unwrap();
         std::fs::write(
@@ -1980,6 +2351,29 @@ mod tests {
             "{}\n",
         )
         .unwrap();
+    }
+
+    fn create_home_skeleton(root: &Path, username: &str) {
+        let home = target_home_dir(root, username);
+        std::fs::create_dir_all(home.join(".config/fish")).unwrap();
+        std::fs::create_dir_all(home.join(".local/state")).unwrap();
+        std::fs::create_dir_all(home.join(".cache")).unwrap();
+    }
+
+    fn write_passwd(root: &Path, username: &str, uid: u32, gid: u32, home: &str, shell: &str) {
+        std::fs::create_dir_all(root.join("etc")).unwrap();
+        std::fs::write(
+            root.join("etc/passwd"),
+            format!(
+                "root:x:0:0:System administrator:/root:/bin/sh\n{username}:x:{uid}:{gid}::{home}:{shell}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    fn current_uid_gid(path: &Path) -> (u32, u32) {
+        let metadata = std::fs::symlink_metadata(path).unwrap();
+        (metadata.uid(), metadata.gid())
     }
 
     #[test]
@@ -2046,6 +2440,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_passwd_user_reads_home_and_shell() {
+        let user = parse_passwd_user(
+            "john:x:1000:100::/home/john:/run/current-system/sw/bin/fish",
+            "john",
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(user.name, "john");
+        assert_eq!(user.uid, 1000);
+        assert_eq!(user.gid, 100);
+        assert_eq!(user.home, PathBuf::from("/home/john"));
+        assert_eq!(user.shell, PathBuf::from("/run/current-system/sw/bin/fish"));
+    }
+
+    #[test]
     fn verify_installed_config_layout_accepts_installed_system_symlink() {
         let mount_root = unique_temp_root("layout-ok");
         let hostname = "z2-mini-g1a";
@@ -2082,6 +2492,77 @@ mod tests {
         assert!(error
             .to_string()
             .contains("Invalid /etc/nixos symlink target"));
+
+        let _ = std::fs::remove_dir_all(&mount_root);
+    }
+
+    #[test]
+    fn verify_installed_sanity_accepts_owned_home_and_config() {
+        let mount_root = unique_temp_root("sanity-ok");
+        let hostname = "z2-mini-g1a";
+        let username = "alice";
+        let config_dir = target_config_dir(&mount_root, username);
+        create_minimal_config_tree(&config_dir, hostname);
+        create_home_skeleton(&mount_root, username);
+        std::fs::create_dir_all(mount_root.join("etc")).unwrap();
+        std::os::unix::fs::symlink(
+            get_symlink_target(username),
+            target_etc_nixos_path(&mount_root),
+        )
+        .unwrap();
+        let (uid, gid) = current_uid_gid(&target_home_dir(&mount_root, username));
+        write_passwd(
+            &mount_root,
+            username,
+            uid,
+            gid,
+            "/home/alice",
+            "/run/current-system/sw/bin/fish",
+        );
+
+        verify_installed_sanity_at(&mount_root, username, hostname).unwrap();
+
+        let _ = std::fs::remove_dir_all(&mount_root);
+    }
+
+    #[test]
+    fn verify_installed_sanity_rejects_unwritable_home_for_user() {
+        let mount_root = unique_temp_root("sanity-bad-home");
+        let hostname = "z2-mini-g1a";
+        let username = "alice";
+        let config_dir = target_config_dir(&mount_root, username);
+        create_minimal_config_tree(&config_dir, hostname);
+        create_home_skeleton(&mount_root, username);
+        std::fs::create_dir_all(mount_root.join("etc")).unwrap();
+        std::os::unix::fs::symlink(
+            get_symlink_target(username),
+            target_etc_nixos_path(&mount_root),
+        )
+        .unwrap();
+        let (uid, gid) = current_uid_gid(&target_home_dir(&mount_root, username));
+        write_passwd(
+            &mount_root,
+            username,
+            uid.saturating_add(1),
+            gid,
+            "/home/alice",
+            "/run/current-system/sw/bin/fish",
+        );
+
+        let error = verify_installed_sanity_at(&mount_root, username, hostname).unwrap_err();
+        assert!(error.to_string().contains("not writable"));
+
+        let _ = std::fs::remove_dir_all(&mount_root);
+    }
+
+    #[test]
+    fn verify_no_root_fish_artifacts_rejects_bad_xdg_paths() {
+        let mount_root = unique_temp_root("root-fish-artifacts");
+        std::fs::create_dir_all(&mount_root).unwrap();
+        std::fs::write(mount_root.join("config.fish"), "# wrong place\n").unwrap();
+
+        let error = verify_no_root_fish_artifacts(&mount_root).unwrap_err();
+        assert!(error.to_string().contains("unexpected root-level"));
 
         let _ = std::fs::remove_dir_all(&mount_root);
     }

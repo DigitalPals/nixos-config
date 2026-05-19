@@ -197,6 +197,9 @@ in
   users.users.${username} = {
     isNormalUser = true;
     description = username;
+    home = "/home/${username}";
+    createHome = true;
+    linger = true;
     extraGroups = [ "networkmanager" "wheel" "video" "input" "docker" ];
     shell = pkgs.fish;
     # No initialPassword - password set via Forge installer

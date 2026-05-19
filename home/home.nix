@@ -29,6 +29,13 @@ in
 
   home.username = username;
   home.homeDirectory = "/home/${username}";
+  xdg.enable = true;
+
+  # System rebuilds and first-boot activation can run without a graphical user
+  # bus. Do not let Home Manager fail activation just because user units cannot
+  # be switched from that context; Hyprland autostart imports the session
+  # environment and starts/restarts the needed user units after login.
+  systemd.user.startServices = "suggest";
 
   # Let Home Manager manage itself
   programs.home-manager.enable = true;
