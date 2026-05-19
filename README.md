@@ -17,6 +17,7 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 |------|-------------|-----|
 | `kraken` | Desktop PC | NVIDIA RTX 5090 |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
+| `z2-mini-g1a` | HP Z2 Mini G1a Workstation | AMD Strix Halo (RDNA 3.5) |
 | `proart` | ASUS ProArt P16 OLED | AMD + NVIDIA RTX 5090 |
 | `xps` | Dell XPS 14 | Intel Panther Lake |
 
@@ -85,7 +86,7 @@ nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/ni
 ```
 
 The interactive TUI will guide you through:
-1. Select your host (`kraken`, `G1a`, `proart`, or `xps`)
+1. Select your host (`kraken`, `G1a`, `z2-mini-g1a`, `proart`, or `xps`)
 2. Select the target disk
 3. Choose your user account and swap mode
 4. Choose whether to keep the checked-in hardware profile or generate a live hardware layer
@@ -187,6 +188,9 @@ nixos-config/
 │   ├── G1a/                  # HP ZBook Ultra G1a (AMD)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
+│   ├── z2-mini-g1a/          # HP Z2 Mini G1a (AMD)
+│   │   ├── default.nix
+│   │   └── hardware-configuration.nix
 │   └── proart/               # ASUS ProArt P16 OLED
 │       ├── default.nix
 │       └── hardware-configuration.nix
@@ -197,6 +201,7 @@ nixos-config/
 │   │   ├── default.nix       # Common disko config
 │   │   ├── kraken.nix        # Kraken disk device
 │   │   ├── G1a.nix           # G1a disk device
+│   │   ├── z2-mini-g1a.nix   # HP Z2 Mini G1a disk device
 │   │   └── proart.nix        # ProArt disk device (LVM for hibernate)
 │   ├── boot/
 │   │   └── limine-plymouth.nix

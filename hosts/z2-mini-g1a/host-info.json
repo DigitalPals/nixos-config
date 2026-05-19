@@ -1,0 +1,13 @@
+{
+  "cpu": {
+    "vendor": "AMD",
+    "model": "AMD Ryzen AI Max/Max+ PRO (Strix Halo)"
+  },
+  "gpu": {
+    "vendor": "AMD",
+    "model": "Radeon 8040S/8050S/8060S (RDNA 3.5)"
+  },
+  "form_factor": "Desktop",
+  "ram": "Configurable",
+  "product": "HP Z2 Mini G1a Workstation"
+}

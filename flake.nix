@@ -153,6 +153,11 @@
         hostname = "G1a";
       };
 
+      # HP Z2 Mini G1a Workstation (AMD Strix Halo)
+      z2-mini-g1a = mkNixosSystem {
+        hostname = "z2-mini-g1a";
+      };
+
       # ASUS ProArt P16 OLED (AMD Ryzen AI 9 HX 370 + NVIDIA RTX 5090)
       proart = mkNixosSystem {
         hostname = "proart";

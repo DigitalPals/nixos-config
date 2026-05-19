@@ -1,5 +1,5 @@
 # MediaTek MT7925 WiFi 7 configuration
-# Used in: G1a (HP ZBook Ultra G1a), proart (ASUS ProArt P16)
+# Used in: G1a (HP ZBook Ultra G1a), z2-mini-g1a (HP Z2 Mini G1a), proart (ASUS ProArt P16)
 #
 # Known MT7925 issues observed on earlier kernels:
 # - Commit cb1353ef34735 causes speed drops on some routers

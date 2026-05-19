@@ -16,7 +16,7 @@
   disko.devices = {
     disk.main = {
       type = "disk";
-      # device is set by host-specific module (kraken.nix, G1a.nix)
+      # device is set by host-specific module (kraken.nix, G1a.nix, z2-mini-g1a.nix)
       content = {
         type = "gpt";
         partitions = {
