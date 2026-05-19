@@ -63,7 +63,11 @@
     if [ ! -f "$model" ]; then
       mkdir -p "$(dirname "$model")"
       if ${pkgs.curl}/bin/curl -m 5 -fsSL https://voxtype.io >/dev/null 2>&1; then
-        ${pkgs.voxtype-vulkan}/bin/voxtype setup --download --model base --no-post-install >/dev/null 2>&1 || [ -f "$model" ]
+        if ! ${pkgs.voxtype-vulkan}/bin/voxtype setup --download --model base --no-post-install >/dev/null 2>&1 && [ ! -f "$model" ]; then
+          echo "voxtype model setup skipped: download/setup failed"
+        fi
+      else
+        echo "voxtype model setup skipped: voxtype.io unavailable"
       fi
     fi
   '';
