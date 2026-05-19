@@ -16,7 +16,6 @@ let
     # Layout
     # https://wiki.hyprland.org/Configuring/Dwindle-Layout/
     dwindle {
-      pseudotile = true
       preserve_split = true
       split_width_multiplier = 1.0
     }
