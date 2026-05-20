@@ -11,19 +11,16 @@
 
   networking.hostName = "z2-mini-g1a";
 
-  # Keep amdgpu out of the initrd on this USB-C desktop path. The firmware
-  # framebuffer is more reliable for the LUKS prompt; early amdgpu KMS can lose
-  # the Apple Studio Display after Limine and before unlock.
-  hardware.amdgpu.initrd.enable = false;
+  # Match the G1a Strix Halo boot path: load amdgpu in the initrd for early KMS
+  # and let Plymouth own the LUKS prompt instead of relying on simpledrm.
+  hardware.amdgpu.initrd.enable = true;
 
-  # The Apple Studio Display XDR is attached through USB4/Thunderbolt DP
-  # tunneling. Avoid PSR/Panel Replay during amdgpu handoff and suspend/resume.
+  # Match G1a's AMD display mitigations. Avoid pinning the USB4/Thunderbolt
+  # Studio Display connector during early KMS; G1a can show Plymouth on the same
+  # monitor without forced video= modes.
   boot.kernelParams = lib.mkAfter [
     "amdgpu.dcdebugmask=0x410"
     "amdgpu.sg_display=0"
-    "amdgpu.seamless=0"
-    "video=DP-6:5120x2880@60"
-    "video=DP-8:5120x2880@60"
   ];
 
   # This desktop wakes from suspend via the power button, but once the OS is
@@ -57,9 +54,10 @@
     '';
   };
 
-  # Early boot keyboard support for LUKS passphrase entry. Leave amdgpu for
-  # stage 2 so the initrd does not black-screen on USB-C display handoff.
+  # Match G1a's early boot module order: GPU first for early KMS/Plymouth,
+  # then HID support for LUKS passphrase entry.
   boot.initrd.kernelModules = lib.mkForce [
+    "amdgpu"
     "hid-generic"
     "usbhid"
   ];
