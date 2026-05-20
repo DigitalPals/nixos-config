@@ -98,7 +98,7 @@ in
       hypr-workspaces = "hyprctl workspaces";
 
       # System info
-      fastfetch = "fastfetch -c archey";
+      fastfetch = "command fastfetch";
     };
 
     # Fish functions
@@ -144,6 +144,55 @@ in
   # oh-my-posh theme file
   xdg.configFile."oh-my-posh/EDM115-newline2.omp.json" = {
     source = ./EDM115-newline2.omp.json;
+  };
+
+  xdg.configFile."fastfetch/config.jsonc" = {
+    source = ./fastfetch/config.jsonc;
+  };
+
+  home.file.".local/bin/fastfetch-link-speed" = {
+    executable = true;
+    text = ''
+      #!/usr/bin/env sh
+
+      iface="$(${pkgs.iproute2}/bin/ip route get 1.1.1.1 2>/dev/null | ${pkgs.gnused}/bin/sed -n 's/.* dev \([^ ]*\).*/\1/p' | ${pkgs.coreutils}/bin/head -n1)"
+
+      if [ -z "$iface" ]; then
+        iface="$(${pkgs.iproute2}/bin/ip route show default 2>/dev/null | ${pkgs.gnused}/bin/sed -n 's/.* dev \([^ ]*\).*/\1/p' | ${pkgs.coreutils}/bin/head -n1)"
+      fi
+
+      if [ -z "$iface" ]; then
+        printf '%s\n' "Unavailable"
+        exit 0
+      fi
+
+      speed=""
+      if [ -r "/sys/class/net/$iface/speed" ]; then
+        speed="$(${pkgs.coreutils}/bin/cat "/sys/class/net/$iface/speed" 2>/dev/null)"
+      fi
+
+      case "$speed" in
+        ""|-*|*[!0-9]*)
+          ;;
+        *)
+          ${pkgs.gawk}/bin/awk -v iface="$iface" -v speed="$speed" 'BEGIN {
+            if (speed >= 1000) {
+              printf "%s: %g Gbps\n", iface, speed / 1000
+            } else {
+              printf "%s: %d Mbps\n", iface, speed
+            }
+          }'
+          exit 0
+          ;;
+      esac
+
+      wifi="$(${pkgs.iw}/bin/iw dev "$iface" link 2>/dev/null | ${pkgs.gawk}/bin/awk -v iface="$iface" -F': ' '/tx bitrate:/ { print iface ": " $2; found=1; exit }')"
+      if [ -n "$wifi" ]; then
+        printf '%s\n' "$wifi"
+      else
+        printf '%s: %s\n' "$iface" "unknown"
+      fi
+    '';
   };
 
   # Keep the key binding mode explicit in managed config. This avoids fish
