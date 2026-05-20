@@ -1,5 +1,19 @@
 # Repo Memory
 
+## HP Z2 Mini G1a Bluetooth support
+
+Current host baseline:
+- `z2-mini-g1a` is an HP Z2 Mini G1a Workstation with AMD Strix Halo and MediaTek MT7925 Wi-Fi/Bluetooth.
+- On kernel 7.0.8, MT7925 Wi-Fi is usable with the existing `modules/hardware/mediatek-wifi.nix` workarounds.
+- MT7925 Bluetooth currently fails to initialize with `Bluetooth: hci0: Failed to send wmt func ctrl (-22)`.
+- The user does not use Bluetooth on this machine.
+
+Policy:
+- Do not carry a custom kernel, kernel patch, or kernel pin solely to fix MT7925 Bluetooth on `z2-mini-g1a`.
+- Leave Bluetooth enabled so it can begin working automatically once upstream support lands in the normal NixOS kernel path.
+- A simple non-kernel config fix is acceptable to consider, but avoid invasive workarounds unless the user says they now need Bluetooth.
+- When revisiting, check whether `bluetoothctl show` reports a controller and whether the `wmt func ctrl (-22)` kernel log error is gone.
+
 ## Dell XPS 14 update checks
 
 When the user asks whether Omarchy has any new Dell XPS 14 support worth copying, check Omarchy first before answering.
