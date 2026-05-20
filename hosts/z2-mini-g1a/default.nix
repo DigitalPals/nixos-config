@@ -11,13 +11,38 @@
 
   networking.hostName = "z2-mini-g1a";
 
-  # Match the G1a Strix Halo boot path: load amdgpu in the initrd for early KMS
-  # and let Plymouth own the LUKS prompt instead of relying on simpledrm.
-  hardware.amdgpu.initrd.enable = true;
+  # === Boot display path: simpledrm owns the initrd/LUKS phase ===
+  #
+  # Do NOT "align" this host with the G1a laptop. G1a has an internal eDP panel
+  # wired straight to the APU. The Z2 Mini has NO internal panel -- its only
+  # display is an Apple Studio Display on a USB4/Thunderbolt DisplayPort tunnel
+  # that the UEFI firmware sets up and lights before Linux boots.
+  #
+  # The reliable initrd display is simpledrm: it just scans out the framebuffer
+  # the firmware already lit on the Studio Display, and Plymouth draws the LUKS
+  # prompt on it. For that prompt to STAY visible, two drivers must be kept out
+  # of the initrd -- each one disturbs the firmware framebuffer or its DP tunnel:
+  #
+  #   * amdgpu      -- loading it evicts simpledrm from fb0 and starts a full
+  #                    modeset, but the Thunderbolt DP tunnel is not ready that
+  #                    early ("Cannot find any crtc or sizes"); the screen blanks.
+  #   * thunderbolt -- its host_reset (module param, default true) resets the
+  #                    USB4 host router on probe, tearing down the firmware DP
+  #                    tunnel. The Studio Display drops off the bus mid-boot
+  #                    ("thunderbolt 0-2: device disconnected") and does not
+  #                    return without a physical re-plug.
+  #
+  # amdgpu is kept out via hardware.amdgpu.initrd.enable below; thunderbolt is
+  # kept out of boot.initrd.availableKernelModules in hardware-configuration.nix.
+  # Both load normally in stage 2 after unlock, where amdgpu re-lights the
+  # display. The initrd needs neither: the root disk is internal NVMe and the
+  # keyboard is on a native AMD xHCI -- nothing on the boot path is behind
+  # Thunderbolt.
+  hardware.amdgpu.initrd.enable = false;
 
-  # Match G1a's AMD display mitigations. Avoid pinning the USB4/Thunderbolt
-  # Studio Display connector during early KMS; G1a can show Plymouth on the same
-  # monitor without forced video= modes.
+  # AMD display mitigations for the Strix Halo APU driving the Studio Display
+  # over the USB4/Thunderbolt DP tunnel. dcdebugmask=0x410 disables PSR/Panel
+  # Replay; sg_display=0 disables scatter/gather display for the external panel.
   boot.kernelParams = lib.mkAfter [
     "amdgpu.dcdebugmask=0x410"
     "amdgpu.sg_display=0"
@@ -54,10 +79,10 @@
     '';
   };
 
-  # Match G1a's early boot module order: GPU first for early KMS/Plymouth,
-  # then HID support for LUKS passphrase entry.
+  # The initrd only needs keyboard support for the LUKS passphrase. amdgpu is
+  # deliberately absent here -- see the hardware.amdgpu.initrd.enable note
+  # above. mkForce overrides the GPU-first default from limine-plymouth.nix.
   boot.initrd.kernelModules = lib.mkForce [
-    "amdgpu"
     "hid-generic"
     "usbhid"
   ];

@@ -10,6 +10,7 @@ Configuration details and solutions to issues in this NixOS setup.
 ├── hosts/
 │   ├── kraken/                     # Desktop: AMD Ryzen 9 9950X3D, NVIDIA RTX 5090, 96GB RAM
 │   ├── G1a/                        # HP ZBook Ultra G1a: AMD Ryzen AI MAX+ PRO 395, Radeon 8060S, 64GB RAM
+│   ├── z2-mini-g1a/                # HP Z2 Mini G1a: AMD Ryzen AI MAX+ PRO 395 (Strix Halo), Apple Studio Display
 │   ├── proart/                     # ASUS ProArt P16 OLED: AMD Ryzen AI 9 HX 370, Radeon 890M + RTX 5090, 64GB RAM
 │   └── xps/                        # Dell XPS 14 DA14260: Intel Core Ultra X7 358H, Intel Arc (Xe3), 32GB RAM
 ├── modules/
@@ -188,6 +189,7 @@ windowrule = match:class 1[pP]assword, no_screen_share on
 **Host notes:**
 - **kraken (NVIDIA):** Requires udev-settle workaround
 - **G1a (AMD):** Uses `hardware.amdgpu.initrd.enable`, no timing issues
+- **z2-mini-g1a (AMD):** Opposite of G1a — `amdgpu` is kept OUT of the initrd; see "Z2 Mini G1a Boot Display" below
 
 ## Plymouth Resolution on Limine
 
@@ -196,6 +198,95 @@ windowrule = match:class 1[pP]assword, no_screen_share on
 **Root cause:** NixOS Limine module doesn't expose per-entry `resolution:` option. The `interface.resolution` only affects the menu, not the Linux framebuffer.
 
 **Status:** Accepted limitation. Consider filing nixpkgs feature request for `boot.loader.limine.resolution`.
+
+## Z2 Mini G1a Boot Display (Thunderbolt-only Display)
+
+**Host:** HP Z2 Mini G1a (AMD Strix Halo desktop)
+
+**Problem:** The graphical Plymouth LUKS unlock screen flashes up briefly, then
+the Studio Display goes black and only returns after physically unplugging and
+replugging the monitor.
+
+**Hardware context:** The Z2 Mini is a desktop with NO internal panel. Its only
+display is an Apple Studio Display attached over a **USB4/Thunderbolt
+DisplayPort tunnel** that the UEFI firmware sets up before Linux boots. This is
+fundamentally different from the G1a laptop, which has an internal eDP panel
+wired directly to the APU.
+
+**The reliable initrd display is `simpledrm`** — it just scans out the
+framebuffer the firmware already lit on the Studio Display, and Plymouth draws
+the LUKS prompt on it. For that prompt to *stay* visible, two kernel drivers
+must be kept out of the initrd, because each disturbs the firmware framebuffer
+or its DP tunnel before unlock:
+
+**Cause 1 — `amdgpu` in the initrd.** Loading amdgpu evicts `simpledrm` from
+`fb0` and starts a full modeset, but the Thunderbolt DP tunnel is not ready that
+early (`amdgpu ... [drm] Cannot find any crtc or sizes`). The screen blanks.
+
+**Cause 2 — `thunderbolt` in the initrd.** The thunderbolt driver's `host_reset`
+(module param, default `true`) resets the USB4 host router on probe to clear the
+firmware's tunnels. That tears down the DP tunnel feeding `simpledrm`, so the
+Studio Display drops off the bus mid-boot — right at the LUKS prompt:
+
+```
+thunderbolt 0-2: device disconnected       <- ~19s into boot, at the LUKS prompt
+thunderbolt 0-2: Apple Studio Display XDR   <- re-enumerates ~5s later
+```
+
+With nothing in the initrd to re-light the display, it stays black until a
+physical re-plug.
+
+**Solution:** Keep BOTH drivers out of the initrd; they load normally in stage 2
+after unlock, where amdgpu re-lights the display.
+
+```nix
+# hosts/z2-mini-g1a/default.nix
+hardware.amdgpu.initrd.enable = false;
+boot.initrd.kernelModules = lib.mkForce [ "hid-generic" "usbhid" ];  # no amdgpu
+
+# hosts/z2-mini-g1a/hardware-configuration.nix
+# "thunderbolt" removed from boot.initrd.availableKernelModules:
+boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "uas" "sd_mod" "btrfs" ];
+```
+
+The initrd needs neither driver: the root disk is internal NVMe (not behind
+Thunderbolt) and the keyboard is on a native AMD xHCI (`xhci_pci`), not a
+Thunderbolt-tunneled controller.
+
+**Do NOT "align" this host with G1a.** G1a's GPU-first initrd works because it
+has an internal eDP panel amdgpu can light immediately. The Z2 Mini's display
+topology (Thunderbolt DP tunnel) is not comparable.
+
+**Expected behavior:** The Plymouth LUKS prompt is stable on `simpledrm`. After
+entering the passphrase there is a brief (~3s) black screen while stage 2 loads
+`thunderbolt` + `amdgpu` and re-negotiates the Thunderbolt DP tunnel, then the
+desktop appears. That post-unlock flash is intrinsic to the Thunderbolt display
+path and is not a failure.
+
+**The bootloader is not involved.** Limine (or systemd-boot/GRUB) only hands off
+to the kernel; the amdgpu/Thunderbolt timing is identical regardless of
+bootloader. Switching bootloaders does not help.
+
+**What doesn't work:**
+- `amdgpu` in the initrd / `hardware.amdgpu.initrd.enable = true` — evicts
+  simpledrm and loses the race with the Thunderbolt DP tunnel
+- `thunderbolt` in the initrd — `host_reset` blanks the display mid-boot
+- `plymouth.use-simpledrm=0` — forces Plymouth to wait for amdgpu KMS, the slow
+  path here; makes it worse
+- Forced `video=DP-6:...` modes — the connector is not up early enough to pin
+- Disabling Plymouth entirely — works, but loses the graphical splash
+
+**Debugging commands:**
+```bash
+# Boot display + Thunderbolt sequence (watch for "device disconnected")
+sudo dmesg | grep -iE "amdgpu|thunderbolt|simpledrm|crtc|DP resource|HPD"
+
+# Confirm the keyboard xHCI is native (no "thunderbolt" in the path)
+readlink -f /sys/bus/usb/devices/usb5
+
+# Which connector the Studio Display is on (DP-6 at time of writing)
+for s in /sys/class/drm/card*/status; do echo "$s: $(cat $s)"; done
+```
 
 ## Home Manager Backup File Conflicts
 

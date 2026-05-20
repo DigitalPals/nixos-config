@@ -7,7 +7,14 @@
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
 
-  boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "thunderbolt" "usbhid" "uas" "sd_mod" "btrfs" ];
+  # "thunderbolt" is intentionally NOT in this list. The thunderbolt driver's
+  # host_reset resets the USB4 host router on probe, tearing down the firmware
+  # DisplayPort tunnel and blanking the Studio Display mid-boot (right on the
+  # Plymouth LUKS prompt). The initrd does not need it: the root disk is
+  # internal NVMe and the keyboard is on a native AMD xHCI (xhci_pci), neither
+  # behind Thunderbolt. It loads normally in stage 2. Do not let a hardware
+  # re-scan add it back. See hosts/z2-mini-g1a/default.nix.
+  boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "uas" "sd_mod" "btrfs" ];
   boot.initrd.kernelModules = [ ];
   boot.kernelModules = [ "kvm-amd" ];
   boot.extraModulePackages = [ ];
