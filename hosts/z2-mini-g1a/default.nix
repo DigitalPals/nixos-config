@@ -11,8 +11,10 @@
 
   networking.hostName = "z2-mini-g1a";
 
-  # AMD Strix Halo integrated GPU.
-  hardware.amdgpu.initrd.enable = true;
+  # Keep amdgpu out of the initrd on this USB-C desktop path. The firmware
+  # framebuffer is more reliable for the LUKS prompt; early amdgpu KMS can lose
+  # the Apple Studio Display after Limine and before unlock.
+  hardware.amdgpu.initrd.enable = false;
 
   # This desktop wakes from suspend via the power button, but once the OS is
   # awake logind's default short-press action is poweroff. Ignore short presses
@@ -45,11 +47,9 @@
     '';
   };
 
-  # Early boot kernel modules:
-  # - amdgpu: early KMS for Plymouth and console
-  # - HID modules: keyboard support for LUKS passphrase entry
+  # Early boot keyboard support for LUKS passphrase entry. Leave amdgpu for
+  # stage 2 so the initrd does not black-screen on USB-C display handoff.
   boot.initrd.kernelModules = lib.mkForce [
-    "amdgpu"
     "hid-generic"
     "usbhid"
   ];
