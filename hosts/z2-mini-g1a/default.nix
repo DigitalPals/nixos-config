@@ -16,6 +16,21 @@
   # the Apple Studio Display after Limine and before unlock.
   hardware.amdgpu.initrd.enable = false;
 
+  # Plymouth gets a password request in the initrd, then blacks out on this
+  # USB-C/Studio Display path. Use the plain systemd console prompt for LUKS.
+  boot.plymouth.enable = lib.mkForce false;
+  boot.initrd.verbose = lib.mkForce true;
+  boot.consoleLogLevel = lib.mkForce 4;
+  boot.kernelParams = lib.mkForce [
+    "amdgpu.gpu_recovery=1"
+    "rd.systemd.show_status=auto"
+    "systemd.show_status=auto"
+    "udev.log_priority=3"
+    "cpufreq.default_governor=schedutil"
+    "root=fstab"
+    "lsm=landlock,yama,bpf"
+  ];
+
   # This desktop wakes from suspend via the power button, but once the OS is
   # awake logind's default short-press action is poweroff. Ignore short presses
   # so a display-resume delay does not accidentally shut the machine down.
