@@ -3,11 +3,18 @@
 { config, pkgs, lib, hostname, ... }:
 
 let
-  # Enable auto-suspend for known hosts
-  shouldAutoSuspend = lib.hasPrefix "G1a" hostname || lib.hasPrefix "kraken" hostname || lib.hasPrefix "proart" hostname;
+  # Enable auto-suspend for known hosts.
+  shouldAutoSuspend = builtins.elem hostname [
+    "G1a"
+    "kraken"
+    "proart"
+    "z2-mini-g1a"
+  ];
 
   # Lock command using Noctalia
   lockCmd = "noctalia-shell ipc call lockScreen lock";
+  dpmsOnCmd = "hyprctl eval 'hl.dsp.dpms(\"on\")'";
+  dpmsOffCmd = "hyprctl eval 'hl.dsp.dpms(\"off\")'";
 
   # Auto-suspend listener
   suspendListener = if shouldAutoSuspend then ''
@@ -27,7 +34,7 @@ in
     general {
       lock_cmd = ${lockCmd}
       before_sleep_cmd = ${lockCmd}
-      after_sleep_cmd = hyprctl dispatch dpms on
+      after_sleep_cmd = ${dpmsOnCmd}
     }
 
     listener {
@@ -37,8 +44,8 @@ in
 
     listener {
       timeout = 600                    # 10 minutes
-      on-timeout = hyprctl dispatch dpms off
-      on-resume = hyprctl dispatch dpms on
+      on-timeout = ${dpmsOffCmd}
+      on-resume = ${dpmsOnCmd}
     }
     ${suspendListener}
   '';
