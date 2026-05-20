@@ -71,6 +71,8 @@ nix run github:DigitalPals/nixos-config
 | `forge apps backup` | Backup + push app profiles |
 | `forge apps restore` | Pull + restore app profiles |
 | `forge apps status` | Check for profile updates |
+| `forge apps setup-keys` | Import missing local keys from 1Password |
+| `forge keys setup` | Import missing local keys from 1Password |
 
 Note: `forge browser` is still supported as an alias for `forge apps`.
 

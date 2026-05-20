@@ -72,10 +72,55 @@ let
   # We back up the entire ~/.config/portal directory
   portalConfigDir = ".config/portal";
 
+  gitAuthHelpers = ''
+      # Configure Git SSH authentication for private backup repo access.
+      # Prefer an explicit local key, then the configured 1Password item.
+      setup_git_ssh_auth() {
+        local repo="$1"
+
+        case "$repo" in
+          git@*|ssh://*) ;;
+          *) return 0 ;;
+        esac
+
+        if [[ -n "''${GIT_SSH_COMMAND:-}" ]]; then
+          return 0
+        fi
+
+        if [[ -n "''${SSH_KEY_PATH:-}" ]]; then
+          local key_path="''${SSH_KEY_PATH/#\~/$HOME}"
+          if [[ -f "$key_path" ]]; then
+            export GIT_SSH_COMMAND="ssh -i $key_path -o IdentitiesOnly=yes"
+            return 0
+          fi
+        fi
+
+        if [[ -n "''${SSH_KEY_1PASSWORD:-}" ]]; then
+          if [[ -z "''${TEMP_DIR:-}" ]]; then
+            log_error "Internal error: TEMP_DIR must be initialized before Git SSH setup"
+          fi
+          if ! command -v op &>/dev/null; then
+            log_error "1Password CLI (op) not found; cannot read Git SSH key"
+          fi
+
+          local key_file="$TEMP_DIR/git-ssh-key"
+          log_info "Retrieving Git SSH key from 1Password..."
+          if ! op read "$SSH_KEY_1PASSWORD" > "$key_file"; then
+            log_error "Failed to retrieve Git SSH key from 1Password. Open and unlock 1Password, then try again."
+          fi
+          chmod 600 "$key_file"
+          export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o IdentityAgent=none"
+          return 0
+        fi
+
+        log_info "No app-backup SSH key configured; using default SSH configuration"
+      }
+  '';
+
   # The app-backup script
   app-backup = pkgs.writeShellApplication {
     name = "app-backup";
-    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs findutils libsecret ];
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs findutils libsecret openssh ];
     text = ''
       set -euo pipefail
 
@@ -90,6 +135,8 @@ let
       log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $1"; }
       log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
       log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
+
+${gitAuthHelpers}
 
       # Load configuration (check new path first, then legacy)
       CONFIG_FILE="$HOME/.config/app-backup/config"
@@ -422,6 +469,7 @@ let
         # Clone or update repo
         LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
         mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
+        setup_git_ssh_auth "$APP_BACKUP_REPO"
         if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
           log_info "Cloning repository..."
           git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
@@ -468,7 +516,7 @@ let
   # at /run/wrappers/bin/op which has permissions to communicate with the desktop app
   app-restore = pkgs.writeShellApplication {
     name = "app-restore";
-    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs libsecret ];
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs libsecret openssh ];
     text = ''
       set -euo pipefail
 
@@ -483,6 +531,8 @@ let
       log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $1"; }
       log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
       log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
+
+${gitAuthHelpers}
 
       # Load configuration (check new path first, then legacy)
       CONFIG_FILE="$HOME/.config/app-backup/config"
@@ -857,11 +907,18 @@ let
 
       check_apps
 
+      # Create secure temp directory before any Git access so a temporary
+      # 1Password SSH key can be used for clone/pull when needed.
+      TEMP_DIR=$(mktemp -d)
+      chmod 700 "$TEMP_DIR"
+      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+
       # Pull from GitHub if requested
       LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
       if [[ "$PULL" == "true" ]]; then
         log_info "Pulling from GitHub..."
         mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
+        setup_git_ssh_auth "$APP_BACKUP_REPO"
         if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
           log_info "Cloning repository..."
           git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
@@ -877,11 +934,6 @@ let
       if [[ ! -d "$LOCAL_REPO_PATH" ]]; then
         log_error "Local repo not found: $LOCAL_REPO_PATH. Use --pull to clone."
       fi
-
-      # Create secure temp directory
-      TEMP_DIR=$(mktemp -d)
-      chmod 700 "$TEMP_DIR"
-      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
 
       # Restore keys FIRST (so age key is available for app restores)
       restore_keys() {
@@ -999,6 +1051,8 @@ let
       log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
       log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
 
+${gitAuthHelpers}
+
       # Load configuration
       CONFIG_FILE="$HOME/.config/app-backup/config"
       if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -1006,6 +1060,23 @@ let
       fi
       # shellcheck source=/dev/null
       source "$CONFIG_FILE"
+
+      # Parse arguments
+      FORCE=false
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --force|-f) FORCE=true; shift ;;
+          --help|-h)
+            echo "Usage: keys-setup [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --force, -f    Overwrite existing local key files"
+            echo "  --help, -h     Show this help"
+            exit 0
+            ;;
+          *) log_error "Unknown option: $1" ;;
+        esac
+      done
 
       log_info "Key Setup - Retrieving keys from 1Password"
       echo ""
@@ -1026,19 +1097,9 @@ let
       if [[ -n "''${AGE_KEY_1PASSWORD:-}" && -n "''${AGE_KEY_PATH:-}" ]]; then
         AGE_KEY_PATH_EXPANDED="''${AGE_KEY_PATH/#\~/$HOME}"
 
-        if [[ -f "$AGE_KEY_PATH_EXPANDED" ]]; then
+        if [[ -f "$AGE_KEY_PATH_EXPANDED" && "$FORCE" != "true" ]]; then
           log_info "Age key already exists at: $AGE_KEY_PATH_EXPANDED"
-          read -rp "Overwrite? [y/N] " REPLY
-          if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping Age key"
-          else
-            log_info "Retrieving Age key from 1Password..."
-            mkdir -p "$(dirname "$AGE_KEY_PATH_EXPANDED")"
-            op read "$AGE_KEY_1PASSWORD" > "$AGE_KEY_PATH_EXPANDED"
-            chmod 600 "$AGE_KEY_PATH_EXPANDED"
-            log_success "Age key saved to: $AGE_KEY_PATH_EXPANDED"
-            ((KEYS_CREATED++)) || true
-          fi
+          log_info "Skipping Age key (use --force to overwrite)"
         else
           log_info "Retrieving Age key from 1Password..."
           mkdir -p "$(dirname "$AGE_KEY_PATH_EXPANDED")"
@@ -1055,22 +1116,13 @@ let
       if [[ -n "''${SSH_KEY_1PASSWORD:-}" && -n "''${SSH_KEY_PATH:-}" ]]; then
         SSH_KEY_PATH_EXPANDED="''${SSH_KEY_PATH/#\~/$HOME}"
 
-        if [[ -f "$SSH_KEY_PATH_EXPANDED" ]]; then
+        if [[ -f "$SSH_KEY_PATH_EXPANDED" && "$FORCE" != "true" ]]; then
           log_info "SSH key already exists at: $SSH_KEY_PATH_EXPANDED"
-          read -rp "Overwrite? [y/N] " REPLY
-          if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping SSH key"
-          else
-            log_info "Retrieving SSH key from 1Password..."
-            mkdir -p "$(dirname "$SSH_KEY_PATH_EXPANDED")"
-            op read "$SSH_KEY_1PASSWORD" > "$SSH_KEY_PATH_EXPANDED"
-            chmod 600 "$SSH_KEY_PATH_EXPANDED"
-            # Generate public key from private key
+          log_info "Skipping SSH key (use --force to overwrite)"
+          if [[ ! -f "''${SSH_KEY_PATH_EXPANDED}.pub" ]]; then
             ssh-keygen -y -f "$SSH_KEY_PATH_EXPANDED" > "''${SSH_KEY_PATH_EXPANDED}.pub"
             chmod 644 "''${SSH_KEY_PATH_EXPANDED}.pub"
-            log_success "SSH key saved to: $SSH_KEY_PATH_EXPANDED"
-            log_success "Public key saved to: ''${SSH_KEY_PATH_EXPANDED}.pub"
-            ((KEYS_CREATED++)) || true
+            log_success "Generated missing SSH public key: ''${SSH_KEY_PATH_EXPANDED}.pub"
           fi
         else
           log_info "Retrieving SSH key from 1Password..."
@@ -1101,7 +1153,7 @@ let
   # Keys backup script - backs up keys to passphrase-encrypted archive
   keys-backup = pkgs.writeShellApplication {
     name = "keys-backup";
-    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs ];
+    runtimeInputs = with pkgs; [ coreutils gnutar gzip age git git-lfs openssh ];
     text = ''
       set -euo pipefail
 
@@ -1226,6 +1278,7 @@ let
         LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
         : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
         mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
+        setup_git_ssh_auth "$APP_BACKUP_REPO"
 
         if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
           log_info "Cloning repository..."
@@ -1280,6 +1333,8 @@ let
       log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $1"; }
       log_error() { echo -e "''${RED}[ERROR]''${NC} $1"; exit 1; }
 
+${gitAuthHelpers}
+
       # Load configuration
       CONFIG_FILE="$HOME/.config/app-backup/config"
       if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -1311,6 +1366,12 @@ let
       log_info "Keys Restore"
       echo ""
 
+      # Create secure temp directory before any Git access so a temporary
+      # 1Password SSH key can be used for clone/pull when needed.
+      TEMP_DIR=$(mktemp -d)
+      chmod 700 "$TEMP_DIR"
+      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+
       # Pull from GitHub if requested
       LOCAL_REPO_PATH="''${LOCAL_REPO_PATH/#\~/$HOME}"
       : "''${LOCAL_REPO_PATH:=$HOME/.local/share/app-backup}"
@@ -1318,6 +1379,7 @@ let
       if [[ "$PULL" == "true" ]]; then
         log_info "Pulling from GitHub..."
         mkdir -p "$(dirname "$LOCAL_REPO_PATH")"
+        setup_git_ssh_auth "$APP_BACKUP_REPO"
         if [[ ! -d "$LOCAL_REPO_PATH/.git" ]]; then
           log_info "Cloning repository..."
           git clone "$APP_BACKUP_REPO" "$LOCAL_REPO_PATH"
@@ -1343,11 +1405,6 @@ let
         read -rsp "Enter passphrase for keys backup: " PASSPHRASE
         echo ""
       fi
-
-      # Create secure temp directory
-      TEMP_DIR=$(mktemp -d)
-      chmod 700 "$TEMP_DIR"
-      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
 
       # Decrypt
       log_info "Decrypting keys archive..."

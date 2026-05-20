@@ -22,6 +22,7 @@ pub const APP_MENU_ITEMS: &[&str] = &[
     "Backup & push to GitHub",
     "Pull & restore from GitHub",
     "Check for updates",
+    "Setup local keys from 1Password",
     "Back to main menu",
 ];
 
@@ -778,11 +779,11 @@ pub enum KeysState {
 }
 
 impl KeysState {
-    pub fn new_setup() -> Self {
+    pub fn new_setup(force: bool) -> Self {
         KeysState::Running {
             operation: KeysOp::Setup,
             output: VecDeque::new(),
-            force: false,
+            force,
         }
     }
 

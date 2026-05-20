@@ -121,12 +121,22 @@ enum AppsAction {
     },
     /// Check for app profile updates
     Status,
+    /// Setup local SSH/Age keys from 1Password
+    SetupKeys {
+        /// Force overwrite of existing local keys
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
 enum KeysAction {
     /// Setup keys from 1Password (one-time initial setup)
-    Setup,
+    Setup {
+        /// Force overwrite of existing local keys
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Backup keys to passphrase-encrypted archive
     Backup,
     /// Restore keys from passphrase-encrypted archive
@@ -207,10 +217,15 @@ async fn main() -> Result<()> {
             Some(AppsAction::Status) => {
                 run_tui(AppMode::Apps(app::AppProfileState::new_status())).await
             }
+            Some(AppsAction::SetupKeys { force }) => {
+                run_tui(AppMode::Keys(app::KeysState::new_setup(force))).await
+            }
             None => run_tui(AppMode::Apps(app::AppProfileState::new_menu())).await,
         },
         Some(Commands::Keys { action }) => match action {
-            KeysAction::Setup => run_tui(AppMode::Keys(app::KeysState::new_setup())).await,
+            KeysAction::Setup { force } => {
+                run_tui(AppMode::Keys(app::KeysState::new_setup(force))).await
+            }
             KeysAction::Backup => run_tui(AppMode::Keys(app::KeysState::new_backup())).await,
             KeysAction::Restore { force } => {
                 run_tui(AppMode::Keys(app::KeysState::new_restore(force))).await

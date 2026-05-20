@@ -7,14 +7,15 @@ use super::runner::{spawn_with_error_handling, CommandRunner};
 use super::CommandMessage;
 
 /// Start key setup from 1Password
-pub async fn start_setup(tx: mpsc::Sender<CommandMessage>) -> Result<()> {
-    spawn_with_error_handling(tx, "Key setup", "Setup", |tx| async move {
+pub async fn start_setup(tx: mpsc::Sender<CommandMessage>, force: bool) -> Result<()> {
+    spawn_with_error_handling(tx, "Key setup", "Setup", move |tx| async move {
         let runner = CommandRunner::new(&tx);
+        let args: Vec<&str> = if force { vec!["--force"] } else { vec![] };
         runner
             .run_simple_operation(
                 "Key Setup (from 1Password)",
                 "keys-setup",
-                &[],
+                &args,
                 "Keys set up successfully",
                 "Setup failed",
             )

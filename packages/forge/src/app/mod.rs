@@ -242,7 +242,7 @@ impl App {
                 if let Some(tx) = &self.cmd_tx {
                     match operation {
                         KeysOp::Setup => {
-                            commands::keys::start_setup(tx.clone()).await?;
+                            commands::keys::start_setup(tx.clone(), *force).await?;
                         }
                         KeysOp::Backup => {
                             commands::keys::start_backup(tx.clone()).await?;

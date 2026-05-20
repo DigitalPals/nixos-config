@@ -1202,6 +1202,11 @@ impl App {
                     self.start_initial_command().await?;
                 }
                 3 => {
+                    // Setup local keys
+                    self.mode = AppMode::Keys(KeysState::new_setup(false));
+                    self.start_initial_command().await?;
+                }
+                4 => {
                     // Back
                     self.mode = AppMode::MainMenu { selected: 2 };
                 }
