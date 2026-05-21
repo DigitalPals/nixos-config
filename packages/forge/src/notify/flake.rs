@@ -82,7 +82,7 @@ fn extract_priority_inputs(lock: &FlakeLock) -> Vec<(String, InputConfig)> {
 
     for priority_name in PRIORITY_INPUTS {
         if let Some(node) = lock.nodes.get(*priority_name) {
-            if let Some(config) = extract_input_config(*priority_name, node) {
+            if let Some(config) = extract_input_config(priority_name, node) {
                 inputs.push((priority_name.to_string(), config));
             }
         }

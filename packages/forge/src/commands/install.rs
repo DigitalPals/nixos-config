@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 
 use super::errors::{ErrorContext, ParsedError};
 use super::executor::{
-    run_capture, run_capture_with_timeout, run_command_sensitive, run_command_with_timeout,
+    run_capture, run_capture_with_timeout, run_command_sensitive_with_input,
+    run_command_with_timeout,
 };
 use super::runner::CommandRunner;
 use super::CommandMessage;
@@ -1972,14 +1973,16 @@ async fn step_set_user_password(
 ) -> Result<bool> {
     runner.out("Setting up user account...").await;
 
-    // Use sudo because nix run doesn't preserve root privileges
-    // nixos-enter needs root to create mount namespaces
-    let escaped_password = password.replace('\'', "'\"'\"'");
-    let chpasswd_script = format!(
-        "echo '{}:{}' | sudo nixos-enter --root /mnt -c 'chpasswd'",
-        username, escaped_password
-    );
-    let success = run_command_sensitive(runner.tx(), "sh", &["-c", &chpasswd_script]).await?;
+    // Use stdin so the password never appears in shell source or process args.
+    // sudo is required because nix run does not preserve root privileges.
+    let chpasswd_input = format!("{}:{}\n", username, password);
+    let success = run_command_sensitive_with_input(
+        runner.tx(),
+        "sudo",
+        &["nixos-enter", "--root", "/mnt", "-c", "chpasswd"],
+        &chpasswd_input,
+    )
+    .await?;
 
     if !success {
         runner

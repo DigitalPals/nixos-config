@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -245,21 +245,32 @@ where
     Ok(success)
 }
 
-/// Execute a command without logging arguments (for sensitive data like passwords)
-pub async fn run_command_sensitive(
+/// Execute a command with sensitive stdin and without logging arguments or input.
+pub async fn run_command_sensitive_with_input(
     tx: &mpsc::Sender<CommandMessage>,
     cmd: &str,
     args: &[&str],
+    input: &str,
 ) -> Result<bool> {
-    // Only log command name, not arguments (which may contain passwords)
-    tracing::info!("Running command: {} [args hidden]", cmd);
+    tracing::info!("Running command: {} [args and stdin hidden]", cmd);
 
     let mut child = Command::new(cmd)
         .args(args)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("Failed to spawn command: {}", cmd))?;
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to open stdin for command: {}", cmd))?;
+    stdin
+        .write_all(input.as_bytes())
+        .await
+        .with_context(|| format!("Failed to write stdin for command: {}", cmd))?;
+    drop(stdin);
 
     let stdout = child
         .stdout
@@ -684,4 +695,30 @@ where
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sensitive_command_with_input_writes_stdin() {
+        let (tx, mut rx) = mpsc::channel(4);
+
+        let success = run_command_sensitive_with_input(&tx, "sh", &["-c", "cat"], "hello\n")
+            .await
+            .expect("command should run");
+
+        drop(tx);
+
+        let mut stdout = Vec::new();
+        while let Some(message) = rx.recv().await {
+            if let CommandMessage::Stdout(line) = message {
+                stdout.push(line);
+            }
+        }
+
+        assert!(success);
+        assert_eq!(stdout, vec!["hello"]);
+    }
 }
