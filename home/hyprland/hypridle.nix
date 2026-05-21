@@ -8,6 +8,7 @@ let
     "G1a"
     "kraken"
     "proart"
+    "z2-mini-g1a"
   ];
 
   # Lock command using Noctalia
