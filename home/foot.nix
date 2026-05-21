@@ -39,7 +39,7 @@
     [key-bindings]
     clipboard-copy=Control+Insert Control+Shift+c XF86Copy
     primary-paste=none
-    clipboard-paste=Shift+Insert Control+Shift+v XF86Paste
+    clipboard-paste=Control+Shift+v
 
     [colors-dark]
     foreground=cdd6f4
