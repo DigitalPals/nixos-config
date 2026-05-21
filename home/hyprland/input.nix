@@ -39,9 +39,4 @@
     },
   })
 
-  -- Keep Ghostty at normal compositor scroll speed; Ghostty itself adds extra acceleration.
-  hl.window_rule({
-    match = { class = [[com\.mitchellh\.ghostty]] },
-    scroll_mouse = 1.0,
-  })
 ''

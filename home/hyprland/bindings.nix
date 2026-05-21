@@ -4,7 +4,7 @@
 
 ''
   local mainMod = "SUPER"
-  local terminal = "ghostty"
+  local terminal = "foot"
   local browser = "google-chrome-stable"
 
   -- Applications.

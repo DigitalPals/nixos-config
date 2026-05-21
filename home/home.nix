@@ -18,7 +18,7 @@ in
   imports = [
     ./hyprland        # Modular Hyprland config (includes hypridle)
     ./voxtype.nix     # Push-to-talk dictation daemon + config
-    ./ghostty.nix
+    ./foot.nix
     ./neovim.nix      # Neovim with LazyVim dependencies
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers)
@@ -253,42 +253,42 @@ in
       executable = true;
       text = ''
         #!/usr/bin/env bash
-        exec ${pkgs.ghostty}/bin/ghostty -e ${pkgs.btop}/bin/btop
+        exec ${pkgs.foot}/bin/foot -e ${pkgs.btop}/bin/btop
       '';
     };
     ".local/bin/tui-dust" = {
       executable = true;
       text = ''
         #!/usr/bin/env bash
-        exec ${pkgs.ghostty}/bin/ghostty -e ${pkgs.bash}/bin/bash -lc 'cd "$HOME"; ${pkgs.dust}/bin/dust -r; printf "\nPress any key to close..."; read -r -n 1 -s'
+        exec ${pkgs.foot}/bin/foot -e ${pkgs.bash}/bin/bash -lc 'cd "$HOME"; ${pkgs.dust}/bin/dust -r; printf "\nPress any key to close..."; read -r -n 1 -s'
       '';
     };
     ".local/bin/tui-ghui" = {
       executable = true;
       text = ''
         #!/usr/bin/env bash
-        exec ${pkgs.ghostty}/bin/ghostty -e ${config.home.homeDirectory}/.local/bin/ghui
+        exec ${pkgs.foot}/bin/foot -e ${config.home.homeDirectory}/.local/bin/ghui
       '';
     };
     ".local/bin/tui-lazydocker" = {
       executable = true;
       text = ''
         #!/usr/bin/env bash
-        exec ${pkgs.ghostty}/bin/ghostty -e ${pkgs.lazydocker}/bin/lazydocker
+        exec ${pkgs.foot}/bin/foot -e ${pkgs.lazydocker}/bin/lazydocker
       '';
     };
     ".local/bin/localsend-share-file" = {
       executable = true;
       text = ''
         #!/usr/bin/env bash
-        exec ${pkgs.ghostty}/bin/ghostty -e ${config.home.homeDirectory}/.local/bin/localsend-share file
+        exec ${pkgs.foot}/bin/foot -e ${config.home.homeDirectory}/.local/bin/localsend-share file
       '';
     };
     ".local/bin/localsend-share-folder" = {
       executable = true;
       text = ''
         #!/usr/bin/env bash
-        exec ${pkgs.ghostty}/bin/ghostty -e ${config.home.homeDirectory}/.local/bin/localsend-share folder
+        exec ${pkgs.foot}/bin/foot -e ${config.home.homeDirectory}/.local/bin/localsend-share folder
       '';
     };
 
@@ -328,10 +328,10 @@ in
   };
 
 
-  # Neovim wrapper that launches in Ghostty terminal
-  xdg.desktopEntries.nvim-ghostty = {
+  # Neovim wrapper that launches in Foot terminal
+  xdg.desktopEntries.nvim-foot = {
     name = "Neovim";
-    exec = "ghostty -e nvim %F";
+    exec = "foot -e nvim %F";
     icon = "nvim";
     comment = "Edit text files in Neovim";
     categories = [ "Utility" "TextEditor" ];
@@ -353,7 +353,7 @@ in
 
   xdg.desktopEntries."dev-fedora" = {
     name = "Dev Fedora";
-    exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-fedora-shell";
+    exec = "foot -e ${config.home.homeDirectory}/.local/bin/dev-fedora-shell";
     icon = devIcon "fedora";
     comment = "Open the Fedora Distrobox development shell";
     categories = [ "Development" "System" ];
@@ -361,7 +361,7 @@ in
 
   xdg.desktopEntries."dev-arch" = {
     name = "Dev Arch";
-    exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-arch-shell";
+    exec = "foot -e ${config.home.homeDirectory}/.local/bin/dev-arch-shell";
     icon = devIcon "archlinux";
     comment = "Open the Arch Distrobox development shell";
     categories = [ "Development" "System" ];
@@ -369,7 +369,7 @@ in
 
   xdg.desktopEntries."dev-debian" = {
     name = "Dev Debian";
-    exec = "ghostty -e ${config.home.homeDirectory}/.local/bin/dev-debian-shell";
+    exec = "foot -e ${config.home.homeDirectory}/.local/bin/dev-debian-shell";
     icon = devIcon "debian";
     comment = "Open the Debian Distrobox development shell";
     categories = [ "Development" "System" ];
@@ -379,7 +379,7 @@ in
     name = "System Monitor";
     exec = "${config.home.homeDirectory}/.local/bin/tui-btop";
     icon = "${pkgs.btop}/share/icons/hicolor/scalable/apps/btop.svg";
-    comment = "Open btop in Ghostty";
+    comment = "Open btop in Foot";
     categories = [ "System" "Monitor" ];
   };
 
@@ -387,7 +387,7 @@ in
     name = "Disk Usage";
     exec = "${config.home.homeDirectory}/.local/bin/tui-dust";
     icon = papirusAppIcon "disk-usage-analyzer";
-    comment = "Open dust in Ghostty";
+    comment = "Open dust in Foot";
     categories = [ "System" "Utility" ];
   };
 
@@ -395,7 +395,7 @@ in
     name = "GitHub";
     exec = "${config.home.homeDirectory}/.local/bin/tui-ghui";
     icon = papirusAppIcon "github";
-    comment = "Open ghui in Ghostty";
+    comment = "Open ghui in Foot";
     categories = [ "Development" ];
   };
 
@@ -403,7 +403,7 @@ in
     name = "Docker";
     exec = "${config.home.homeDirectory}/.local/bin/tui-lazydocker";
     icon = papirusAppIcon "docker-desktop";
-    comment = "Open lazydocker in Ghostty";
+    comment = "Open lazydocker in Foot";
     categories = [ "Development" "System" ];
   };
 
@@ -592,14 +592,14 @@ in
       "video/x-msvideo" = "mpv.desktop";
       "video/quicktime" = "mpv.desktop";
 
-      # Text files (Neovim in Ghostty)
-      "text/plain" = "nvim-ghostty.desktop";
-      "application/json" = "nvim-ghostty.desktop";
-      "application/x-yaml" = "nvim-ghostty.desktop";
-      "application/xml" = "nvim-ghostty.desktop";
-      "text/markdown" = "nvim-ghostty.desktop";
-      "text/x-python" = "nvim-ghostty.desktop";
-      "text/x-shellscript" = "nvim-ghostty.desktop";
+      # Text files (Neovim in Foot)
+      "text/plain" = "nvim-foot.desktop";
+      "application/json" = "nvim-foot.desktop";
+      "application/x-yaml" = "nvim-foot.desktop";
+      "application/xml" = "nvim-foot.desktop";
+      "text/markdown" = "nvim-foot.desktop";
+      "text/x-python" = "nvim-foot.desktop";
+      "text/x-shellscript" = "nvim-foot.desktop";
     };
   };
 
@@ -665,7 +665,7 @@ in
   home.sessionVariables = {
     EDITOR = "nvim";
     BROWSER = "google-chrome-stable";
-    TERMINAL = "ghostty";
+    TERMINAL = "foot";
 
     # Wayland-specific (NIXOS_OZONE_WL is set in configuration.nix)
     MOZ_ENABLE_WAYLAND = "1";
