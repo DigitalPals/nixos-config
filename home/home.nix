@@ -77,10 +77,16 @@ in
     # Ensure custom directories exist
     "Code/.keep".text = "";
     "Pictures/Screenshots/.keep".text = "";
+    "Videos/Screen Recordings/.keep".text = "";
 
     # Screenshot script
     ".local/bin/screenshot" = {
       source = ./scripts/screenshot;
+      executable = true;
+    };
+    # Screen recording script
+    ".local/bin/screen-record" = {
+      source = ./scripts/screen-record;
       executable = true;
     };
     # LocalSend share helper
@@ -436,11 +442,12 @@ in
     # XDG portal for GTK apps (dark mode, file dialogs)
     xdg-desktop-portal-gtk
 
-    # Screenshot tools
+    # Screenshot and screen recording tools
     grim
     slurp
     satty
     wayfreeze
+    wf-recorder
     wl-clipboard
     hyprpicker
     tesseract

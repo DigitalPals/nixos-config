@@ -62,6 +62,7 @@
 
   -- Screenshots.
   hl.bind(mainMod .. " + grave", hl.dsp.exec_cmd("~/.local/bin/screenshot region"))
+  hl.bind(mainMod .. " + SHIFT + grave", hl.dsp.exec_cmd("~/.local/bin/screen-record"))
   hl.bind("Print", hl.dsp.exec_cmd("~/.local/bin/screenshot region"))
   hl.bind("SHIFT + Print", hl.dsp.exec_cmd("~/.local/bin/screenshot fullscreen"))
 
