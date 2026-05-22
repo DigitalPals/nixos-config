@@ -79,6 +79,18 @@
     '';
   };
 
+  # The Corsair K65 Plus has shown intermittent system-wide paste events when
+  # only Shift is pressed. Browsers treat Shift+Insert as paste, so block the
+  # Insert HID usage from this keyboard path. The Keychron M1 also exposes a
+  # keyboard interface for mouse-side buttons/macros, so block Insert there too.
+  services.udev.extraHwdb = ''
+    evdev:input:b0003v1B1Cp2B10*
+     KEYBOARD_KEY_70049=reserved
+
+    evdev:input:b0003v3434pD035*
+     KEYBOARD_KEY_70049=reserved
+  '';
+
   # The initrd only needs keyboard support for the LUKS passphrase. amdgpu is
   # deliberately absent here -- see the hardware.amdgpu.initrd.enable note
   # above. mkForce overrides the GPU-first default from limine-plymouth.nix.
