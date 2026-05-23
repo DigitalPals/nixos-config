@@ -26,8 +26,29 @@ let
     cd "$repo"
     exec ./run.sh dev >> "$log_file" 2>&1
   '';
+  clipboardCopyShortcut = pkgs.writeShellScript "clipboard-copy-shortcut" ''
+    set -euo pipefail
+
+    send_shortcut() {
+      local mods="$1"
+      local key="$2"
+      ${pkgs.hyprland}/bin/hyprctl eval "hl.dsp.send_shortcut({ mods = \"$mods\", key = \"$key\" })" >/dev/null
+    }
+
+    active_json="$(${pkgs.hyprland}/bin/hyprctl activewindow -j 2>/dev/null || true)"
+    class="$(printf '%s\n' "$active_json" | ${pkgs.jq}/bin/jq -r '(.class // .initialClass // "") | ascii_downcase' 2>/dev/null || true)"
+
+    case "$class" in
+      foot|footclient)
+        send_shortcut "CTRL SHIFT" "C"
+        ;;
+      *)
+        send_shortcut "CTRL" "C"
+        ;;
+    esac
+  '';
   bindingsConfig = import ./bindings.nix {
-    inherit brightnessControl portalDevLauncher;
+    inherit brightnessControl clipboardCopyShortcut portalDevLauncher;
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''

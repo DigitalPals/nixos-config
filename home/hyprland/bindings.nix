@@ -1,6 +1,6 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl, homeDirectory, portalDevLauncher }:
+{ brightnessControl, clipboardCopyShortcut, homeDirectory, portalDevLauncher }:
 
 ''
   local mainMod = "SUPER"
@@ -32,7 +32,7 @@
   hl.bind("SHIFT + F9", hl.dsp.exec_cmd("voxtype --model base --language nl record toggle"))
 
   -- Clipboard.
-  hl.bind(mainMod .. " + C", hl.dsp.send_shortcut({ mods = "CTRL", key = "Insert" }))
+  hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("${clipboardCopyShortcut}"))
   hl.bind(mainMod .. " + V", hl.dsp.send_shortcut({ mods = "SHIFT", key = "Insert" }))
   hl.bind(mainMod .. " + X", hl.dsp.send_shortcut({ mods = "CTRL", key = "X" }))
   hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/clipboard-image-to-file"))
