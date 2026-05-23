@@ -111,6 +111,14 @@ let
     ${externalMonitorFunctions}
     apply_monitor_state
   '';
+  externalMonitorDaemon = pkgs.writeShellScript "external-monitor-daemon" ''
+    ${externalMonitorFunctions}
+
+    while true; do
+      apply_monitor_state
+      sleep 1
+    done
+  '';
 
   autostartConfig = import ./autostart.nix {
     inherit pkgs lib osConfig;
@@ -147,17 +155,23 @@ in {
   xdg.configFile."hypr/external-monitor-toggle.lua".text =
     if isExternalDisplayLaptop then ''
       hl.on("hyprland.start", function()
-        hl.exec_cmd("${externalMonitorApply}")
-      end)
-
-      hl.on("monitor.added", function()
-        hl.exec_cmd("sleep 2 && ${externalMonitorApply}")
-      end)
-
-      hl.on("monitor.removed", function()
-        hl.exec_cmd("sleep 2 && ${externalMonitorApply}")
+        hl.exec_cmd("systemctl --user restart hyprland-external-monitor-toggle.service")
       end)
     '' else "";
+
+  systemd.user.services.hyprland-external-monitor-toggle = lib.mkIf isExternalDisplayLaptop {
+    Unit = {
+      Description = "Hyprland external monitor toggle";
+      PartOf = [ "hyprland-session.target" ];
+      After = [ "hyprland-session.target" ];
+    };
+
+    Service = {
+      ExecStart = "${externalMonitorDaemon}";
+      Restart = "always";
+      RestartSec = 1;
+    };
+  };
 
   # Modular config files in ~/.config/hypr/
   xdg.configFile."hypr/monitors.lua".text = monitorsConfig;
