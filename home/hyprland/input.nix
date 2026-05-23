@@ -10,7 +10,8 @@
     input = {
       -- Keyboard layout.
       kb_layout = "us",
-      kb_options = "compose:caps",
+      kb_variant = "mac",
+      kb_options = "compose:caps,lv3:alt_switch",
 
       -- Mouse.
       follow_mouse = 1,
