@@ -32,7 +32,7 @@ let
   };
   externalMonitorFunctions = ''
     hypr_monitor_enable_edp() {
-      ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x0", scale = "auto" })' || true
+      ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = false, mode = "preferred", position = "0x0", scale = "auto" })' || true
     }
 
     hypr_monitor_disable() {
