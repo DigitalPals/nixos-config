@@ -32,23 +32,20 @@ let
   };
   externalMonitorFunctions = ''
     hypr_monitor_enable_edp() {
-      ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = false, mode = "preferred", position = "0x0", scale = "auto" })' || true
+      ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = false, mode = "preferred", position = "0x0", scale = "auto" })' >/dev/null || true
     }
 
     hypr_monitor_disable() {
       output="$1"
       output_lua="$(${pkgs.jq}/bin/jq -Rn --arg output "$output" '$output')"
-      ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({ output = $output_lua, disabled = true })" || true
+      ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({ output = $output_lua, disabled = true })" >/dev/null || true
     }
 
-    physical_external_monitor_connected() {
-      for status in /sys/class/drm/card*-*/status; do
-        [ -e "$status" ] || continue
-        case "$status" in
-          *-eDP-*/status) continue ;;
-        esac
-
-        if [ "$(<"$status")" = "connected" ]; then
+    xreal_usb_connected() {
+      for vendor in /sys/bus/usb/devices/*/idVendor; do
+        [ -e "$vendor" ] || continue
+        device_dir="$(dirname "$vendor")"
+        if [ "$(<"$vendor")" = "3318" ] && [ -e "$device_dir/idProduct" ] && [ "$(<"$device_dir/idProduct")" = "0436" ]; then
           return 0
         fi
       done
@@ -57,24 +54,26 @@ let
     }
 
     apply_monitor_state() {
-      if ! physical_external_monitor_connected; then
-        hypr_monitor_enable_edp
-        return 0
-      fi
-
       monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || return 0
 
       if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '
         .[]
         | select(
-            (.model // "") == "XREAL One Pro"
-            or (.model // "") == "Nreal XREAL One Pro"
-            or (.model // "") == "Studio XDR"
+            (.model // "") == "Studio XDR"
             or (.model // "") == "Pro Display XDR"
             or (.model // "") == "AORUS FO32U2"
           )
           | select((.disabled // false) | not)
-      ' > /dev/null 2>&1; then
+      ' > /dev/null 2>&1 || {
+        xreal_usb_connected && printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '
+          .[]
+          | select(
+              (.model // "") == "XREAL One Pro"
+              or (.model // "") == "Nreal XREAL One Pro"
+            )
+            | select((.disabled // false) | not)
+        ' > /dev/null 2>&1
+      }; then
         if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not))' > /dev/null 2>&1; then
           hypr_monitor_disable "eDP-1"
         fi
@@ -98,9 +97,7 @@ let
           fi
         done
       else
-        if ! printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not) and .x == 0 and .y == 0)' > /dev/null 2>&1; then
-          hypr_monitor_enable_edp
-        fi
+        hypr_monitor_enable_edp
       fi
 
       return 0
