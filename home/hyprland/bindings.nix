@@ -1,26 +1,11 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl, homeDirectory, portalDevLauncher }:
+{ brightnessControl, clipboardCopyShortcut, homeDirectory, portalDevLauncher }:
 
 ''
   local mainMod = "SUPER"
   local terminal = "foot"
   local browser = "google-chrome-stable"
-
-  local function copy_shortcut()
-    local window = hl.get_active_window()
-    local class = ""
-
-    if window then
-      class = string.lower(tostring(window.class or window.initial_class or ""))
-    end
-
-    if class == "foot" or class == "footclient" then
-      hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL SHIFT", key = "C" }))
-    else
-      hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "C" }))
-    end
-  end
 
   -- Applications.
   hl.bind(mainMod .. " + Return", hl.dsp.exec_cmd(terminal))
@@ -47,7 +32,7 @@
   hl.bind("SHIFT + F9", hl.dsp.exec_cmd("voxtype --model base --language nl record toggle"))
 
   -- Clipboard.
-  hl.bind(mainMod .. " + C", copy_shortcut)
+  hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("${clipboardCopyShortcut}"))
   hl.bind(mainMod .. " + V", hl.dsp.send_shortcut({ mods = "SHIFT", key = "Insert" }))
   hl.bind(mainMod .. " + X", hl.dsp.send_shortcut({ mods = "CTRL", key = "X" }))
   hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/clipboard-image-to-file"))
