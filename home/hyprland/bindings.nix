@@ -7,6 +7,11 @@
   local terminal = "foot"
   local browser = "google-chrome-stable"
 
+  local function send_shortcut_once(mods, key)
+    hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "down" }))
+    hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "up" }))
+  end
+
   -- Applications.
   hl.bind(mainMod .. " + Return", hl.dsp.exec_cmd(terminal))
   hl.bind(mainMod .. " + SHIFT + F", hl.dsp.exec_cmd(terminal .. " -e ${homeDirectory}/.local/bin/dev-fedora-shell"))
@@ -32,9 +37,9 @@
   hl.bind("SHIFT + F9", hl.dsp.exec_cmd("voxtype --model base --language nl record toggle"))
 
   -- Clipboard.
-  hl.bind(mainMod .. " + C", hl.dsp.send_shortcut({ mods = "CTRL", key = "Insert" }))
-  hl.bind(mainMod .. " + V", hl.dsp.send_shortcut({ mods = "SHIFT", key = "Insert" }))
-  hl.bind(mainMod .. " + X", hl.dsp.send_shortcut({ mods = "CTRL", key = "X" }))
+  hl.bind(mainMod .. " + C", function() send_shortcut_once("CTRL", "Insert") end)
+  hl.bind(mainMod .. " + V", function() send_shortcut_once("SHIFT", "Insert") end)
+  hl.bind(mainMod .. " + X", function() send_shortcut_once("CTRL", "X") end)
   hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/clipboard-image-to-file"))
 
   -- Windows.
