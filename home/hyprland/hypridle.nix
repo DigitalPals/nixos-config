@@ -13,8 +13,9 @@ let
 
   # Lock command using Noctalia
   lockCmd = "noctalia-shell ipc call lockScreen lock";
-  dpmsOnCmd = "hyprctl eval 'hl.dsp.dpms(\"on\")'";
-  dpmsOffCmd = "hyprctl eval 'hl.dsp.dpms(\"off\")'";
+  # In Lua-mode Hyprland, hl.dsp.dpms builds a dispatcher; hl.dispatch runs it.
+  dpmsOnCmd = "hyprctl eval 'hl.dispatch(hl.dsp.dpms({ action = \"on\" }))'";
+  dpmsOffCmd = "hyprctl eval 'hl.dispatch(hl.dsp.dpms({ action = \"off\" }))'";
 
   # Auto-suspend listener
   suspendListener = if shouldAutoSuspend then ''
