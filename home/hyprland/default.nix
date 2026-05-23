@@ -31,6 +31,16 @@ let
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''
+    hypr_monitor_enable_edp() {
+      ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x0", scale = "auto" })' || true
+    }
+
+    hypr_monitor_disable() {
+      output="$1"
+      output_lua="$(${pkgs.jq}/bin/jq -Rn --arg output "$output" '$output')"
+      ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({ output = $output_lua, disabled = true })" || true
+    }
+
     physical_external_monitor_connected() {
       for status in /sys/class/drm/card*-*/status; do
         [ -e "$status" ] || continue
@@ -48,7 +58,7 @@ let
 
     apply_monitor_state() {
       if ! physical_external_monitor_connected; then
-        ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+        hypr_monitor_enable_edp
         return 0
       fi
 
@@ -66,7 +76,7 @@ let
           | select((.disabled // false) | not)
       ' > /dev/null 2>&1; then
         if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not))' > /dev/null 2>&1; then
-          ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,disable || true
+          hypr_monitor_disable "eDP-1"
         fi
 
         printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -r '
@@ -84,12 +94,12 @@ let
           | .[]
         ' | while read -r output; do
           if [ -n "$output" ]; then
-            ${pkgs.hyprland}/bin/hyprctl keyword monitor "$output,disable" || true
+            hypr_monitor_disable "$output"
           fi
         done
       else
         if ! printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not) and .x == 0 and .y == 0)' > /dev/null 2>&1; then
-          ${pkgs.hyprland}/bin/hyprctl keyword monitor eDP-1,preferred,0x0,auto || true
+          hypr_monitor_enable_edp
         fi
       fi
 
