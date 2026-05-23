@@ -31,14 +31,32 @@ let
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''
+    brightness_state="''${XDG_RUNTIME_DIR:-/tmp}/hyprland-external-monitor-toggle.edp-brightness"
+
     hypr_monitor_enable_edp() {
       ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = false, mode = "preferred", position = "0x0", scale = "auto" })' >/dev/null || true
     }
 
-    hypr_monitor_disable() {
-      output="$1"
-      output_lua="$(${pkgs.jq}/bin/jq -Rn --arg output "$output" '$output')"
-      ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({ output = $output_lua, disabled = true })" >/dev/null || true
+    dim_edp_backlight() {
+      current="$(${pkgs.brightnessctl}/bin/brightnessctl -d intel_backlight get 2>/dev/null || true)"
+      if [ -n "$current" ] && [ "$current" != "0" ] && [ ! -e "$brightness_state" ]; then
+        printf '%s\n' "$current" > "$brightness_state"
+      fi
+
+      ${pkgs.brightnessctl}/bin/brightnessctl -d intel_backlight set 0 >/dev/null 2>&1 || true
+    }
+
+    restore_edp_backlight() {
+      if [ -s "$brightness_state" ]; then
+        saved="$(cat "$brightness_state")"
+        ${pkgs.brightnessctl}/bin/brightnessctl -d intel_backlight set "$saved" >/dev/null 2>&1 || true
+        rm -f "$brightness_state"
+      else
+        current="$(${pkgs.brightnessctl}/bin/brightnessctl -d intel_backlight get 2>/dev/null || true)"
+        if [ -z "$current" ] || [ "$current" = "0" ]; then
+          ${pkgs.brightnessctl}/bin/brightnessctl -d intel_backlight set 40% >/dev/null 2>&1 || true
+        fi
+      fi
     }
 
     xreal_usb_connected() {
@@ -74,9 +92,8 @@ let
             | select((.disabled // false) | not)
         ' > /dev/null 2>&1
       }; then
-        if printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '.[] | select(.name == "eDP-1" and ((.disabled // false) | not))' > /dev/null 2>&1; then
-          hypr_monitor_disable "eDP-1"
-        fi
+        hypr_monitor_enable_edp
+        dim_edp_backlight
 
         printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -r '
           map(select(
@@ -93,11 +110,13 @@ let
           | .[]
         ' | while read -r output; do
           if [ -n "$output" ]; then
-            hypr_monitor_disable "$output"
+            output_lua="$(${pkgs.jq}/bin/jq -Rn --arg output "$output" '$output')"
+            ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({ output = $output_lua, disabled = true })" >/dev/null || true
           fi
         done
       else
         hypr_monitor_enable_edp
+        restore_edp_backlight
       fi
 
       return 0
