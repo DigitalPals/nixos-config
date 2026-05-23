@@ -211,6 +211,10 @@ in
   # Programs and packages
   services.printing.enable = true;
 
+  fonts.packages = [
+    pkgs.conthrax
+  ];
+
   # Enable dconf (required for GTK apps to read dark mode preference)
   programs.dconf.enable = true;
 
@@ -265,6 +269,7 @@ in
     powertop
     nvd # Nix package version diff tool
     forge
+    inkscape
     # Thumbnail generators for Nautilus
     gnome-desktop
     ffmpegthumbnailer
