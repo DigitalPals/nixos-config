@@ -51,8 +51,8 @@ let
 
     hl.env("GDK_SCALE", "2")
   '' else if isExternalDisplayLaptop then ''
-    -- Laptop: eDP-1 is auto-disabled by external-monitor-toggle when a
-    -- known external display is connected (XDR, AORUS, XREAL).
+    -- Laptop: eDP-1 is auto-disabled by external-monitor-toggle only when
+    -- Xreal/Nreal glasses are connected.
     hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x0", scale = "auto" })
     hl.monitor({
       output = "desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2",
