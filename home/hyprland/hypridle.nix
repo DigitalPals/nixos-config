@@ -4,11 +4,12 @@
 
 let
   # Enable auto-suspend for known hosts.
+  # z2-mini-g1a stays running and only turns the display off; s2idle resume
+  # left the root NVMe unavailable after wake.
   shouldAutoSuspend = builtins.elem hostname [
     "G1a"
     "kraken"
     "proart"
-    "z2-mini-g1a"
   ];
 
   # Lock command using Noctalia

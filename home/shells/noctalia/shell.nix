@@ -44,6 +44,42 @@ in
 
     # Add QtWebSockets for Claw plugin's WebSocket support
     package = noctaliaPackage.overrideAttrs (old: {
+      postPatch = (old.postPatch or "") + ''
+        substituteInPlace Modules/LockScreen/LockContext.qml \
+          --replace-fail $'  function tryUnlock() {\n    if (!pamReady) {' \
+                         $'  function tryUnlock() {\n    Logger.i("LockContext", "Unlock submit requested; text length:", currentText.length, "waiting:", waitingForPassword, "inProgress:", unlockInProgress, "pamReady:", pamReady);\n    if (unlockInProgress) {\n      Logger.i("LockContext", "Unlock already in progress, ignoring duplicate submit");\n      return;\n    }\n\n    if (!pamReady) {'
+
+        substituteInPlace Modules/LockScreen/LockScreen.qml \
+          --replace-fail $'      }\n\n      // Whether any monitor from the user'\'''s lockScreenMonitors list is currently connected.' \
+                         $'      }\n\n      Shortcut {\n        sequences: ["Return", "Enter"]\n        context: Qt.ApplicationShortcut\n        enabled: root.active && !lockContext.unlockInProgress\n        onActivated: lockContext.tryUnlock()\n      }\n\n      // Whether any monitor from the user'\'''s lockScreenMonitors list is currently connected.' \
+          --replace-fail $'                  onTextChanged: {\n                    if (lockContext.currentText !== text)\n                      lockContext.currentText = text;\n                  }\n                  Connections {' \
+                         $'                  onTextChanged: {\n                    if (lockContext.currentText !== text)\n                      lockContext.currentText = text;\n                  }\n                  onAccepted: lockContext.tryUnlock()\n                  Connections {' \
+          --replace-fail $'                onTextChanged: {\n                  if (lockContext.currentText !== text)\n                    lockContext.currentText = text;\n                }\n                Connections {' \
+                         $'                onTextChanged: {\n                  if (lockContext.currentText !== text)\n                    lockContext.currentText = text;\n                }\n                onAccepted: lockContext.tryUnlock()\n                Connections {' \
+          --replace-fail $'                  Component.onCompleted: forceActiveFocus()\n                }' \
+                         $'                  Component.onCompleted: forceActiveFocus()\n\n                  Connections {\n                    target: Time\n                    function onResumed() {\n                      if (passwordInput && !passwordInput.activeFocus) {\n                        passwordInput.forceActiveFocus();\n                      }\n                    }\n                  }\n                }' \
+          --replace-fail $'                Component.onCompleted: forceActiveFocus()\n              }' \
+                         $'                Component.onCompleted: forceActiveFocus()\n\n                Connections {\n                  target: Time\n                  function onResumed() {\n                    if (blackScreenPasswordInput && !blackScreenPasswordInput.activeFocus) {\n                      blackScreenPasswordInput.forceActiveFocus();\n                    }\n                  }\n                }\n              }' \
+          --replace-fail "if (Keybinds.checkKey(event, 'enter', Settings))" \
+                         "if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || Keybinds.checkKey(event, 'enter', Settings))"
+
+        substituteInPlace Modules/LockScreen/LockScreenPanel.qml \
+          --replace-fail "enabled: !lockContext || !lockContext.unlockInProgress" \
+                         "enabled: !root.lockControl || !root.lockControl.unlockInProgress" \
+          --replace-fail $'              cursorShape: Qt.PointingHandCursor\n              onClicked: root.doUnlock()' \
+                         $'              cursorShape: Qt.PointingHandCursor\n              enabled: !root.lockControl || !root.lockControl.unlockInProgress\n              onClicked: root.doUnlock()'
+
+        substituteInPlace Services/Power/IdleInhibitorService.qml \
+          --replace-fail $'  function startInhibition(newReason) {\n    reason = newReason;\n\n    if (nativeInhibitorAvailable) {' \
+                         $'  function startInhibition(newReason) {\n    reason = newReason;\n    startSleepInhibition();\n\n    if (nativeInhibitorAvailable) {' \
+          --replace-fail $'    if (!nativeInhibitorAvailable && inhibitorProcess.running) {\n      inhibitorProcess.signal(15); // SIGTERM\n    }\n\n    isInhibited = false;' \
+                         $'    if (!nativeInhibitorAvailable && inhibitorProcess.running) {\n      inhibitorProcess.signal(15); // SIGTERM\n    }\n\n    if (sleepInhibitorProcess.running) {\n      sleepInhibitorProcess.signal(15); // SIGTERM\n    }\n\n    isInhibited = false;' \
+          --replace-fail $'  // Process for maintaining the inhibition (subprocess fallback only)' \
+                         $'  // Block explicit sleep requests such as Hypridle systemctl suspend.\n  function startSleepInhibition() {\n    sleepInhibitorProcess.command = ["systemd-inhibit", "--what=sleep", "--why=" + reason, "--mode=block", "sleep", "infinity"];\n    sleepInhibitorProcess.running = true;\n  }\n\n  // Process for maintaining the inhibition (subprocess fallback only)' \
+          --replace-fail $'      Logger.d("IdleInhibitor", "Inhibitor process started successfully");\n    }\n  }\n\n  Timer {' \
+                         $'      Logger.d("IdleInhibitor", "Inhibitor process started successfully");\n    }\n  }\n\n  Process {\n    id: sleepInhibitorProcess\n    running: false\n\n    onExited: function (exitCode, exitStatus) {\n      if (isInhibited) {\n        Logger.w("IdleInhibitor", "Sleep inhibitor process exited unexpectedly:", exitCode);\n      }\n    }\n\n    onStarted: function () {\n      Logger.d("IdleInhibitor", "Sleep inhibitor process started successfully");\n    }\n  }\n\n  Timer {'
+
+      '';
       buildInputs = (old.buildInputs or []) ++ [ pkgs.qt6.qtwebsockets ];
     });
 
