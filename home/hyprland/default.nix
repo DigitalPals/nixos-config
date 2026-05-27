@@ -56,6 +56,17 @@ let
       return 1
     }
 
+    lid_closed() {
+      for state in /proc/acpi/button/lid/*/state; do
+        [ -r "$state" ] || continue
+        case "$(<"$state")" in
+          *closed*) return 0 ;;
+        esac
+      done
+
+      return 1
+    }
+
     xreal_monitor_active() {
       printf '%s\n' "$monitors" | ${pkgs.jq}/bin/jq -e '
         .[]
@@ -86,7 +97,7 @@ let
 
       monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || return 0
 
-      if xreal_monitor_active; then
+      if lid_closed || xreal_monitor_active; then
         if edp_active; then
           hypr_monitor_disable_edp
         fi
@@ -116,6 +127,16 @@ let
     fi
 
     apply_monitor_state
+
+    ${pkgs.upower}/bin/upower --monitor-detail | while read -r _line; do
+      apply_monitor_state
+    done &
+    upower_monitor_pid=$!
+
+    cleanup() {
+      kill "$upower_monitor_pid" 2>/dev/null || true
+    }
+    trap cleanup EXIT INT TERM
 
     ${pkgs.socat}/bin/socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" | while read -r line; do
       case "$line" in
@@ -165,7 +186,7 @@ in {
   };
 
   # External monitor toggle script for laptops that should blank the internal
-  # panel when Xreal/Nreal glasses are attached.
+  # panel for clamshell mode and Xreal/Nreal glasses.
   xdg.configFile."hypr/external-monitor-toggle.lua".text =
     if isExternalDisplayLaptop then ''
       hl.on("hyprland.start", function()
