@@ -180,7 +180,6 @@ in {
 
   wayland.windowManager.hyprland = {
     enable = true;
-    configType = "lua";
     settings = {};
     extraConfig = hyprlandExtraConfig;
   };

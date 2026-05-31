@@ -43,7 +43,6 @@ in
   # Git configuration
   programs.git = {
     enable = true;
-    signing.format = "openpgp";
     settings.user = {
       name = "John";
       email = "john@cybex.net";
@@ -103,6 +102,17 @@ in
     ".local/bin/clipboard-image-to-file" = {
       source = ./scripts/clipboard-image-to-file;
       executable = true;
+    };
+    # Spotify inherits the session's GDK_SCALE=2 on some 1x external outputs.
+    ".local/bin/spotify" = {
+      executable = true;
+      force = true;
+      text = ''
+        #!/usr/bin/env bash
+        export GDK_SCALE=1
+        export GDK_DPI_SCALE=1
+        exec ${pkgs.spotify}/bin/spotify --force-device-scale-factor=1 "$@"
+      '';
     };
     # Open or create the default Fedora Distrobox development shell
     ".local/bin/dev-fedora-shell" = {
@@ -725,5 +735,5 @@ in
   };
 
   # State version (should match NixOS)
-  home.stateVersion = "24.11";
+  home.stateVersion = "26.05";
 }

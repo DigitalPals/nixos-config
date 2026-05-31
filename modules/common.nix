@@ -358,5 +358,5 @@ in
   boot.kernelParams = [ "cpufreq.default_governor=schedutil" ];
 
   # System state version
-  system.stateVersion = "24.11";
+  system.stateVersion = "26.05";
 }

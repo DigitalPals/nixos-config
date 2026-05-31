@@ -1,12 +1,16 @@
 {
-    "sources": [
-        {
-            "enabled": true,
-            "name": "Official Noctalia Plugins",
-            "url": "https://github.com/noctalia-dev/noctalia-plugins"
-        }
-    ],
-    "states": {
-    },
-    "version": 1
+  "sources": [
+    {
+      "enabled": true,
+      "name": "Noctalia Plugins",
+      "url": "https://github.com/noctalia-dev/noctalia-plugins"
+    }
+  ],
+  "states": {
+    "modelbar": {
+      "enabled": true,
+      "sourceUrl": "https://github.com/DigitalPals/ModelBar"
+    }
+  },
+  "version": 2
 }
