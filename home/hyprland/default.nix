@@ -89,9 +89,74 @@ let
       ' > /dev/null 2>&1
     }
 
+    edp_state() {
+      local current_monitors
+
+      current_monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || {
+        printf 'unknown\n'
+        return 0
+      }
+
+      if printf '%s\n' "$current_monitors" | ${pkgs.jq}/bin/jq -e '
+        .[]
+        | select(.name == "eDP-1")
+        | select((.disabled // false) | not)
+      ' > /dev/null 2>&1; then
+        printf 'active\n'
+      else
+        printf 'inactive\n'
+      fi
+    }
+
+    restart_noctalia_after_display_change() {
+      local pid_file pid
+
+      pid_file="''${XDG_RUNTIME_DIR:-/tmp}/noctalia-display-reload.pid"
+      pid=""
+      [ -r "$pid_file" ] && pid="$(cat "$pid_file" 2>/dev/null || true)"
+
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        return 0
+      fi
+
+      (
+        ${pkgs.coreutils}/bin/sleep 1.5
+        ${pkgs.procps}/bin/pkill -x quickshell || true
+        ${pkgs.coreutils}/bin/sleep 0.5
+        ${config.programs.noctalia-shell.package}/bin/noctalia-shell --daemonize >/dev/null 2>&1 || true
+        rm -f "$pid_file"
+      ) &
+
+      printf '%s\n' "$!" > "$pid_file"
+    }
+
+    maybe_restart_noctalia_after_edp_change() {
+      local before after
+
+      before="$1"
+
+      [ "''${NOCTALIA_RELOAD_ON_LAPTOP_DISPLAY_CHANGE:-0}" = "1" ] || return 0
+      [ "$before" != "unknown" ] || return 0
+
+      ${pkgs.coreutils}/bin/sleep 0.3
+      after="$(edp_state)"
+
+      if [ "$after" != "unknown" ] && [ "$before" != "$after" ]; then
+        restart_noctalia_after_display_change
+      fi
+    }
+
     apply_monitor_state() {
+      local before_edp_state
+
+      before_edp_state="unknown"
+      if [ "''${NOCTALIA_RELOAD_ON_LAPTOP_DISPLAY_CHANGE:-0}" = "1" ]; then
+        before_edp_state="$(edp_state)"
+      fi
+
       if ! physical_external_monitor_connected; then
         hypr_monitor_enable_edp
+        maybe_restart_noctalia_after_edp_change "$before_edp_state"
         return 0
       fi
 
@@ -107,6 +172,7 @@ let
         fi
       fi
 
+      maybe_restart_noctalia_after_edp_change "$before_edp_state"
       return 0
     }
   '';
@@ -129,7 +195,7 @@ let
     apply_monitor_state
 
     ${pkgs.upower}/bin/upower --monitor-detail | while read -r _line; do
-      apply_monitor_state
+      NOCTALIA_RELOAD_ON_LAPTOP_DISPLAY_CHANGE=1 apply_monitor_state
     done &
     upower_monitor_pid=$!
 
@@ -147,7 +213,7 @@ let
               ;;
             *)
               sleep 2
-              apply_monitor_state
+              NOCTALIA_RELOAD_ON_LAPTOP_DISPLAY_CHANGE=1 apply_monitor_state
               ;;
           esac
           ;;
