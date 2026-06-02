@@ -160,10 +160,29 @@ let
     preShellCommand = if isExternalDisplayLaptop then externalMonitorApply else null;
   };
 
+  hyprLuaModules = pkgs.symlinkJoin {
+    name = "hyprland-lua-modules";
+    paths = [
+      (pkgs.writeTextDir "monitors.lua" monitorsConfig)
+      (pkgs.writeTextDir "input.lua" inputConfig)
+      (pkgs.writeTextDir "bindings.lua" bindingsConfig)
+      (pkgs.writeTextDir "looknfeel.lua" looknfeelConfig)
+      (pkgs.writeTextDir "autostart.lua" autostartConfig)
+      (pkgs.writeTextDir "external-monitor-toggle.lua" (
+        if isExternalDisplayLaptop then ''
+          hl.on("hyprland.start", function()
+            hl.exec_cmd([[${externalMonitorToggle}]])
+          end)
+        '' else ""
+      ))
+    ];
+  };
+
   # Hyprland Lua entry point.
   hyprlandExtraConfig = ''
     local hyprConfigDir = os.getenv("HOME") .. "/.config/hypr"
-    package.path = hyprConfigDir .. "/?.lua;" .. hyprConfigDir .. "/?/init.lua;" .. package.path
+    local hyprStoreConfigDir = "${hyprLuaModules}"
+    package.path = hyprStoreConfigDir .. "/?.lua;" .. hyprStoreConfigDir .. "/?/init.lua;" .. hyprConfigDir .. "/?.lua;" .. hyprConfigDir .. "/?/init.lua;" .. package.path
 
     require("monitors")
     require("input")
