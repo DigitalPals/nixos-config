@@ -38,4 +38,5 @@
     };
   };
   networking.networkmanager.wifi.backend = "iwd";
+  networking.networkmanager.wifi.scanRandMacAddress = false;
 }
