@@ -2,8 +2,11 @@
   description = "NixOS configuration with Home Manager, Hyprland, and Noctalia Desktop Shell";
 
   inputs = {
-    # Track master while testing kernel releases before they reach nixos-unstable.
-    nixpkgs.url = "github:NixOS/nixpkgs/master";
+    # Use nixos-unstable so updates stay close to Hydra cache availability.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Temporary escape hatch for kernel releases before they reach nixos-unstable.
+    nixpkgs-master.url = "github:NixOS/nixpkgs/master";
 
     # Home Manager following nixpkgs-unstable
     home-manager = {
@@ -48,12 +51,27 @@
         ipu7CameraHal = final.ipu7CameraHal;
       };
 
+      # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
+      _1password-gui =
+        if final.lib.versionAtLeast prev._1password-gui.version "8.12.22" then
+          prev._1password-gui
+        else
+          prev._1password-gui.overrideAttrs (old: {
+            src = prev.fetchurl {
+              url = builtins.head old.src.urls;
+              hash = "sha256-JwiMi2iozP6jWSIUtgXla86aSAhuUob7snqtUbeXPpI=";
+            };
+          });
     };
 
     pkgs = import nixpkgs {
       inherit system;
       config.allowUnfree = true;
       overlays = [ gtkPortalOverlay localPackagesOverlay ];
+    };
+    pkgsMaster = import inputs.nixpkgs-master {
+      inherit system;
+      config.allowUnfree = true;
     };
 
     # Custom packages
@@ -99,7 +117,7 @@
     mkNixosSystem = { hostname, extraModules ? [], useDisko ? true }:
       nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex forge; };
+        specialArgs = { inherit inputs plymouth-cybex forge pkgsMaster; };
         modules = [
           # Apply overlays to NixOS (for patched xdg-desktop-portal-gtk)
           { nixpkgs.overlays = [ gtkPortalOverlay localPackagesOverlay ]; }
