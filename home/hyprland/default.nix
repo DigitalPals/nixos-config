@@ -154,13 +154,15 @@ let
         before_edp_state="$(edp_state)"
       fi
 
+      monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || return 0
+
       if ! physical_external_monitor_connected; then
-        hypr_monitor_enable_edp
+        if ! edp_active; then
+          hypr_monitor_enable_edp
+        fi
         maybe_restart_noctalia_after_edp_change "$before_edp_state"
         return 0
       fi
-
-      monitors="$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null)" || return 0
 
       if lid_closed || xreal_monitor_active; then
         if edp_active; then
@@ -194,7 +196,7 @@ let
 
     apply_monitor_state
 
-    ${pkgs.upower}/bin/upower --monitor-detail | while read -r _line; do
+    ${pkgs.upower}/bin/upower --monitor | while read -r _line; do
       NOCTALIA_RELOAD_ON_LAPTOP_DISPLAY_CHANGE=1 apply_monitor_state
     done &
     upower_monitor_pid=$!

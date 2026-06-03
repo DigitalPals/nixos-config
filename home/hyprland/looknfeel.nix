@@ -10,6 +10,7 @@ let
   _isG1a = lib.hasPrefix "G1a" hostname;
   _isKraken = lib.hasPrefix "kraken" hostname;
   _isProart = lib.hasPrefix "proart" hostname;
+  softwareCursors = if _isProart then "true" else "false";
 
   # Dwindle layout on all hosts
   useDwindle = true;
@@ -53,7 +54,7 @@ in
 
     -- https://wiki.hypr.land/Nvidia/ - software cursors prevent lag spikes on NVIDIA/hybrid.
     cursor = {
-      no_hardware_cursors = true,
+      no_hardware_cursors = ${softwareCursors},
     },
 
     decoration = {
