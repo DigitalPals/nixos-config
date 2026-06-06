@@ -65,8 +65,8 @@ let
       mode = "preferred",
       position = "auto",
       scale = "auto",
-      bitdepth = 10,
-      cm = "auto",
+      bitdepth = 8,
+      cm = "srgb",
       vrr = 0,
     })
     hl.monitor({
@@ -74,8 +74,8 @@ let
       mode = "preferred",
       position = "auto",
       scale = "auto",
-      bitdepth = 10,
-      cm = "auto",
+      bitdepth = 8,
+      cm = "srgb",
       vrr = 0,
     })
     hl.monitor({
