@@ -232,6 +232,7 @@ in
   };
 
   nixpkgs.config.allowUnfree = true;
+  nixpkgs.config.android_sdk.accept_license = true;
 
   programs._1password.enable = true;
   programs._1password-gui = {
@@ -259,6 +260,8 @@ in
     rustup
     bun
     balena-cli
+    android-tools
+    androidenv.androidPkgs.androidsdk
     distrobox
     podman
     wl-clipboard
