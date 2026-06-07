@@ -14,9 +14,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Noctalia Desktop Shell
+    # Noctalia Desktop Shell (stable)
     noctalia = {
       url = "github:noctalia-dev/noctalia-shell";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Noctalia v5 (early alpha) — used only in the noctalia-v5 specialisation boot entry
+    noctalia-v5 = {
+      url = "github:noctalia-dev/noctalia-shell/v5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -25,6 +31,9 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Hermes Desktop only; the NixOS agent service module is intentionally not used.
+    hermes-agent.url = "github:NousResearch/hermes-agent";
 
   };
 
@@ -133,6 +142,7 @@
           ./modules/common.nix
           ./modules/shell-config.nix
           ./modules/desktop-environments.nix
+          ./modules/noctalia-v5-specialisation.nix
 
           # Home Manager
           home-manager.nixosModules.home-manager

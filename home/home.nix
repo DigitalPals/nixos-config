@@ -13,6 +13,7 @@ let
   papirusAppIcon = name: "${pkgs.papirus-icon-theme}/share/icons/Papirus/64x64/apps/${name}.svg";
   devIcon = name: papirusAppIcon "distributor-logo-${name}";
   localSendIcon = "${pkgs.localsend}/share/icons/hicolor/256x256/apps/localsend.png";
+  hermesDesktop = inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop;
 in
 {
   imports = [
@@ -341,6 +342,15 @@ in
     icon = "1password";
     comment = "Password Manager";
     categories = [ "Office" "Security" ];
+  };
+
+  xdg.desktopEntries."hermes-desktop" = lib.mkIf (hostname == "xps") {
+    name = "Hermes Desktop";
+    exec = "${hermesDesktop}/bin/hermes-desktop";
+    icon = "${hermesDesktop}/share/hermes-desktop/dist/hermes.png";
+    comment = "Hermes Desktop";
+    categories = [ "Development" "Utility" ];
+    terminal = false;
   };
 
 

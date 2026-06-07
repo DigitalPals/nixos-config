@@ -4,7 +4,7 @@
 # Display: 14.0" 2.8K OLED touch, 20-120Hz
 # RAM: 32GB LPDDR5x 9600 MT/s
 # WiFi: Intel Wi-Fi 7 BE211
-{ pkgs, pkgsMaster, lib, ... }:
+{ pkgs, pkgsMaster, lib, inputs, ... }:
 let
   xpsHapticTouchpad = pkgs.writeTextFile {
     name = "xps-haptic-touchpad";
@@ -151,6 +151,10 @@ in
   ];
 
   networking.hostName = "xps";
+
+  environment.systemPackages = [
+    inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop
+  ];
 
   # Use Linux 7.0.11 from Nixpkgs master while nixos-unstable still carries 7.0.10.
   boot.kernelPackages = lib.mkForce pkgsMaster.linuxPackages_latest;
