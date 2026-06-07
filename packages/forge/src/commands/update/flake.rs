@@ -186,9 +186,9 @@ pub async fn parse_flake_changes(dir: &Path, backup_path: &Path) -> Result<Vec<F
     // Fetch commit messages from GitHub API
     fetch_commits_for_changes(&mut changes).await;
 
-    // Clean up backup file
-    let _ = tokio::fs::remove_file(backup_path).await;
-
+    // Note: the caller owns the backup file's lifecycle (it may still be needed
+    // to revert flake.lock, e.g. on an NVIDIA driver incompatibility) and
+    // removes it once the update outcome is settled.
     Ok(changes)
 }
 

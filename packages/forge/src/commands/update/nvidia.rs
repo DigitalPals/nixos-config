@@ -1,8 +1,10 @@
 //! NVIDIA driver compatibility checking for kernel updates
 //!
-//! This module checks if the NVIDIA driver can build against a new kernel
-//! before proceeding with system rebuild. If incompatible, the flake.lock
-//! is restored and the kernel update is skipped.
+//! When a flake update bumps the kernel (usually via nixpkgs) the packaged
+//! NVIDIA driver may not yet support it. This module builds the host's
+//! configured NVIDIA driver against the new kernel *before* the full system
+//! rebuild. If it fails to build, the flake.lock is restored so the rebuild is
+//! skipped rather than switching into a system whose GPU driver won't build.
 
 use anyhow::Result;
 use std::path::Path;
@@ -39,8 +41,11 @@ pub fn kernel_changed(changes: &[FlakeInputChange]) -> bool {
 
 /// Main compatibility check - returns Some(reason) if incompatible
 ///
-/// This performs a dry-run build of the NVIDIA driver package to check
-/// if it can build against the new kernel version.
+/// This builds the host's configured NVIDIA driver against the new kernel. A
+/// kernel/driver mismatch fails at build time (the kernel module won't
+/// compile), so a real build — not `--dry-run`, which only evaluates — is
+/// required to catch it. The build is reused by the subsequent rebuild when it
+/// succeeds, so the only extra cost is when the driver is genuinely broken.
 pub async fn check_nvidia_compatibility(
     tx: &mpsc::Sender<CommandMessage>,
     flake_dir: &Path,
@@ -64,24 +69,25 @@ pub async fn check_nvidia_compatibility(
     }
 
     out(tx, "").await;
-    out(tx, "  Checking NVIDIA driver compatibility...").await;
+    out(
+        tx,
+        "  Kernel changed - building NVIDIA driver against the new kernel...",
+    )
+    .await;
 
-    // Build the attribute path for NVIDIA packages
+    // Build the host's actually-configured driver (respects open vs proprietary
+    // module selection) so the kernel module is compiled against the new kernel.
     let flake_path = flake_dir.to_str().unwrap_or(".");
     let attr_path = format!(
-        "{}#nixosConfigurations.{}.config.boot.kernelPackages.nvidiaPackages.stable",
+        "{}#nixosConfigurations.{}.config.hardware.nvidia.package",
         flake_path, hostname
     );
 
-    // Run nix build --dry-run to check if it can evaluate/build
-    let (success, _stdout, stderr) = run_capture(
-        "nix",
-        &["build", &attr_path, "--dry-run", "--no-link"],
-    )
-    .await?;
+    let (success, _stdout, stderr) =
+        run_capture("nix", &["build", &attr_path, "--no-link"]).await?;
 
     if success {
-        out(tx, "  ✓ NVIDIA driver compatible with new kernel").await;
+        out(tx, "  ✓ NVIDIA driver builds against the new kernel").await;
         Ok(None)
     } else {
         // Parse the error to extract a meaningful reason
@@ -90,64 +96,47 @@ pub async fn check_nvidia_compatibility(
     }
 }
 
-/// Parse NVIDIA build error to extract a user-friendly reason
+/// Parse NVIDIA build error to extract a user-friendly reason.
+///
+/// Checks run most-specific first. A fixed-output hash mismatch (the driver
+/// tarball changed / isn't yet packaged for the new kernel) is reported even
+/// without a "kernel" token, since those errors rarely contain one.
 fn parse_nvidia_error(stderr: &str) -> String {
-    let stderr_lower = stderr.to_lowercase();
+    let s = stderr.to_lowercase();
 
-    // Check for common NVIDIA incompatibility errors
-    if stderr_lower.contains("nvidia") && stderr_lower.contains("kernel") {
-        if stderr_lower.contains("version") {
-            return "NVIDIA driver does not support new kernel version".to_string();
-        }
-        if stderr_lower.contains("hash mismatch") || stderr_lower.contains("sha256") {
-            return "NVIDIA driver source hash mismatch (driver not yet updated for new kernel)"
-                .to_string();
-        }
+    if s.contains("hash mismatch") || s.contains("sha256-") {
+        return "NVIDIA driver source hash mismatch (driver not yet updated for new kernel)"
+            .to_string();
     }
 
-    if stderr_lower.contains("build failed") {
-        return "NVIDIA driver build check failed".to_string();
+    if s.contains("nvidia") && s.contains("kernel") && s.contains("version") {
+        return "NVIDIA driver does not support new kernel version".to_string();
     }
 
-    if stderr_lower.contains("attribute") && stderr_lower.contains("missing") {
+    if s.contains("attribute") && s.contains("missing") {
         return "NVIDIA driver package not available for new kernel".to_string();
+    }
+
+    if s.contains("build failed") || s.contains("builder for") || s.contains("error: build") {
+        return "NVIDIA driver failed to build against the new kernel".to_string();
     }
 
     // Default message
     "NVIDIA driver compatibility check failed".to_string()
 }
 
-/// Restore flake.lock from backup
-pub async fn restore_flake_lock(flake_dir: &Path) -> bool {
-    let lock_path = flake_dir.join("flake.lock");
-    let backup_path = Path::new("/tmp/forge-flake.lock.old");
-
+/// Restore flake.lock from the pre-update backup created by the caller.
+///
+/// Returns `true` if the working-tree flake.lock was reverted to its
+/// pre-update state, so the subsequent rebuild uses the previous (known-good)
+/// inputs.
+pub async fn restore_flake_lock(flake_dir: &Path, backup_path: &Path) -> bool {
     if !backup_path.exists() {
         return false;
     }
 
-    let (success, _, _) = match run_capture(
-        "cp",
-        &[
-            backup_path.to_str().unwrap_or("/tmp/forge-flake.lock.old"),
-            lock_path.to_str().unwrap_or("flake.lock"),
-        ],
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => return false,
-    };
-
-    success
-}
-
-/// Clean up the flake.lock backup file
-pub async fn cleanup_backup() {
-    let backup_path = Path::new("/tmp/forge-flake.lock.old");
-    if backup_path.exists() {
-        let _ = tokio::fs::remove_file(backup_path).await;
-    }
+    let lock_path = flake_dir.join("flake.lock");
+    tokio::fs::copy(backup_path, &lock_path).await.is_ok()
 }
 
 #[cfg(test)]
@@ -190,6 +179,7 @@ mod tests {
             repo: "nixpkgs".to_string(),
             old_rev: "abc123".to_string(),
             new_rev: "def456".to_string(),
+            new_last_modified: None,
             commits: vec![],
             total_commits: 1,
             compare_url: None,
@@ -205,6 +195,7 @@ mod tests {
             repo: "home-manager".to_string(),
             old_rev: "abc123".to_string(),
             new_rev: "def456".to_string(),
+            new_last_modified: None,
             commits: vec![],
             total_commits: 1,
             compare_url: None,

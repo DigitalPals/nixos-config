@@ -78,6 +78,9 @@ enum Commands {
         /// Update specific flake inputs only
         #[arg(long = "input", global = true)]
         inputs: Vec<String>,
+        /// Skip the NVIDIA driver compatibility check on kernel bumps
+        #[arg(long, global = true)]
+        skip_nvidia_check: bool,
         /// Show full command output, per-commit logs, and inline Nix warnings
         #[arg(long, global = true)]
         verbose: bool,
@@ -190,6 +193,7 @@ async fn main() -> Result<()> {
             rebuild_only,
             flake_only,
             inputs,
+            skip_nvidia_check,
             verbose,
         }) => match action {
             Some(UpdateAction::History { details }) => {
@@ -203,6 +207,7 @@ async fn main() -> Result<()> {
                     flake_only,
                     inputs,
                     presentation: app::UpdatePresentation::Modern,
+                    skip_nvidia_check,
                 };
                 run_cli_update(options, verbose).await
             }
