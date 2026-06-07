@@ -131,6 +131,7 @@ ${masterConfig}
 
   -- On large external monitors, keep a lone tiled window narrower instead of edge-to-edge.
   hl.workspace_rule({ workspace = "m[desc:GIGA-BYTE TECHNOLOGY CO. LTD. AORUS FO32U2] w[t1]", gaps_out = { top = 10, right = 480, bottom = 10, left = 480 } })
+  hl.workspace_rule({ workspace = "m[desc:ASUSTek COMPUTER INC XG27JCG] w[t1]", gaps_out = { top = 10, right = 320, bottom = 10, left = 320 } })
   hl.workspace_rule({ workspace = "m[desc:Apple Computer Inc Studio XDR] w[t1]", gaps_out = { top = 10, right = 320, bottom = 10, left = 320 } })
 
   -- Suppress maximize for all windows.
