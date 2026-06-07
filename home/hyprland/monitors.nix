@@ -10,15 +10,15 @@ let
   isZ2MiniG1a = hostname == "z2-mini-g1a";
   isExternalDisplayLaptop = isG1a || isXps;
   monitorConfig = if isKraken then ''
-    -- Kraken: 4K display at 165Hz with 1.5x scaling.
+    -- Kraken: 5K display at 165Hz with 2x scaling.
     hl.monitor({
       output = "",
-      mode = "3840x2160@165",
+      mode = "5120x2880@165",
       position = "auto",
-      scale = 1.5,
+      scale = 2,
     })
 
-    hl.env("GDK_SCALE", "1.5")
+    hl.env("GDK_SCALE", "2")
   '' else if isZ2MiniG1a then ''
     -- HP Z2 Mini G1a: external desktop display. Keep VRR disabled; AMDGPU
     -- warned in the VRR transition path when resuming the Studio Display.
