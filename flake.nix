@@ -172,10 +172,9 @@
     };
 
     nixosConfigurations = {
-      # Desktop with NVIDIA RTX 5090
+      # Desktop with AMD Radeon RX 7700 XT / 7800 XT
       kraken = mkNixosSystem {
         hostname = "kraken";
-        extraModules = [ ./modules/hardware/nvidia.nix ];
       };
 
       # HP ZBook Ultra G1a (AMD Strix Halo)
