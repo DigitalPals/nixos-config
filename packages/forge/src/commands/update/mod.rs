@@ -9,6 +9,7 @@
 
 pub mod flake;
 pub mod history;
+mod nvidia;
 mod packages;
 mod tools;
 
@@ -803,6 +804,9 @@ async fn run_update(
     let skip_flake = options.rebuild_only;
     let skip_rebuild = options.flake_only;
     let mut core_mutated = false;
+    // Set if the flake update was reverted (e.g. NVIDIA driver not ready for a
+    // new kernel); carries the reason and forces the rebuild to be skipped.
+    let mut nvidia_revert: Option<String> = None;
 
     if !skip_flake {
         match pull_config_updates(tx, flake_path).await {
@@ -918,11 +922,53 @@ async fn run_update(
                     .await
                     .unwrap_or_default();
             }
+
+            // NVIDIA driver pre-flight: when a kernel bump lands before the
+            // packaged driver supports it, build the configured driver against
+            // the new kernel and revert the lock if it won't compile, rather
+            // than discovering the failure partway through a full rebuild.
+            match nvidia::check_nvidia_compatibility(
+                tx,
+                &flake_dir,
+                &hostname,
+                &summary.flake_changes,
+                options.skip_nvidia_check,
+            )
+            .await
+            {
+                Ok(Some(reason)) => {
+                    out(tx, "").await;
+                    out(tx, &format!("  ✗ {}", reason)).await;
+                    let restored = match lock_backup.as_ref() {
+                        Some(backup_path) => {
+                            nvidia::restore_flake_lock(&flake_dir, backup_path).await
+                        }
+                        None => false,
+                    };
+                    if restored {
+                        out(tx, "  ↩ Restored flake.lock to the previous inputs").await;
+                    } else {
+                        out(tx, "  ! Could not restore flake.lock automatically").await;
+                    }
+                    // Inputs were reverted, so don't report them as updated.
+                    summary.flake_changes.clear();
+                    nvidia_revert = Some(reason);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!("NVIDIA compatibility check errored: {}", error);
+                    out(
+                        tx,
+                        "  ! NVIDIA compatibility check could not run; continuing",
+                    )
+                    .await;
+                }
+            }
         }
         if let Some(backup_path) = lock_backup.as_ref() {
             let _ = tokio::fs::remove_file(backup_path).await;
         }
-        changed
+        changed && nvidia_revert.is_none()
     } else {
         true
     };
@@ -1061,6 +1107,29 @@ async fn run_update(
                 }
             }
         }
+    } else if let Some(reason) = nvidia_revert.as_ref() {
+        out(tx, "").await;
+        out(
+            tx,
+            "  ⊘ Skipping rebuild: NVIDIA driver not ready for the new kernel",
+        )
+        .await;
+        summary.rebuild_skipped = true;
+        summary.system_after = summary.system_before.clone();
+        summary.core_status = UpdateCoreStatus::Partial;
+        summary.partial_state = Some(format!(
+            "Kernel update reverted ({}); the system stayed on the previous inputs.",
+            reason
+        ));
+        summary.follow_up_warnings.push(format!(
+            "NVIDIA driver not ready for the new kernel ({reason}); kernel update reverted. \
+             Retry later, or run with --skip-nvidia-check to override."
+        ));
+        tx.send(CommandMessage::StepSkipped {
+            step: STEP_REBUILD.to_string(),
+            reason: Some(format!("NVIDIA driver not ready: {reason}")),
+        })
+        .await?;
     } else if !skip_rebuild {
         out(tx, "").await;
         out(tx, "  - Skipping rebuild (no changes)").await;

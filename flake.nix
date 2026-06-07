@@ -142,7 +142,7 @@
           ./modules/common.nix
           ./modules/shell-config.nix
           ./modules/desktop-environments.nix
-          ./modules/noctalia-v5-specialisation.nix
+          ./modules/noctalia-v5-default.nix
 
           # Home Manager
           home-manager.nixosModules.home-manager

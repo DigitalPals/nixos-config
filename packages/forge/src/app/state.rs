@@ -499,6 +499,8 @@ pub struct UpdateOptions {
     pub flake_only: bool,
     pub inputs: Vec<String>,
     pub presentation: UpdatePresentation,
+    /// Skip the NVIDIA driver compatibility pre-flight build on kernel bumps.
+    pub skip_nvidia_check: bool,
 }
 
 impl Default for UpdateOptions {
@@ -508,6 +510,7 @@ impl Default for UpdateOptions {
             flake_only: false,
             inputs: Vec::new(),
             presentation: UpdatePresentation::Classic,
+            skip_nvidia_check: false,
         }
     }
 }

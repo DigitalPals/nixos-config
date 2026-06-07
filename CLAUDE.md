@@ -77,6 +77,25 @@ nix run github:DigitalPals/nixos-config
 
 Note: `forge browser` is still supported as an alias for `forge apps`.
 
+### `forge update` NVIDIA Kernel Pre-flight
+
+On NVIDIA hosts (e.g. **kraken**, **proart**), when a flake update bumps the
+kernel (via nixpkgs or an explicit kernel input), `forge update` builds the
+host's configured NVIDIA driver (`config.hardware.nvidia.package`) against the
+new kernel **before** the full system rebuild. A kernel/driver mismatch fails at
+build time, so this is a real build, not `nix build --dry-run` (which only
+evaluates and would miss the failure). The successful build is reused by the
+subsequent rebuild, so the only extra cost is when the driver is genuinely not
+ready.
+
+If the driver won't build, `forge update` restores `flake.lock` to the previous
+inputs, skips the rebuild, and reports a partial update with a follow-up
+warning — leaving the system on the known-good kernel instead of switching into
+one whose GPU driver won't build. Override with `forge update --skip-nvidia-check`.
+
+Implementation: `packages/forge/src/commands/update/nvidia.rs`, wired into
+`run_update` in `packages/forge/src/commands/update/mod.rs`.
+
 ### Fresh Installation from ISO
 
 1. Boot the NixOS minimal ISO
