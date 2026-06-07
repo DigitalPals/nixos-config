@@ -1,4 +1,4 @@
-# Hardware configuration for kraken (desktop with NVIDIA RTX 5090)
+# Hardware configuration for kraken (desktop with AMD Radeon RX 7700 XT / 7800 XT)
 # Filesystem declarations are handled by disko
 { config, lib, pkgs, modulesPath, ... }:
 

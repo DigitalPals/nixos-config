@@ -270,6 +270,7 @@ in
     efibootmgr
     lm_sensors
     powertop
+    dmidecode # Inspect DIMMs/SMBIOS (verify installed RAM, board, BIOS)
     nvd # Nix package version diff tool
     forge
     inkscape
@@ -357,8 +358,16 @@ in
     ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
   '';
 
-  # CPU frequency scaling - schedutil adapts to scheduler load
-  boot.kernelParams = [ "cpufreq.default_governor=schedutil" ];
+  # CPU frequency scaling.
+  # No governor kernel param is set: all hosts run amd-pstate/intel-pstate in
+  # "active" mode (the kernel default on Zen 4/5 and Core Ultra), which exposes
+  # only the "performance" and "powersave" governors — "schedutil" does not
+  # exist there, so a `cpufreq.default_governor=schedutil` param is silently
+  # ignored. Frequency scaling is driven by the hardware EPP hint, which
+  # power-profiles-daemon (and TLP on laptops) sets per power profile. Under a
+  # sustained load like a parallel `cargo build` the cores ramp to full boost;
+  # at idle they clock down. Pick performance vs balanced via the desktop
+  # power-profile toggle, not a (non-functional) governor param.
 
   # System state version
   system.stateVersion = "26.05";

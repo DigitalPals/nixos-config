@@ -8,7 +8,7 @@ Configuration details and solutions to issues in this NixOS setup.
 ~/nixos-config/                     # Symlinked from /etc/nixos
 ├── flake.nix                       # Main flake with host definitions
 ├── hosts/
-│   ├── kraken/                     # Desktop: AMD Ryzen 9 9950X3D, NVIDIA RTX 5090, 96GB RAM
+│   ├── kraken/                     # Desktop: AMD Ryzen 9 9950X3D, Radeon RX 7700 XT / 7800 XT, 64GB RAM (2×32GB, 2 slots free)
 │   ├── G1a/                        # HP ZBook Ultra G1a: AMD Ryzen AI MAX+ PRO 395, Radeon 8060S, 64GB RAM
 │   ├── z2-mini-g1a/                # HP Z2 Mini G1a: AMD Ryzen AI MAX+ PRO 395 (Strix Halo), Apple Studio Display
 │   ├── proart/                     # ASUS ProArt P16 OLED: AMD Ryzen AI 9 HX 370, Radeon 890M + RTX 5090, 64GB RAM
@@ -79,7 +79,7 @@ Note: `forge browser` is still supported as an alias for `forge apps`.
 
 ### `forge update` NVIDIA Kernel Pre-flight
 
-On NVIDIA hosts (e.g. **kraken**, **proart**), when a flake update bumps the
+On NVIDIA hosts (e.g. **proart**), when a flake update bumps the
 kernel (via nixpkgs or an explicit kernel input), `forge update` builds the
 host's configured NVIDIA driver (`config.hardware.nvidia.package`) against the
 new kernel **before** the full system rebuild. A kernel/driver mismatch fails at
@@ -206,7 +206,7 @@ windowrule = match:class 1[pP]assword, no_screen_share on
 **What doesn't work:** Adding `simpledrm` to initrd (builtin), `video=` kernel params (simpledrm ignores them), skipping udev-settle.
 
 **Host notes:**
-- **kraken (NVIDIA):** Requires udev-settle workaround
+- **kraken (AMD):** Uses `hardware.amdgpu.initrd.enable`, no timing issues
 - **G1a (AMD):** Uses `hardware.amdgpu.initrd.enable`, no timing issues
 - **z2-mini-g1a (AMD):** Opposite of G1a — `amdgpu` is kept OUT of the initrd; see "Z2 Mini G1a Boot Display" below
 
@@ -665,7 +665,6 @@ All NVIDIA config is in `modules/hardware/nvidia.nix`:
 - Wayland env vars: `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`, `NIXOS_OZONE_WL`
 
 **Host-specific driver selection:**
-- **kraken**: Uses open drivers (default) - desktop without hibernate needs
 - **proart**: Uses open drivers (REQUIRED for RTX 5090 Blackwell) - hibernate does NOT work
 
 **RTX 5090 (Blackwell) Hibernate Limitation:**
@@ -677,7 +676,7 @@ The RTX 5090 (GB202) REQUIRES open NVIDIA kernel modules - proprietary modules f
 
 The LVM swap configuration is retained for potential future driver support.
 
-Host `kraken` uses `lib.mkForce` to ensure all modules load together (`hosts/kraken/default.nix:15-22`).
+NVIDIA hosts use `lib.mkForce` where needed to ensure all modules load together.
 
 ## Shell Restart on Store Path Change
 

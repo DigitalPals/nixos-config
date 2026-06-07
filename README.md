@@ -15,7 +15,7 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 
 | Host | Description | GPU |
 |------|-------------|-----|
-| `kraken` | Desktop PC | NVIDIA RTX 5090 |
+| `kraken` | Desktop PC | AMD Radeon RX 7700 XT / 7800 XT |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
 | `z2-mini-g1a` | HP Z2 Mini G1a Workstation | AMD Strix Halo (RDNA 3.5) |
 | `proart` | ASUS ProArt P16 OLED | AMD + NVIDIA RTX 5090 |
@@ -182,7 +182,7 @@ nixos-config/
 ├── flake.nix                 # Main flake with host configurations
 ├── flake.lock                # Locked dependencies
 ├── hosts/
-│   ├── kraken/               # Desktop configuration (NVIDIA)
+│   ├── kraken/               # Desktop configuration (AMD)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
 │   ├── G1a/                  # HP ZBook Ultra G1a (AMD)
@@ -206,6 +206,7 @@ nixos-config/
 │   ├── boot/
 │   │   └── limine-plymouth.nix
 │   └── hardware/
+│       ├── amd.nix
 │       └── nvidia.nix
 ├── home/                     # Home Manager configuration
 │   ├── home.nix              # Main config
