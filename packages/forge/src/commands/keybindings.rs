@@ -227,7 +227,7 @@ pub fn generate_description(action: &str, argument: &str) -> String {
             "Send Shortcut".to_string()
         }
 
-        // Global shortcuts (quickshell)
+        // Global shortcuts
         "global" => {
             if arg_lower.contains("wallpaper") {
                 return "Toggle Wallpaper Selector".to_string();

@@ -17,7 +17,7 @@
   hl.bind(mainMod .. " + SHIFT + F", hl.dsp.exec_cmd(terminal .. " -e ${homeDirectory}/.local/bin/dev-fedora-shell"))
   hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd(terminal .. " -e ${homeDirectory}/.local/bin/dev-arch-shell"))
   hl.bind(mainMod .. " + SHIFT + D", hl.dsp.exec_cmd(terminal .. " -e ${homeDirectory}/.local/bin/dev-debian-shell"))
-  hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd("noctalia-shell ipc call launcher toggle"))
+  hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd("noctalia msg panel-toggle launcher"))
   hl.bind(mainMod .. " + E", hl.dsp.exec_cmd("nautilus --new-window"))
   hl.bind(mainMod .. " + B", hl.dsp.exec_cmd(browser))
   hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd(browser .. " --incognito"))
@@ -48,7 +48,7 @@
   hl.bind(mainMod .. " + J", hl.dsp.layout("togglesplit"))
   hl.bind(mainMod .. " + BACKSPACE", hl.dsp.window.set_prop({ prop = "alpha", value = "0.85 toggle" }))
   hl.bind(mainMod .. " + SHIFT + M", hl.dsp.exit())
-  hl.bind(mainMod .. " + L", hl.dsp.exec_cmd("noctalia-shell ipc call lockScreen lock"))
+  hl.bind(mainMod .. " + L", hl.dsp.exec_cmd("noctalia msg session lock"))
 
   -- Navigation.
   hl.bind(mainMod .. " + left", hl.dsp.focus({ direction = "left" }))

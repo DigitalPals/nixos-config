@@ -121,9 +121,7 @@ let
 
       (
         ${pkgs.coreutils}/bin/sleep 1.5
-        ${pkgs.procps}/bin/pkill -x quickshell || true
-        ${pkgs.coreutils}/bin/sleep 0.5
-        ${config.programs.noctalia-shell.package}/bin/noctalia-shell --daemonize >/dev/null 2>&1 || true
+        ${pkgs.systemd}/bin/systemctl --user restart noctalia.service >/dev/null 2>&1 || true
         rm -f "$pid_file"
       ) &
 
@@ -224,7 +222,8 @@ let
   '';
 
   autostartConfig = import ./autostart.nix {
-    inherit pkgs lib osConfig;
+    inherit pkgs osConfig;
+    waylandSystemdTarget = config.wayland.systemd.target;
     preShellCommand = if isExternalDisplayLaptop then externalMonitorApply else null;
   };
 

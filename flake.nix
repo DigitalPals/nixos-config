@@ -14,15 +14,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Noctalia Desktop Shell (stable)
+    # Noctalia desktop shell (v5)
     noctalia = {
       url = "github:noctalia-dev/noctalia-shell";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    # Noctalia v5 (early alpha) — used only in the noctalia-v5 specialisation boot entry
-    noctalia-v5 = {
-      url = "github:noctalia-dev/noctalia-shell/v5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -37,7 +31,7 @@
 
   };
 
-  outputs = { self, nixpkgs, home-manager, noctalia, disko, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, disko, ... }@inputs:
   let
     system = "x86_64-linux";
 

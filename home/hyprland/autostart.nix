@@ -1,15 +1,10 @@
 # Autostart configuration
 # Programs to run at Hyprland startup
-{ pkgs, lib, osConfig, preShellCommand ? null }:
+{ pkgs, osConfig, preShellCommand ? null, waylandSystemdTarget }:
 
 let
   # GTK portal executable path (provides Settings interface for dark mode)
   gtkPortal = "${pkgs.xdg-desktop-portal-gtk}/libexec/xdg-desktop-portal-gtk";
-
-  shellStartup = lib.concatStringsSep " && " (
-    lib.optional (preShellCommand != null) "${preShellCommand}"
-    ++ [ "noctalia-shell" ]
-  );
 in
 ''
   -- PAM service for Noctalia lock screen auth.
@@ -28,8 +23,7 @@ in
 
     -- Polkit agent: badged supports fingerprint, hyprpolkitagent is password-only.
     hl.exec_cmd([[${if osConfig.services.fprintd.enable then "badged" else "systemctl --user start hyprpolkitagent"}]])
-
-    -- Start desktop shell.
-    hl.exec_cmd([[${shellStartup}]])
+    ${if preShellCommand != null then "hl.exec_cmd([[${preShellCommand}]])" else ""}
+    hl.exec_cmd([[systemctl --user start ${waylandSystemdTarget}]])
   end)
 ''

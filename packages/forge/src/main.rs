@@ -756,11 +756,7 @@ impl CliUpdateRenderer {
     }
 
     fn step_detail(&mut self, detail: &str) {
-        if detail.starts_with("Tracking Noctalia") {
-            self.activity("updating flake inputs");
-            let what = detail.get("Tracking ".len()..).unwrap_or(detail).to_lowercase();
-            self.flake_note = Some(format!("{} now tracking {}", success("✓"), what));
-        } else if self.verbose {
+        if self.verbose {
             self.finish_progress_line();
             println!("  {} {}", action("→"), detail);
         }

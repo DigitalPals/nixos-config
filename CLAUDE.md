@@ -678,81 +678,24 @@ The LVM swap configuration is retained for potential future driver support.
 
 NVIDIA hosts use `lib.mkForce` where needed to ensure all modules load together.
 
-## Shell Restart on Store Path Change
+## Noctalia v5
 
-**Problem:** After `nixos-rebuild switch`, the running quickshell process has old `/nix/store/...` paths baked in, while IPC commands (like `noctalia-shell ipc call launcher toggle`) reference the new path. This causes IPC failures with "No running instances" errors.
+Noctalia v5 is the only configured desktop shell. The old quickshell-based v4
+input, Home Manager module, JSON settings deployment, restart hook, and boot
+specialisation have been removed.
 
-**Root cause:** Quickshell processes embed their store path at startup. When the package updates, the symlink at `~/.config/quickshell/noctalia-shell` points to the new path, but the running process still has the old path.
+Implementation:
+- `flake.nix` uses only `noctalia`, which now tracks upstream main/v5
+- `modules/noctalia-v5-default.nix` imports the v5 Home Manager module and
+  enables `programs.noctalia.systemd`
+- Hyprland starts Home Manager's configured graphical session target; the v5
+  `noctalia.service` is wanted by that target
 
-**Solution:** Home Manager activation hook that automatically restarts the shell when store paths change. This runs during the `nixos-rebuild switch` activation phase, ensuring a single restart regardless of how the rebuild was triggered (Forge, AI agents, or manual `nixos-rebuild`).
-
-**Implementation:** `home/shells/restart-on-change.nix`
-
-The hook:
-1. Hashes the noctalia-shell package path
-2. Compares to previously stored hash in `~/.local/state/shell-store-hash`
-3. If changed and quickshell is running, kills old process and restarts via `hyprctl dispatch exec`
-4. Records new hash for next comparison
-
-**Behavior:**
-- **First run**: No restart (no previous hash to compare), just records hash
-- **Package unchanged**: No restart, hash matches
-- **Package updated**: Automatic restart via hyprctl
-
-**Edge cases handled:**
-- First run after adding the hook (no restart)
-- No Hyprland running (gracefully skipped)
-- No quickshell running (gracefully skipped)
-- Dry-run mode (respects `$DRY_RUN_CMD`)
-
-**Files:**
-- `home/shells/restart-on-change.nix` - Activation hook
-- `home/shells/noctalia/default.nix` - Imports restart module
-
-**Manual restart** (if needed):
+Useful commands:
 ```bash
-pkill -x quickshell && hyprctl dispatch exec noctalia-shell
-```
-
-## Noctalia Settings (Hybrid Management)
-
-Noctalia settings use a hybrid approach that allows GUI changes while preserving reproducibility across machines.
-
-### How It Works
-
-Settings are stored in `~/.config/noctalia/` as regular files (not symlinks). A hash file tracks when the repo version was last deployed:
-
-- **First run**: Configs are copied from repo to `~/.config/noctalia/`
-- **GUI changes**: Saved locally, persist across reboots and rebuilds
-- **Repo updated**: When you pull updated configs from another machine and rebuild, the hash changes and local files are overwritten
-
-Implementation: `home/shells/noctalia/shell.nix:44-70`
-
-### Syncing Settings to Another Machine
-
-When you've made GUI changes you want to sync to the repo:
-
-1. **Ask Claude**: "Sync my Noctalia settings to the repo"
-   - Claude copies `~/.config/noctalia/*.json` → `home/shells/noctalia/`
-2. **Commit and push** the changes
-3. **On other machine**: Pull and rebuild → hash changes → local files updated
-
-### Config Files
-
-| File | Purpose |
-|------|---------|
-| `settings.json` | Main shell settings (bar widgets, layouts) |
-| `gui-settings.json` | GUI-specific preferences |
-| `colors.json` | Color scheme |
-| `plugins.json` | Plugin configuration |
-| `.deployed-hash` | Tracks repo version (auto-managed) |
-
-### Forcing a Re-sync
-
-To force re-deployment from repo (discarding local changes):
-```bash
-rm ~/.config/noctalia/.deployed-hash
-sudo nixos-rebuild switch --flake .
+systemctl --user restart noctalia.service
+noctalia msg panel-toggle launcher
+noctalia msg session lock
 ```
 
 ## 1Password SSH Agent

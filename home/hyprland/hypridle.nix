@@ -12,8 +12,8 @@ let
     "proart"
   ];
 
-  # Lock command using Noctalia
-  lockCmd = "noctalia-shell ipc call lockScreen lock";
+  # Lock command using Noctalia v5.
+  lockCmd = "noctalia msg session lock";
   # In Lua-mode Hyprland, hl.dsp.dpms builds a dispatcher; hl.dispatch runs it.
   dpmsOnCmd = "hyprctl eval 'hl.dispatch(hl.dsp.dpms({ action = \"on\" }))'";
   dpmsOffCmd = "hyprctl eval 'hl.dispatch(hl.dsp.dpms({ action = \"off\" }))'";
