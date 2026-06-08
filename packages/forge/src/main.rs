@@ -362,13 +362,15 @@ async fn run_cli_update(options: app::UpdateOptions, verbose: bool) -> Result<()
 
 fn handle_cli_local_changes() -> Result<bool> {
     let changes = commands::update::check_local_changes();
-    section("Pre-flight");
     if changes.is_empty() {
-        println!("  {} working tree clean", skipped("◦"));
-        println!();
+        render_section(
+            "Pre-flight",
+            &[format!("{} working tree clean", success("✓"))],
+        );
         return Ok(true);
     }
 
+    section("Pre-flight");
     let modified = changes.iter().filter(|change| change.tracked).count();
     let untracked = changes.len().saturating_sub(modified);
     let description = if untracked > 0 {
@@ -652,11 +654,13 @@ fn print_cli_header() {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
-    println!(
-        "{:<44} {}",
-        "forge update",
-        format!("{} · {}", host, nixos_version_label())
-    );
+    let left = "forge update";
+    let right = format!("{} · {}", host, nixos_version_label());
+    let width = term_width();
+    let used = left.chars().count() + right.chars().count();
+    let pad = width.saturating_sub(used).max(1);
+    println!("{}{}{}", emphasize(left), " ".repeat(pad), dim(&right));
+    println!("{}", rule());
     println!();
 }
 
@@ -669,6 +673,9 @@ struct CliUpdateRenderer {
     build_seen: HashSet<String>,
     build_done: HashSet<String>,
     progress_active: bool,
+    spinner_frame: usize,
+    live_activity: Option<String>,
+    flake_note: Option<String>,
 }
 
 impl CliUpdateRenderer {
@@ -682,6 +689,9 @@ impl CliUpdateRenderer {
             build_seen: HashSet::new(),
             build_done: HashSet::new(),
             progress_active: false,
+            spinner_frame: 0,
+            live_activity: None,
+            flake_note: None,
         }
     }
 
@@ -736,8 +746,9 @@ impl CliUpdateRenderer {
 
     fn step_detail(&mut self, detail: &str) {
         if detail.starts_with("Tracking Noctalia") {
-            self.ensure_section("Updating flake inputs");
-            println!("  {} {}", action("→"), detail.to_lowercase());
+            self.activity("updating flake inputs");
+            let what = detail.get("Tracking ".len()..).unwrap_or(detail).to_lowercase();
+            self.flake_note = Some(format!("{} now tracking {}", success("✓"), what));
         } else if self.verbose {
             self.finish_progress_line();
             println!("  {} {}", action("→"), detail);
@@ -747,17 +758,20 @@ impl CliUpdateRenderer {
     fn nix_progress(&mut self, event: NixProgressEvent) {
         match event {
             NixProgressEvent::Section { .. } => {
-                self.ensure_section("Rebuilding system");
+                self.activity("rebuilding system");
             }
             NixProgressEvent::Building { name } => {
-                self.ensure_section("Rebuilding system");
                 self.build_seen.insert(name);
-                self.render_build_progress();
+                if self.live_activity.as_deref() == Some("rebuilding system") {
+                    self.draw_live();
+                } else {
+                    self.activity("rebuilding system");
+                }
             }
             NixProgressEvent::Complete { name } => {
                 if name.ends_with(".drv") {
                     self.build_done.insert(name);
-                    self.render_build_progress();
+                    self.draw_live();
                 }
             }
             NixProgressEvent::Failed { name } => {
@@ -765,8 +779,7 @@ impl CliUpdateRenderer {
                 println!("  {} {}", failure("✗"), name);
             }
             NixProgressEvent::Activating => {
-                self.finish_progress_line();
-                println!("  {} activating new system generation", action("→"));
+                self.activity("activating new system generation");
             }
             NixProgressEvent::Download { .. } => {}
         }
@@ -791,11 +804,14 @@ impl CliUpdateRenderer {
     }
 
     fn render_flake_summary(&mut self, summary: &app::UpdateSummary) {
-        if summary.flake_changes.is_empty() {
-            return;
-        }
-
-        self.ensure_section("Updating flake inputs");
+        let name_w = summary
+            .flake_changes
+            .iter()
+            .map(|change| change.name.chars().count())
+            .max()
+            .unwrap_or(0)
+            .max(8);
+        let mut items = Vec::new();
         for change in &summary.flake_changes {
             let old = short_hash(&change.old_rev);
             let new = short_hash(&change.new_rev);
@@ -812,25 +828,30 @@ impl CliUpdateRenderer {
                 .new_last_modified
                 .map(relative_time)
                 .unwrap_or_else(|| "unknown".to_string());
-            println!(
-                "  {} {:14} {} {} {}     {:<14} {}",
+            items.push(format!(
+                "{} {:<width$}  {} {} {}   {:<13} {}",
                 upgrade("↑"),
                 change.name,
                 dim(&old),
                 dim("→"),
                 new,
                 commits,
-                dim(&age)
-            );
+                dim(&age),
+                width = name_w,
+            ));
             if self.verbose {
                 for commit in &change.commits {
-                    println!("    {} {}", dim(&commit.hash), commit.message);
+                    items.push(format!("{} {}", dim(&commit.hash), commit.message));
                 }
                 if let Some(url) = &change.compare_url {
-                    println!("    {}", dim(url));
+                    items.push(dim(url));
                 }
             }
         }
+        if let Some(note) = self.flake_note.take() {
+            items.push(note);
+        }
+        self.section_block("Flake inputs", items);
     }
 
     fn render_rebuild_summary(&mut self, summary: &app::UpdateSummary) {
@@ -838,36 +859,46 @@ impl CliUpdateRenderer {
             summary.core_status,
             app::UpdateCoreStatus::Success | app::UpdateCoreStatus::UpToDate
         ) {
-            self.ensure_section("Rebuilding system");
             let generation = summary
                 .system_after
                 .as_deref()
                 .map(short_store_hash)
                 .unwrap_or_else(|| "current".to_string());
-            println!("  {} Activated generation {}", success("✓"), generation);
+            self.section_block(
+                "Rebuilding system",
+                vec![format!("{} activated generation {}", success("✓"), generation)],
+            );
         }
     }
 
     fn render_post_update(&mut self, summary: &app::UpdateSummary) {
-        self.ensure_section("Post-update");
-        render_tool_version("claude code", &summary.claude_old, &summary.claude_new);
-        render_tool_version("codex cli", &summary.codex_old, &summary.codex_new);
-        render_status_line("browser profiles", &summary.browser_status);
-        render_status_line("firmware", &summary.firmware_status);
+        let mut items = Vec::new();
+        items.extend(tool_version_item(
+            "claude code",
+            &summary.claude_old,
+            &summary.claude_new,
+        ));
+        items.extend(tool_version_item(
+            "codex cli",
+            &summary.codex_old,
+            &summary.codex_new,
+        ));
+        items.extend(status_line_item("browser profiles", &summary.browser_status));
+        items.extend(status_line_item("firmware", &summary.firmware_status));
+        self.section_block("Post-update", items);
     }
 
     fn render_notes(&mut self) {
-        if self.notes.is_empty() {
-            return;
-        }
-        self.ensure_section("Notes");
-        for note in &self.notes {
-            println!("  {} {}", warn("!"), note);
-        }
+        let items: Vec<String> = self
+            .notes
+            .iter()
+            .map(|note| format!("{} {}", warn("!"), note))
+            .collect();
+        self.section_block("Notes", items);
     }
 
     fn render_final_summary(&self, summary: &app::UpdateSummary) {
-        println!("{}", dim("─".repeat(65).as_str()));
+        println!("{}", rule());
         if let Some(closure) = &summary.closure_summary {
             summary_row("closure", closure);
         }
@@ -883,24 +914,24 @@ impl CliUpdateRenderer {
         summary_row("snapshot", snapshot);
     }
 
-    fn ensure_section(&mut self, title: &'static str) {
-        if self.shown_sections.insert(title) {
-            self.finish_progress_line();
-            section(title);
+    /// Render a complete section (header + tree-rail items) once. Re-rendering the
+    /// same title is a no-op so a phase shown live (e.g. a skip) isn't duplicated by
+    /// the summary pass.
+    fn section_block(&mut self, title: &'static str, items: Vec<String>) {
+        if items.is_empty() || !self.shown_sections.insert(title) {
+            return;
         }
+        self.finish_progress_line();
+        render_section(title, &items);
     }
 
     fn inline_skipped(&mut self, title: &'static str, reason: &str) {
-        if self.shown_sections.insert(title) {
-            self.finish_progress_line();
-            println!(
-                "{:<44} {} · {}",
-                header_text(title),
-                dim("skipped"),
-                reason.trim()
-            );
-            println!();
-        }
+        let item = format!(
+            "{} {}",
+            skipped("◦"),
+            dim(&format!("skipped — {}", reason.trim()))
+        );
+        self.section_block(title, vec![item]);
     }
 
     fn note(&mut self, note: String) {
@@ -909,28 +940,42 @@ impl CliUpdateRenderer {
         }
     }
 
-    fn render_build_progress(&mut self) {
+    /// Set the current live activity and redraw the transient status line. On a TTY
+    /// this animates a spinner (and a build bar when derivations are in flight); when
+    /// piped it falls back to one plain line per distinct activity.
+    fn activity(&mut self, text: &str) {
         if !progress_enabled() {
-            if !self.progress_active {
-                println!("  {} building derivations", action("→"));
-                self.progress_active = true;
+            if self.live_activity.as_deref() != Some(text) {
+                self.live_activity = Some(text.to_string());
+                println!("  {} {}", action("→"), text);
             }
             return;
         }
+        self.live_activity = Some(text.to_string());
+        self.draw_live();
+    }
 
-        let total = self.build_seen.len().max(1);
-        let done = self.build_done.len().min(total);
-        let (filled, empty, _) = progress_parts(done as u64, total as u64, 20);
-        print!(
-            "\r  {} building {} derivation{}  {}{}  {}/{}",
-            action("→"),
-            total,
-            if total == 1 { "" } else { "s" },
-            "█".repeat(filled),
-            dim(&"░".repeat(empty)),
-            done,
-            total
-        );
+    fn draw_live(&mut self) {
+        if !progress_enabled() {
+            return;
+        }
+        let frame = SPINNER_CHARS[self.spinner_frame % SPINNER_CHARS.len()];
+        self.spinner_frame = self.spinner_frame.wrapping_add(1);
+        let activity = self.live_activity.clone().unwrap_or_default();
+        let mut line = format!("  {} {}", accent(&frame.to_string()), activity);
+        if !self.build_seen.is_empty() {
+            let total = self.build_seen.len().max(1);
+            let done = self.build_done.len().min(total);
+            let (filled, empty, _) = progress_parts(done as u64, total as u64, 20);
+            line.push_str(&format!(
+                "  {}{}  {}/{}",
+                "█".repeat(filled),
+                dim(&"░".repeat(empty)),
+                done,
+                total
+            ));
+        }
+        print!("\r\x1b[K{}", line);
         let _ = io::stdout().flush();
         self.progress_active = true;
     }
@@ -948,48 +993,56 @@ impl CliUpdateRenderer {
 
     fn finish_progress_line(&mut self) {
         if self.progress_active {
-            println!();
+            print!("\r\x1b[K");
+            let _ = io::stdout().flush();
             self.progress_active = false;
         }
     }
 }
 
-fn render_tool_version(label: &str, old: &Option<String>, new: &Option<String>) {
+fn tool_version_item(label: &str, old: &Option<String>, new: &Option<String>) -> Option<String> {
     match (old.as_deref(), new.as_deref()) {
-        (Some(old), Some(new)) if old != new => {
-            println!(
-                "  {} {:18} {} {} {}",
-                success("✓"),
-                label,
-                dim(old),
-                dim("→"),
-                new
-            );
-        }
-        (Some(_), Some(new)) => {
-            println!("  {} {:32} {}", skipped("◦"), label, new);
-        }
-        _ => {}
+        (Some(old), Some(new)) if old != new => Some(format!(
+            "{} {:18} {} {} {}",
+            success("✓"),
+            label,
+            dim(old),
+            dim("→"),
+            new
+        )),
+        (Some(_), Some(new)) => Some(format!("{} {:32} {}", skipped("◦"), label, new)),
+        _ => None,
     }
 }
 
-fn render_status_line(label: &str, status: &str) {
+fn status_line_item(label: &str, status: &str) -> Option<String> {
     if status.is_empty() {
-        return;
+        return None;
     }
     if status.contains("failed") || status.contains("available") {
-        println!("  {} {:32} {}", warn("!"), label, status);
+        Some(format!("{} {:32} {}", warn("!"), label, status))
     } else {
-        println!("  {} {:32} {}", skipped("◦"), label, status);
+        Some(format!("{} {:32} {}", skipped("◦"), label, status))
     }
 }
 
 fn summary_row(label: &str, value: &str) {
-    let label = format!("{:<12}", label);
-    println!("  {} {}", dim(&label), value);
+    let label = format!("{:<10}", label);
+    println!(" {} {}", dim(&label), value);
 }
 
-fn section(title: &'static str) {
+/// Print a section header followed by its items hung under a dim `├`/`└` tree rail.
+fn render_section(title: &str, items: &[String]) {
+    section(title);
+    let last = items.len().saturating_sub(1);
+    for (idx, item) in items.iter().enumerate() {
+        let connector = if idx == last { "└" } else { "├" };
+        println!("  {} {}", dim(connector), item);
+    }
+    println!();
+}
+
+fn section(title: &str) {
     println!("{}", header_text(title));
 }
 
@@ -1105,12 +1158,31 @@ fn relative_time(unix_seconds: i64) -> String {
     }
 }
 
+/// Braille spinner frames for the transient live status line (matches the TUI spinner).
+const SPINNER_CHARS: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 fn color_enabled() -> bool {
     io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
 fn progress_enabled() -> bool {
     color_enabled()
+}
+
+/// Usable terminal width for rules and right-aligned labels. Falls back to a fixed
+/// width when output isn't a TTY so piped logs stay stable.
+fn term_width() -> usize {
+    if !io::stdout().is_terminal() {
+        return 58;
+    }
+    crossterm::terminal::size()
+        .map(|(cols, _)| cols as usize)
+        .unwrap_or(58)
+        .clamp(40, 100)
+}
+
+fn rule() -> String {
+    dim(&"─".repeat(term_width()))
 }
 
 fn style(code: &str, text: &str) -> String {
