@@ -9,7 +9,8 @@ use super::App;
 use crate::commands;
 use crate::commands::executor::run_capture;
 use crate::commands::update::{
-    check_local_changes, find_stash_reference, get_default_branch, get_upstream_ref,
+    can_regenerate_dirty_flake_lock, check_local_changes, find_stash_reference, get_default_branch,
+    get_upstream_ref,
 };
 use crate::constants::nixos_config_dir;
 use crate::constants::MAX_INPUT_LENGTH;
@@ -995,7 +996,7 @@ impl App {
         }
 
         let changes = check_local_changes();
-        if changes.is_empty() {
+        if changes.is_empty() || can_regenerate_dirty_flake_lock(&options, &changes) {
             self.start_update_preflight(&options, changes, None).await?;
         } else {
             self.mode = AppMode::Update(UpdateState::LocalChangesPrompt {

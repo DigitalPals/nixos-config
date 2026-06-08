@@ -119,6 +119,16 @@ pub fn check_local_changes() -> Vec<LocalChange> {
     }
 }
 
+/// A dirty flake.lock from a previous update is expected when the next update
+/// will refresh all flake inputs again. Other changes still need user action.
+pub fn can_regenerate_dirty_flake_lock(options: &UpdateOptions, changes: &[LocalChange]) -> bool {
+    !options.rebuild_only
+        && options.inputs.is_empty()
+        && changes.len() == 1
+        && changes[0].tracked
+        && changes[0].path == "flake.lock"
+}
+
 /// Resolve the current branch upstream, if configured.
 pub fn get_upstream_ref(config_path: &str) -> Option<String> {
     let output = std::process::Command::new("git")

@@ -287,7 +287,7 @@ async fn run_cli_update(options: app::UpdateOptions, verbose: bool) -> Result<()
     let started_at = Instant::now();
     print_cli_header();
 
-    if !handle_cli_local_changes()? {
+    if !handle_cli_local_changes(&options)? {
         return Ok(());
     }
 
@@ -360,12 +360,23 @@ async fn run_cli_update(options: app::UpdateOptions, verbose: bool) -> Result<()
     }
 }
 
-fn handle_cli_local_changes() -> Result<bool> {
+fn handle_cli_local_changes(options: &app::UpdateOptions) -> Result<bool> {
     let changes = commands::update::check_local_changes();
     if changes.is_empty() {
         render_section(
             "Pre-flight",
             &[format!("{} working tree clean", success("✓"))],
+        );
+        return Ok(true);
+    }
+
+    if commands::update::can_regenerate_dirty_flake_lock(options, &changes) {
+        render_section(
+            "Pre-flight",
+            &[format!(
+                "{} flake.lock has local changes; update will regenerate it",
+                warn("!")
+            )],
         );
         return Ok(true);
     }
