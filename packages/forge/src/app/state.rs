@@ -912,6 +912,7 @@ pub enum StepState {
 /// Update summary data
 #[derive(Debug, Clone, Default)]
 pub struct UpdateSummary {
+    pub config_commits: Vec<CommitInfo>, // nixos-config commits pulled from upstream
     pub flake_changes: Vec<FlakeInputChange>, // Flake input changes with commits
     pub package_changes: Vec<(String, String, String)>, // (pkg, old_ver, new_ver)
     pub packages_added: Vec<(String, String)>, // (pkg, version)

@@ -798,6 +798,7 @@ impl CliUpdateRenderer {
         for warning in &summary.follow_up_warnings {
             self.note(warning.clone());
         }
+        self.render_config_summary(&summary);
         self.render_flake_summary(&summary);
         self.render_rebuild_summary(&summary);
         self.render_post_update(&summary);
@@ -808,6 +809,25 @@ impl CliUpdateRenderer {
     fn done(&mut self) {
         println!();
         println!("{}", success("✓ done."));
+    }
+
+    fn render_config_summary(&mut self, summary: &app::UpdateSummary) {
+        if summary.config_commits.is_empty() {
+            return;
+        }
+
+        let commit_count = summary.config_commits.len();
+        let mut items = Vec::new();
+        items.push(format!(
+            "{} Pulled {} configuration commit{}",
+            upgrade("↑"),
+            format_count(commit_count),
+            if commit_count == 1 { "" } else { "s" }
+        ));
+        for commit in &summary.config_commits {
+            items.push(format!("{} {}", dim(&commit.hash), commit.message));
+        }
+        self.section_block("Configuration updates", items);
     }
 
     fn render_flake_summary(&mut self, summary: &app::UpdateSummary) {

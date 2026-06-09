@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::{
-    LocalChange, StashInfo, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
+    state::CommitInfo, LocalChange, StashInfo, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
     UpdatePreflightReport, UpdateRemoteStatus, UpdateSummary,
 };
 use crate::commands::errors::{ErrorContext, ParsedError};
@@ -776,10 +776,11 @@ async fn run_update(
 
     if !skip_flake {
         match pull_config_updates(tx, flake_path).await {
-            Ok(pulled_commits) => {
-                if pulled_commits > 0 {
+            Ok(config_commits) => {
+                if !config_commits.is_empty() {
                     core_mutated = true;
                 }
+                summary.config_commits = config_commits;
             }
             Err(error) => {
                 tracing::warn!("Failed to pull configuration updates: {}", error);
@@ -1723,7 +1724,7 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
 async fn pull_config_updates(
     tx: &mpsc::Sender<CommandMessage>,
     config_path: &str,
-) -> Result<usize> {
+) -> Result<Vec<CommitInfo>> {
     // Check if this is a git repository
     let git_dir = std::path::Path::new(config_path).join(".git");
     if !git_dir.exists() {
@@ -1733,7 +1734,7 @@ async fn pull_config_updates(
             reason: Some(format!("{} is not a git repository", config_path)),
         })
         .await?;
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
     let upstream =
@@ -1752,7 +1753,7 @@ async fn pull_config_updates(
             reason: Some(format!("git fetch {} failed", fetch_remote)),
         })
         .await?;
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
     // Check if flake.lock has local modifications
@@ -1787,8 +1788,34 @@ async fn pull_config_updates(
             reason: Some(format!("{} has no commits ahead of HEAD", upstream)),
         })
         .await?;
-        return Ok(0);
+        return Ok(Vec::new());
     }
+
+    let (log_ok, log_output, _) = run_capture(
+        "git",
+        &[
+            "-C",
+            config_path,
+            "log",
+            &format!("HEAD..{}", upstream),
+            "--pretty=format:%h%x00%s",
+        ],
+    )
+    .await?;
+    let commits = if log_ok {
+        log_output
+            .lines()
+            .filter_map(|line| {
+                let (hash, message) = line.split_once('\0')?;
+                Some(CommitInfo {
+                    hash: hash.to_string(),
+                    message: message.to_string(),
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     // Reset flake.lock to remote version if it has local modifications
     // This is safe because nix flake update will regenerate it anyway
@@ -1818,11 +1845,14 @@ async fn pull_config_updates(
 
     if pull_result.is_ok() {
         out(tx, &format!("  ✓ Pulled {} commit(s)", count)).await;
+        for commit in &commits {
+            out(tx, &format!("    {} {}", commit.hash, commit.message)).await;
+        }
         tx.send(CommandMessage::StepComplete {
             step: STEP_PULL.to_string(),
         })
         .await?;
-        return Ok(count);
+        return Ok(commits);
     } else {
         out(tx, "  ✗ Failed to pull configuration updates").await;
         let stderr = pull_result

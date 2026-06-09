@@ -887,6 +887,30 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
     // Build ALL content lines (no truncation)
     let mut all_lines: Vec<Line<'static>> = vec![Line::from("")];
 
+    // Configuration commits pulled from upstream
+    if !summary.config_commits.is_empty() {
+        all_lines.push(Line::from(Span::styled(
+            "Configuration Updates:".to_string(),
+            theme::title(),
+        )));
+        let commit_count = summary.config_commits.len();
+        all_lines.push(Line::from(Span::styled(
+            format!(
+                "  Pulled {} commit{}",
+                commit_count,
+                if commit_count == 1 { "" } else { "s" }
+            ),
+            theme::success(),
+        )));
+        for commit in &summary.config_commits {
+            all_lines.push(Line::from(Span::styled(
+                format!("    {} {}", commit.hash, commit.message),
+                theme::info(),
+            )));
+        }
+        all_lines.push(Line::from(""));
+    }
+
     // Flake changes section (no limit)
     if !summary.flake_changes.is_empty() {
         all_lines.push(Line::from(Span::styled(
