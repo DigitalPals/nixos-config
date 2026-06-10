@@ -57,10 +57,10 @@ index 941be38..7c04183 100644
      "weather" => weather::Factory,
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
 new file mode 100644
-index 0000000..63c36cc
+index 0000000..2959c88
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,19 @@
 +use relm4::prelude::*;
 +
 +use super::ModelbarDropdown;
@@ -72,8 +72,9 @@ index 0000000..63c36cc
 +pub(crate) struct Factory;
 +
 +impl DropdownFactory for Factory {
-+    fn create(_services: &ShellServices) -> Option<DropdownInstance> {
-+        let controller = ModelbarDropdown::builder().launch(()).detach();
++    fn create(services: &ShellServices) -> Option<DropdownInstance> {
++        let scale = services.config.config().styling.scale.get().value();
++        let controller = ModelbarDropdown::builder().launch(scale).detach();
 +
 +        let popover = controller.widget().clone();
 +        Some(DropdownInstance::new(popover, Box::new(controller)))
@@ -81,223 +82,989 @@ index 0000000..63c36cc
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
 new file mode 100644
-index 0000000..efe5e82
+index 0000000..3fcfff6
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,987 @@
 +mod factory;
 +
-+use gtk::{pango, prelude::*};
++use std::time::Instant;
++
++use chrono::Utc;
++use gtk::{glib, prelude::*};
 +use relm4::{gtk, prelude::*};
-+use wayle_widgets::prelude::*;
 +
 +pub(super) use self::factory::Factory;
 +use crate::shell::{
 +    bar::{
 +        dropdowns::scaled_dimension,
-+        modelbar_data::{ModelbarStatus, fetch_status},
++        modelbar_data::{
++            ModelbarPayload, ProviderData, WindowData, fetch_payload, fmt_countdown,
++            fmt_reset_abs, format_compact_u64, format_local_time,
++        },
 +    },
 +    helpers::COMPONENT_CSS_PRIORITY,
 +};
 +
-+const BASE_WIDTH: f32 = 420.0;
-+const BASE_HEIGHT: f32 = 520.0;
++const BASE_WIDTH: f32 = 560.0;
++const BASE_HEIGHT: f32 = 540.0;
++const REFRESH_INTERVAL_SECS: u64 = 300;
++/// Reopening the dropdown within this window keeps the cached data.
++const REOPEN_FETCH_SECS: u64 = 30;
++const BAR_SEGMENTS: i32 = 30;
++
++const TEXT: &str = "#e8ecf1";
++const DIM: &str = "#8b95a3";
++const FAINT: &str = "#5b6470";
++const WARN: &str = "#e0a93e";
++const DANGER: &str = "#e2604f";
++const OK_GREEN: &str = "#46b576";
++const INSET_RGB: (f64, f64, f64) = (0.051, 0.067, 0.082);
++const BORDER_RGB: (f64, f64, f64) = (0.137, 0.169, 0.208);
++
++struct ProviderSpec {
++    id: &'static str,
++    name: &'static str,
++    tool: &'static str,
++    accent: &'static str,
++    accent_rgb: (f64, f64, f64),
++    dot_class: &'static str,
++}
++
++const PROVIDERS: [ProviderSpec; 2] = [
++    ProviderSpec {
++        id: "claude",
++        name: "Claude",
++        tool: "Claude Code",
++        accent: "#d97757",
++        accent_rgb: (0.851, 0.467, 0.341),
++        dot_class: "claude",
++    },
++    ProviderSpec {
++        id: "codex",
++        name: "Codex",
++        tool: "Codex CLI",
++        accent: "#4fb8a8",
++        accent_rgb: (0.310, 0.722, 0.659),
++        dot_class: "codex",
++    },
++];
++
++#[derive(Clone, Copy, PartialEq, Eq)]
++enum Level {
++    Ok,
++    Warn,
++    Danger,
++}
++
++fn pct_level(pct: f64) -> Level {
++    if pct <= 10.0 {
++        Level::Danger
++    } else if pct <= 25.0 {
++        Level::Warn
++    } else {
++        Level::Ok
++    }
++}
++
++fn level_hex(level: Level, accent: &'static str) -> &'static str {
++    match level {
++        Level::Ok => accent,
++        Level::Warn => WARN,
++        Level::Danger => DANGER,
++    }
++}
++
++fn level_rgb(level: Level, accent: (f64, f64, f64)) -> (f64, f64, f64) {
++    match level {
++        Level::Ok => accent,
++        Level::Warn => (0.878, 0.663, 0.243),
++        Level::Danger => (0.886, 0.376, 0.310),
++    }
++}
++
++fn esc(text: &str) -> glib::GString {
++    glib::markup_escape_text(text)
++}
 +
 +pub(crate) struct ModelbarDropdown {
-+    status: ModelbarStatus,
-+    scaled_width: i32,
-+    scaled_height: i32,
++    payload: Option<ModelbarPayload>,
++    error: Option<String>,
++    active: usize,
++    busy: bool,
++    last_fetch: Option<Instant>,
++    updated_text: String,
++}
++
++struct TabUi {
++    button: gtk::Button,
++    pct: gtk::Label,
++}
++
++pub(crate) struct ModelbarUi {
++    tabs: Vec<TabUi>,
++    refresh: gtk::Button,
++    tool: gtk::Label,
++    meta: gtk::Label,
++    live_dot: gtk::Box,
++    live_label: gtk::Label,
++    cards: gtk::Box,
++    updated: gtk::Label,
++    next_poll: gtk::Label,
++    countdowns: Vec<(gtk::Label, i64)>,
 +}
 +
 +#[derive(Debug)]
 +pub(crate) enum ModelbarDropdownMsg {
 +    Refresh,
++    SelectTab(usize),
++    Opened(bool),
 +}
 +
 +#[derive(Debug)]
 +pub(crate) enum ModelbarDropdownCmd {
-+    StatusLoaded(ModelbarStatus),
++    Loaded(Result<ModelbarPayload, String>),
++    Tick,
 +}
 +
-+#[relm4::component(pub(crate))]
 +impl Component for ModelbarDropdown {
-+    type Init = ();
++    type Init = f32;
 +    type Input = ModelbarDropdownMsg;
 +    type Output = ();
 +    type CommandOutput = ModelbarDropdownCmd;
++    type Root = gtk::Popover;
++    type Widgets = ModelbarUi;
 +
-+    view! {
-+        #[root]
-+        gtk::Popover {
-+            set_css_classes: &["dropdown", "modelbar-dropdown"],
-+            set_has_arrow: false,
-+            set_width_request: model.scaled_width,
-+            set_height_request: model.scaled_height,
-+
-+            #[template]
-+            Dropdown {
-+                set_width_request: model.scaled_width,
-+
-+                #[template]
-+                DropdownHeader {
-+                    #[template_child]
-+                    icon {
-+                        set_visible: true,
-+                        set_icon_name: Some("ld-brain-symbolic"),
-+                    },
-+                    #[template_child]
-+                    label {
-+                        set_label: "ModelBar",
-+                    },
-+                    #[template_child]
-+                    actions {
-+                        #[template]
-+                        GhostIconButton {
-+                            set_icon_name: "tb-refresh-symbolic",
-+                            set_tooltip_text: Some("Refresh usage"),
-+                            connect_clicked => ModelbarDropdownMsg::Refresh,
-+                        },
-+                    },
-+                },
-+
-+                #[template]
-+                DropdownContent {
-+                    set_vexpand: true,
-+
-+                    gtk::Box {
-+                        add_css_class: "modelbar-summary",
-+                        set_orientation: gtk::Orientation::Vertical,
-+                        set_spacing: 8,
-+
-+                        gtk::Label {
-+                            add_css_class: "modelbar-title",
-+                            set_xalign: 0.0,
-+                            set_ellipsize: pango::EllipsizeMode::End,
-+                            #[watch]
-+                            set_label: &model.status.text,
-+                        },
-+
-+                        gtk::LevelBar {
-+                            add_css_class: "modelbar-level",
-+                            set_min_value: 0.0,
-+                            set_max_value: 100.0,
-+                            #[watch]
-+                            set_value: model.status.percentage as f64,
-+                        },
-+                    },
-+
-+                    gtk::ScrolledWindow {
-+                        add_css_class: "modelbar-scroll",
-+                        set_vexpand: true,
-+                        set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
-+
-+                        gtk::Box {
-+                            add_css_class: "modelbar-details",
-+                            set_orientation: gtk::Orientation::Vertical,
-+                            set_spacing: 6,
-+
-+                            #[watch]
-+                            set_visible: !model.status.tooltip_lines().is_empty(),
-+
-+                            #[watch]
-+                            set_margin_top: 8,
-+
-+                            #[watch]
-+                            set_tooltip_text: Some(&model.status.tooltip),
-+
-+                            #[watch]
-+                            set_css_classes: &["modelbar-details", &model.status.class],
-+
-+                            gtk::Label {
-+                                add_css_class: "modelbar-detail-text",
-+                                set_xalign: 0.0,
-+                                set_yalign: 0.0,
-+                                set_wrap: true,
-+                                set_selectable: true,
-+                                #[watch]
-+                                set_label: &model.status.tooltip,
-+                            },
-+                        },
-+                    },
-+                },
-+            },
-+        }
++    fn init_root() -> Self::Root {
++        let popover = gtk::Popover::new();
++        popover.set_css_classes(&["dropdown", "modelbar-dropdown"]);
++        popover.set_has_arrow(false);
++        popover
 +    }
 +
 +    fn init(
-+        _init: Self::Init,
-+        _root: Self::Root,
++        scale: Self::Init,
++        root: Self::Root,
 +        sender: ComponentSender<Self>,
 +    ) -> ComponentParts<Self> {
-+        let scale = 1.0;
-+        let model = Self {
-+            status: ModelbarStatus::offline("Loading ModelBar usage..."),
-+            scaled_width: scaled_dimension(BASE_WIDTH, scale),
-+            scaled_height: scaled_dimension(BASE_HEIGHT, scale),
-+        };
-+        sender.oneshot_command(async { ModelbarDropdownCmd::StatusLoaded(fetch_status().await) });
 +        load_css();
-+        let widgets = view_output!();
++        root.set_width_request(scaled_dimension(BASE_WIDTH, scale));
++        root.set_height_request(scaled_dimension(BASE_HEIGHT, scale));
++
++        let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
++        outer.add_css_class("mb-root");
++
++        // Header: provider tab switcher + refresh.
++        let header = gtk::Box::new(gtk::Orientation::Horizontal, 0);
++        header.add_css_class("mb-header");
++
++        let tabs_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
++        tabs_box.add_css_class("mb-tabs");
++        tabs_box.set_halign(gtk::Align::Start);
++        tabs_box.set_valign(gtk::Align::Center);
++
++        let mut tabs = Vec::new();
++        for (index, spec) in PROVIDERS.iter().enumerate() {
++            let tab = build_tab(spec, index, &sender);
++            tabs_box.append(&tab.button);
++            tabs.push(tab);
++        }
++        header.append(&tabs_box);
++
++        let header_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
++        header_spacer.set_hexpand(true);
++        header.append(&header_spacer);
++
++        let refresh = gtk::Button::from_icon_name("tb-refresh-symbolic");
++        refresh.add_css_class("mb-refresh");
++        refresh.set_valign(gtk::Align::Center);
++        refresh.set_tooltip_text(Some("Refresh usage"));
++        let refresh_sender = sender.input_sender().clone();
++        refresh.connect_clicked(move |_| refresh_sender.emit(ModelbarDropdownMsg::Refresh));
++        header.append(&refresh);
++        outer.append(&header);
++
++        // Body: provider meta row + scrollable cards.
++        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
++        body.add_css_class("mb-body");
++        body.set_vexpand(true);
++
++        let provider_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++        provider_row.add_css_class("mb-provider-row");
++
++        let tool = gtk::Label::new(None);
++        tool.add_css_class("mb-tool");
++        tool.set_xalign(0.0);
++        provider_row.append(&tool);
++
++        let meta = gtk::Label::new(None);
++        meta.add_css_class("mb-meta");
++        meta.set_xalign(0.0);
++        meta.set_ellipsize(gtk::pango::EllipsizeMode::End);
++        meta.set_hexpand(true);
++        provider_row.append(&meta);
++
++        let live_dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
++        live_dot.add_css_class("mb-live-dot");
++        live_dot.set_size_request(7, 7);
++        live_dot.set_valign(gtk::Align::Center);
++        provider_row.append(&live_dot);
++
++        let live_label = gtk::Label::new(None);
++        live_label.add_css_class("mb-live");
++        provider_row.append(&live_label);
++        body.append(&provider_row);
++
++        let cards = gtk::Box::new(gtk::Orientation::Vertical, 12);
++        cards.add_css_class("mb-cards");
++
++        let scroll = gtk::ScrolledWindow::new();
++        scroll.set_vexpand(true);
++        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
++        scroll.set_child(Some(&cards));
++        body.append(&scroll);
++        outer.append(&body);
++
++        // Footer: updated time + next poll countdown.
++        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++        footer.add_css_class("mb-footer");
++
++        let updated = gtk::Label::new(None);
++        updated.add_css_class("mb-foot");
++        updated.set_xalign(0.0);
++        updated.set_hexpand(true);
++        footer.append(&updated);
++
++        let next_poll = gtk::Label::new(None);
++        next_poll.add_css_class("mb-foot");
++        footer.append(&next_poll);
++        outer.append(&footer);
++
++        root.set_child(Some(&outer));
++
++        let visibility_sender = sender.input_sender().clone();
++        root.connect_visible_notify(move |popover| {
++            visibility_sender.emit(ModelbarDropdownMsg::Opened(popover.is_visible()));
++        });
++
++        // 1s tick drives countdowns, the next-poll label, and auto-refresh.
++        sender.command(|out, shutdown| {
++            shutdown
++                .register(async move {
++                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
++                    loop {
++                        interval.tick().await;
++                        if out.send(ModelbarDropdownCmd::Tick).is_err() {
++                            break;
++                        }
++                    }
++                })
++                .drop_on_shutdown()
++        });
++
++        let mut model = Self {
++            payload: None,
++            error: None,
++            active: 0,
++            busy: false,
++            last_fetch: None,
++            updated_text: String::from("never"),
++        };
++        model.start_refresh(&sender);
++
++        let mut widgets = ModelbarUi {
++            tabs,
++            refresh,
++            tool,
++            meta,
++            live_dot,
++            live_label,
++            cards,
++            updated,
++            next_poll,
++            countdowns: Vec::new(),
++        };
++        model.render(&mut widgets);
 +
 +        ComponentParts { model, widgets }
 +    }
 +
-+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
-+        match msg {
++    fn update_with_view(
++        &mut self,
++        widgets: &mut Self::Widgets,
++        message: Self::Input,
++        sender: ComponentSender<Self>,
++        _root: &Self::Root,
++    ) {
++        match message {
 +            ModelbarDropdownMsg::Refresh => {
-+                sender.oneshot_command(async {
-+                    ModelbarDropdownCmd::StatusLoaded(fetch_status().await)
-+                });
++                self.start_refresh(&sender);
++                self.render(widgets);
++            }
++            ModelbarDropdownMsg::SelectTab(index) => {
++                if self.active != index {
++                    self.active = index;
++                    self.render(widgets);
++                }
++            }
++            ModelbarDropdownMsg::Opened(visible) => {
++                let stale = self
++                    .last_fetch
++                    .map(|at| at.elapsed().as_secs() >= REOPEN_FETCH_SECS)
++                    .unwrap_or(true);
++                if visible && stale {
++                    self.start_refresh(&sender);
++                    self.render(widgets);
++                }
 +            }
 +        }
 +    }
 +
-+    fn update_cmd(
++    fn update_cmd_with_view(
 +        &mut self,
-+        msg: Self::CommandOutput,
-+        _sender: ComponentSender<Self>,
-+        _root: &Self::Root,
++        widgets: &mut Self::Widgets,
++        message: Self::CommandOutput,
++        sender: ComponentSender<Self>,
++        root: &Self::Root,
 +    ) {
-+        match msg {
-+            ModelbarDropdownCmd::StatusLoaded(status) => {
-+                self.status = status;
++        match message {
++            ModelbarDropdownCmd::Loaded(result) => {
++                self.busy = false;
++                match result {
++                    Ok(payload) => {
++                        self.error = payload.error.clone();
++                        self.updated_text = payload
++                            .updated_at
++                            .as_deref()
++                            .map(format_local_time)
++                            .unwrap_or_else(|| {
++                                chrono::Local::now().format("%-I:%M:%S %p").to_string()
++                            });
++                        self.payload = Some(payload);
++                    }
++                    Err(error) => self.error = Some(error),
++                }
++                self.render(widgets);
++            }
++            ModelbarDropdownCmd::Tick => {
++                if root.is_visible() {
++                    let now = Utc::now().timestamp();
++                    for (label, resets_at) in &widgets.countdowns {
++                        set_countdown_markup(label, *resets_at - now);
++                    }
++                    widgets.next_poll.set_markup(&self.next_poll_markup());
++                    if !self.busy
++                        && self
++                            .last_fetch
++                            .map(|at| at.elapsed().as_secs() >= REFRESH_INTERVAL_SECS)
++                            .unwrap_or(false)
++                    {
++                        self.start_refresh(&sender);
++                        self.render(widgets);
++                    }
++                }
 +            }
 +        }
 +    }
++}
++
++impl ModelbarDropdown {
++    fn start_refresh(&mut self, sender: &ComponentSender<Self>) {
++        if self.busy {
++            return;
++        }
++        self.busy = true;
++        self.last_fetch = Some(Instant::now());
++        sender.oneshot_command(async { ModelbarDropdownCmd::Loaded(fetch_payload().await) });
++    }
++
++    fn provider(&self, index: usize) -> Option<&ProviderData> {
++        self.payload
++            .as_ref()
++            .and_then(|payload| payload.provider(PROVIDERS[index].id))
++    }
++
++    fn next_poll_markup(&self) -> String {
++        let value = if self.busy {
++            String::from("polling...")
++        } else {
++            let elapsed = self
++                .last_fetch
++                .map(|at| at.elapsed().as_secs())
++                .unwrap_or(REFRESH_INTERVAL_SECS);
++            format!("{}s", REFRESH_INTERVAL_SECS.saturating_sub(elapsed))
++        };
++        format!(
++            "<span foreground=\"{FAINT}\">next poll </span><span foreground=\"{DIM}\">{}</span>",
++            esc(&value)
++        )
++    }
++
++    /// Full rebuild of all data-driven widgets.
++    fn render(&self, ui: &mut ModelbarUi) {
++        // Tabs.
++        for (index, tab) in ui.tabs.iter().enumerate() {
++            let spec = &PROVIDERS[index];
++            let provider = self.provider(index);
++            if index == self.active {
++                tab.button.add_css_class("active");
++            } else {
++                tab.button.remove_css_class("active");
++            }
++            let badge = match provider {
++                Some(p) if !p.ok => format!("<span foreground=\"{DANGER}\">ERR</span>"),
++                Some(p) => match p.min_remaining() {
++                    Some(pct) => {
++                        let color = match pct_level(pct) {
++                            Level::Ok => DIM,
++                            level => level_hex(level, spec.accent),
++                        };
++                        format!("<span foreground=\"{color}\">{pct:.0}%</span>")
++                    }
++                    None => format!("<span foreground=\"{DIM}\">--</span>"),
++                },
++                None => format!("<span foreground=\"{DIM}\">--</span>"),
++            };
++            tab.pct.set_markup(&badge);
++        }
++
++        // Provider meta row.
++        let spec = &PROVIDERS[self.active];
++        let provider = self.provider(self.active);
++        ui.tool.set_label(spec.tool);
++        let subtitle = provider.map(ProviderData::subtitle).unwrap_or_default();
++        ui.meta.set_visible(!subtitle.is_empty());
++        ui.meta.set_label(&subtitle);
++
++        let ok = provider.map(|p| p.ok).unwrap_or(false);
++        ui.live_dot
++            .set_css_classes(&["mb-live-dot", if ok { "ok" } else { "err" }]);
++        ui.live_label
++            .set_css_classes(&["mb-live", if ok { "ok" } else { "err" }]);
++        ui.live_label.set_label(if ok { "LIVE" } else { "ERROR" });
++
++        // Cards.
++        ui.countdowns.clear();
++        while let Some(child) = ui.cards.first_child() {
++            ui.cards.remove(&child);
++        }
++        match provider {
++            Some(provider) => {
++                if !provider.ok {
++                    let (title, body) = unavailable_notice(provider);
++                    ui.cards.append(&build_notice(&title, &body, DANGER));
++                }
++                let windows = provider.windows();
++                if windows.is_empty() && provider.ok {
++                    ui.cards.append(&build_notice(
++                        "No usage windows",
++                        "The CLI credentials were found, but no live limit windows were returned.",
++                        DIM,
++                    ));
++                }
++
++                let grid = gtk::Grid::new();
++                grid.set_column_homogeneous(true);
++                grid.set_column_spacing(12);
++                grid.set_row_spacing(12);
++                let mut cell = 0_i32;
++                for window in &windows {
++                    let card = build_window_card(provider, window, spec, &mut ui.countdowns);
++                    grid.attach(&card, cell % 2, cell / 2, 1, 1);
++                    cell += 1;
++                }
++                if let Some((title, value, detail)) = provider.credit_card() {
++                    grid.attach(
++                        &build_credit_card(&title, &value, &detail),
++                        cell % 2,
++                        cell / 2,
++                        1,
++                        1,
++                    );
++                    cell += 1;
++                }
++                if cell > 0 {
++                    ui.cards.append(&grid);
++                }
++
++                if let Some(local) = build_local_stats(provider) {
++                    ui.cards.append(&local);
++                }
++            }
++            None if self.busy => ui.cards.append(&build_notice(
++                "Fetching usage",
++                "Reading local CLI credentials and requesting live limit windows.",
++                OK_GREEN,
++            )),
++            None => ui.cards.append(&build_notice(
++                "No usage data",
++                self.error
++                    .as_deref()
++                    .unwrap_or("Usage has not been fetched yet."),
++                DANGER,
++            )),
++        }
++
++        // Footer.
++        ui.updated.set_markup(&format!(
++            "<span foreground=\"{FAINT}\">updated </span><span foreground=\"{DIM}\">{}</span>",
++            esc(&self.updated_text)
++        ));
++        ui.next_poll.set_markup(&self.next_poll_markup());
++        ui.refresh.set_sensitive(!self.busy);
++    }
++}
++
++fn build_tab(
++    spec: &'static ProviderSpec,
++    index: usize,
++    sender: &ComponentSender<ModelbarDropdown>,
++) -> TabUi {
++    let button = gtk::Button::new();
++    button.set_css_classes(&["mb-tab"]);
++
++    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++    let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
++    dot.set_css_classes(&["mb-dot", spec.dot_class]);
++    dot.set_size_request(8, 8);
++    dot.set_valign(gtk::Align::Center);
++    row.append(&dot);
++
++    let name = gtk::Label::new(Some(spec.name));
++    name.add_css_class("mb-tab-name");
++    row.append(&name);
++
++    let pct = gtk::Label::new(None);
++    pct.add_css_class("mb-tab-pct");
++    row.append(&pct);
++
++    button.set_child(Some(&row));
++    let tab_sender = sender.input_sender().clone();
++    button.connect_clicked(move |_| tab_sender.emit(ModelbarDropdownMsg::SelectTab(index)));
++
++    TabUi { button, pct }
++}
++
++fn build_window_card(
++    provider: &ProviderData,
++    window: &WindowData,
++    spec: &ProviderSpec,
++    countdowns: &mut Vec<(gtk::Label, i64)>,
++) -> gtk::Box {
++    let pct = window.remaining();
++    let level = pct_level(pct);
++    let level_class = match level {
++        Level::Ok => None,
++        Level::Warn => Some("warn"),
++        Level::Danger => Some("danger"),
++    };
++
++    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
++    card.set_css_classes(&["mb-card"]);
++    if let Some(class) = level_class {
++        card.add_css_class(class);
++    }
++
++    // Title row with optional LOW/CRITICAL badge.
++    let title_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++    let title = gtk::Label::new(None);
++    title.add_css_class("mb-card-title");
++    title.set_xalign(0.0);
++    title.set_hexpand(true);
++    title.set_markup(&format!(
++        "<span letter_spacing=\"1024\">{}</span>",
++        esc(&provider.window_title(window).to_uppercase())
++    ));
++    title_row.append(&title);
++    if let Some(class) = level_class {
++        let badge = gtk::Label::new(Some(if level == Level::Danger {
++            "CRITICAL"
++        } else {
++            "LOW"
++        }));
++        badge.set_css_classes(&["mb-card-badge", class]);
++        badge.set_valign(gtk::Align::Center);
++        title_row.append(&badge);
++    }
++    card.append(&title_row);
++
++    // Big "80% remaining" line.
++    let number_color = match level {
++        Level::Ok => TEXT,
++        level => level_hex(level, spec.accent),
++    };
++    let value = gtk::Label::new(None);
++    value.set_xalign(0.0);
++    value.set_markup(&format!(
++        "<span font=\"JetBrains Mono 27\" weight=\"600\" foreground=\"{number_color}\">{pct:.0}</span><span font=\"JetBrains Mono 14\" foreground=\"{DIM}\">%</span><span font=\"9.5\" foreground=\"{FAINT}\"> remaining</span>",
++    ));
++    card.append(&value);
++
++    card.append(&build_segment_bar(pct, level_rgb(level, spec.accent_rgb)));
++
++    // Reset countdown row.
++    let reset_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++    match window.reset_time() {
++        Some(resets_at) => {
++            let countdown = gtk::Label::new(None);
++            countdown.add_css_class("mb-reset");
++            countdown.set_xalign(0.0);
++            countdown.set_hexpand(true);
++            let epoch = resets_at.timestamp();
++            set_countdown_markup(&countdown, epoch - Utc::now().timestamp());
++            reset_row.append(&countdown);
++            countdowns.push((countdown, epoch));
++
++            let absolute = gtk::Label::new(None);
++            absolute.add_css_class("mb-reset");
++            absolute.set_markup(&format!(
++                "<span foreground=\"{FAINT}\">{}</span>",
++                esc(&fmt_reset_abs(resets_at))
++            ));
++            reset_row.append(&absolute);
++        }
++        None => {
++            let unavailable = gtk::Label::new(None);
++            unavailable.add_css_class("mb-reset");
++            unavailable.set_xalign(0.0);
++            unavailable.set_hexpand(true);
++            unavailable.set_markup(&format!(
++                "<span foreground=\"{FAINT}\">reset time unavailable</span>"
++            ));
++            reset_row.append(&unavailable);
++        }
++    }
++    card.append(&reset_row);
++    card
++}
++
++fn set_countdown_markup(label: &gtk::Label, secs_left: i64) {
++    label.set_markup(&format!(
++        "<span foreground=\"{DIM}\">resets in </span><span foreground=\"{TEXT}\">{}</span>",
++        esc(&fmt_countdown(secs_left))
++    ));
++}
++
++fn build_segment_bar(pct: f64, color: (f64, f64, f64)) -> gtk::DrawingArea {
++    let area = gtk::DrawingArea::new();
++    area.set_content_height(10);
++    area.set_hexpand(true);
++    area.set_draw_func(move |_, cr, width, height| {
++        let gap = 2.0;
++        let total = f64::from(width);
++        let h = f64::from(height);
++        let seg = ((total - gap * f64::from(BAR_SEGMENTS - 1)) / f64::from(BAR_SEGMENTS)).max(1.0);
++        let filled = ((pct / 100.0) * f64::from(BAR_SEGMENTS)).round() as i32;
++        for i in 0..BAR_SEGMENTS {
++            let x = f64::from(i) * (seg + gap);
++            if i < filled {
++                cr.set_source_rgb(color.0, color.1, color.2);
++                cr.rectangle(x, 0.0, seg, h);
++                let _ = cr.fill();
++            } else {
++                cr.set_source_rgb(INSET_RGB.0, INSET_RGB.1, INSET_RGB.2);
++                cr.rectangle(x, 0.0, seg, h);
++                let _ = cr.fill();
++                cr.set_source_rgb(BORDER_RGB.0, BORDER_RGB.1, BORDER_RGB.2);
++                cr.set_line_width(1.0);
++                cr.rectangle(x + 0.5, 0.5, seg - 1.0, h - 1.0);
++                let _ = cr.stroke();
++            }
++        }
++    });
++    area
++}
++
++fn build_credit_card(title: &str, value: &str, detail: &str) -> gtk::Box {
++    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
++    card.set_css_classes(&["mb-card"]);
++
++    let title_label = gtk::Label::new(None);
++    title_label.add_css_class("mb-card-title");
++    title_label.set_xalign(0.0);
++    title_label.set_markup(&format!(
++        "<span letter_spacing=\"1024\">{}</span>",
++        esc(&title.to_uppercase())
++    ));
++    card.append(&title_label);
++
++    let value_label = gtk::Label::new(None);
++    value_label.set_xalign(0.0);
++    value_label.set_markup(&format!(
++        "<span font=\"JetBrains Mono 21\" weight=\"600\" foreground=\"{TEXT}\">{}</span>",
++        esc(value)
++    ));
++    card.append(&value_label);
++
++    if !detail.is_empty() {
++        let detail_label = gtk::Label::new(None);
++        detail_label.add_css_class("mb-reset");
++        detail_label.set_xalign(0.0);
++        detail_label.set_wrap(true);
++        detail_label.set_markup(&format!(
++            "<span foreground=\"{FAINT}\">{}</span>",
++            esc(detail)
++        ));
++        card.append(&detail_label);
++    }
++    card
++}
++
++fn build_local_stats(provider: &ProviderData) -> Option<gtk::Box> {
++    let local = provider.local.as_ref()?;
++    let stats = [
++        ("prompts today", local.prompts_today.map(|v| v.to_string())),
++        (
++            "sessions today",
++            local.sessions_today.map(|v| v.to_string()),
++        ),
++        (
++            "latest tokens",
++            local.latest_session_tokens.map(format_compact_u64),
++        ),
++        (
++            "latest model",
++            local.latest_model.clone().filter(|s| !s.is_empty()),
++        ),
++    ];
++    if stats.iter().all(|(_, value)| value.is_none()) {
++        return None;
++    }
++
++    let section = gtk::Box::new(gtk::Orientation::Vertical, 8);
++    let header = gtk::Label::new(None);
++    header.add_css_class("mb-card-title");
++    header.set_xalign(0.0);
++    header.set_markup("<span letter_spacing=\"1024\">LOCAL ACTIVITY</span>");
++    section.append(&header);
++
++    let chips = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++    for (label, value) in stats {
++        let Some(value) = value else { continue };
++        let chip = gtk::Box::new(gtk::Orientation::Vertical, 2);
++        chip.set_css_classes(&["mb-chip"]);
++
++        let caption = gtk::Label::new(Some(label));
++        caption.add_css_class("mb-chip-label");
++        caption.set_xalign(0.0);
++        chip.append(&caption);
++
++        let amount = gtk::Label::new(Some(&value));
++        amount.add_css_class("mb-chip-value");
++        amount.set_xalign(0.0);
++        chip.append(&amount);
++        chips.append(&chip);
++    }
++    section.append(&chips);
++    Some(section)
++}
++
++fn build_notice(title: &str, body: &str, accent: &str) -> gtk::Box {
++    let card = gtk::Box::new(gtk::Orientation::Vertical, 4);
++    card.set_css_classes(&["mb-card", "mb-notice"]);
++
++    let title_label = gtk::Label::new(None);
++    title_label.set_xalign(0.0);
++    title_label.set_markup(&format!(
++        "<span weight=\"600\" foreground=\"{accent}\">{}</span>",
++        esc(title)
++    ));
++    card.append(&title_label);
++
++    let body_label = gtk::Label::new(None);
++    body_label.set_xalign(0.0);
++    body_label.set_wrap(true);
++    body_label.set_markup(&format!("<span foreground=\"{DIM}\">{}</span>", esc(body)));
++    card.append(&body_label);
++    card
++}
++
++fn unavailable_notice(provider: &ProviderData) -> (String, String) {
++    let raw_error = provider
++        .error
++        .as_deref()
++        .unwrap_or("The provider did not return usage data.");
++
++    let normalized = raw_error.to_lowercase();
++    let needs_claude_auth = provider.provider == "claude"
++        && (normalized == "unauthorized"
++            || normalized.contains("no claude oauth credentials")
++            || normalized.contains("no claude access token")
++            || normalized.contains("run `claude` to authenticate"));
++    if needs_claude_auth {
++        return (
++            "Claude authorization required".to_owned(),
++            format!(
++                "Run `claude` in a terminal once, finish the Claude login/status prompts, then press Refresh. Details: {raw_error}"
++            ),
++        );
++    }
++
++    ("Usage unavailable".to_owned(), raw_error.to_owned())
 +}
 +
 +fn load_css() {
 +    let provider = gtk::CssProvider::new();
 +    provider.load_from_string(
 +        r#"
-+        .modelbar-dropdown .modelbar-summary {
-+            padding: 12px;
-+            border-radius: 8px;
-+            background: alpha(currentColor, 0.05);
++        popover.modelbar-dropdown > contents {
++            background-color: #11151a;
++            border: 1px solid #222932;
 +        }
-+        .modelbar-dropdown .modelbar-title {
++        .modelbar-dropdown .mb-header {
++            padding-bottom: 12px;
++            border-bottom: 1px solid #222932;
++        }
++        .modelbar-dropdown .mb-tabs {
++            background-color: #0d1115;
++            border: 1px solid #222932;
++            border-radius: 9px;
++            padding: 3px;
++        }
++        .modelbar-dropdown .mb-tab {
++            background: none;
++            border: none;
++            box-shadow: none;
++            padding: 6px 12px;
++            border-radius: 7px;
++            min-height: 0;
++        }
++        .modelbar-dropdown .mb-tab:hover {
++            background-color: alpha(#161b22, 0.55);
++        }
++        .modelbar-dropdown .mb-tab.active {
++            background-color: #161b22;
++            border: 1px solid #232b35;
++        }
++        .modelbar-dropdown .mb-tab-name {
++            color: #8b95a3;
++            font-weight: 600;
++            font-size: 13px;
++        }
++        .modelbar-dropdown .mb-tab.active .mb-tab-name {
++            color: #e8ecf1;
++        }
++        .modelbar-dropdown .mb-tab-pct {
++            font-family: "JetBrains Mono", monospace;
++            font-size: 11px;
 +            font-weight: 600;
 +        }
-+        .modelbar-dropdown .modelbar-detail-text {
-+            font-family: monospace;
-+            font-size: 0.88em;
-+            line-height: 1.3;
++        .modelbar-dropdown .mb-dot {
++            border-radius: 4px;
++            min-width: 8px;
++            min-height: 8px;
 +        }
-+        .modelbar.ok .bar-button label,
-+        .modelbar-dropdown .ok {
-+            color: #46b576;
++        .modelbar-dropdown .mb-dot.claude { background-color: #d97757; }
++        .modelbar-dropdown .mb-dot.codex { background-color: #4fb8a8; }
++        .modelbar-dropdown .mb-tab:not(.active) .mb-dot { opacity: 0.45; }
++        .modelbar-dropdown .mb-refresh {
++            background: none;
++            border: 1px solid #232b35;
++            border-radius: 6px;
++            min-width: 28px;
++            min-height: 28px;
++            padding: 0;
++            color: #8b95a3;
++            box-shadow: none;
 +        }
-+        .modelbar.warning .bar-button label,
-+        .modelbar-dropdown .warning {
++        .modelbar-dropdown .mb-refresh:hover { color: #e8ecf1; }
++        .modelbar-dropdown .mb-body {
++            padding-top: 14px;
++        }
++        .modelbar-dropdown .mb-provider-row {
++            padding-bottom: 14px;
++        }
++        .modelbar-dropdown .mb-tool {
++            color: #e8ecf1;
++            font-weight: 600;
++            font-size: 15px;
++        }
++        .modelbar-dropdown .mb-meta {
++            color: #8b95a3;
++            font-family: "JetBrains Mono", monospace;
++            font-size: 12px;
++        }
++        .modelbar-dropdown .mb-live {
++            font-family: "JetBrains Mono", monospace;
++            font-size: 11px;
++            font-weight: 600;
++            letter-spacing: 1px;
++        }
++        .modelbar-dropdown .mb-live.ok { color: #46b576; }
++        .modelbar-dropdown .mb-live.err { color: #e2604f; }
++        .modelbar-dropdown .mb-live-dot {
++            border-radius: 4px;
++            min-width: 7px;
++            min-height: 7px;
++        }
++        .modelbar-dropdown .mb-live-dot.ok {
++            background-color: #46b576;
++            animation: mb-pulse 2s ease-in-out infinite;
++        }
++        .modelbar-dropdown .mb-live-dot.err { background-color: #e2604f; }
++        @keyframes mb-pulse {
++            0% { opacity: 1; }
++            50% { opacity: 0.35; }
++            100% { opacity: 1; }
++        }
++        .modelbar-dropdown .mb-cards {
++            padding-bottom: 14px;
++        }
++        .modelbar-dropdown .mb-card {
++            background-color: #161b22;
++            border: 1px solid #232b35;
++            border-radius: 8px;
++            padding: 16px 18px;
++        }
++        .modelbar-dropdown .mb-card.warn { border-color: alpha(#e0a93e, 0.35); }
++        .modelbar-dropdown .mb-card.danger { border-color: alpha(#e2604f, 0.35); }
++        .modelbar-dropdown .mb-card-title {
++            color: #8b95a3;
++            font-weight: 600;
++            font-size: 12px;
++        }
++        .modelbar-dropdown .mb-card-badge {
++            font-family: "JetBrains Mono", monospace;
++            font-size: 10px;
++            font-weight: 700;
++            border: 1px solid;
++            border-radius: 4px;
++            padding: 1px 6px;
++        }
++        .modelbar-dropdown .mb-card-badge.warn {
 +            color: #e0a93e;
++            border-color: alpha(#e0a93e, 0.4);
 +        }
-+        .modelbar.critical .bar-button label,
-+        .modelbar-dropdown .critical {
++        .modelbar-dropdown .mb-card-badge.danger {
 +            color: #e2604f;
++            border-color: alpha(#e2604f, 0.4);
 +        }
-+        .modelbar.offline .bar-button label,
-+        .modelbar-dropdown .offline {
-+            opacity: 0.72;
++        .modelbar-dropdown .mb-reset {
++            font-family: "JetBrains Mono", monospace;
++            font-size: 12px;
++        }
++        .modelbar-dropdown .mb-chip {
++            background-color: #161b22;
++            border: 1px solid #232b35;
++            border-radius: 6px;
++            padding: 8px 12px;
++        }
++        .modelbar-dropdown .mb-chip-label {
++            color: #5b6470;
++            font-size: 11px;
++        }
++        .modelbar-dropdown .mb-chip-value {
++            color: #e8ecf1;
++            font-family: "JetBrains Mono", monospace;
++            font-size: 13px;
++        }
++        .modelbar-dropdown .mb-footer {
++            padding-top: 8px;
++            border-top: 1px solid #222932;
++        }
++        .modelbar-dropdown .mb-foot {
++            font-family: "JetBrains Mono", monospace;
++            font-size: 11px;
 +        }
 +        "#,
 +    );
@@ -320,12 +1087,13 @@ index 5b5cf1c..912fea1 100644
  mod watchers;
 diff --git a/crates/wayle-shell/src/shell/bar/modelbar_data.rs b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
 new file mode 100644
-index 0000000..02898f9
+index 0000000..2b551a5
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,318 @@
 +use std::{env, path::PathBuf, process::Stdio, time::Duration};
 +
++use chrono::{DateTime, Local, Utc};
 +use serde::Deserialize;
 +use tokio::{process::Command, time::timeout};
 +
@@ -337,8 +1105,6 @@ index 0000000..02898f9
 +    pub(crate) tooltip: String,
 +    #[serde(default)]
 +    pub(crate) class: String,
-+    #[serde(default)]
-+    pub(crate) percentage: u8,
 +}
 +
 +impl ModelbarStatus {
@@ -347,32 +1113,220 @@ index 0000000..02898f9
 +            text: String::from("Models offline"),
 +            tooltip: error.into(),
 +            class: String::from("offline"),
-+            percentage: 0,
 +        }
-+    }
-+
-+    pub(crate) fn tooltip_lines(&self) -> Vec<String> {
-+        self.tooltip
-+            .lines()
-+            .map(str::trim_end)
-+            .filter(|line| !line.is_empty())
-+            .map(ToOwned::to_owned)
-+            .collect()
 +    }
 +}
 +
 +pub(crate) async fn fetch_status() -> ModelbarStatus {
-+    match timeout(COMMAND_TIMEOUT, run_status_command()).await {
++    match timeout(COMMAND_TIMEOUT, run_command::<ModelbarStatus>("status")).await {
 +        Ok(Ok(status)) => status,
 +        Ok(Err(error)) => ModelbarStatus::offline(error),
 +        Err(_) => ModelbarStatus::offline("Timed out while fetching ModelBar usage."),
 +    }
 +}
 +
-+async fn run_status_command() -> Result<ModelbarStatus, String> {
++/// Full structured usage payload used by the dropdown UI.
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct ModelbarPayload {
++    pub(crate) ok: bool,
++    pub(crate) updated_at: Option<String>,
++    pub(crate) providers: Vec<ProviderData>,
++    pub(crate) error: Option<String>,
++}
++
++impl ModelbarPayload {
++    pub(crate) fn provider(&self, id: &str) -> Option<&ProviderData> {
++        self.providers.iter().find(|p| p.provider == id)
++    }
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct ProviderData {
++    pub(crate) ok: bool,
++    pub(crate) provider: String,
++    pub(crate) source: Option<String>,
++    pub(crate) usage: Option<UsageData>,
++    pub(crate) credits: Option<CreditsData>,
++    pub(crate) account: Option<AccountData>,
++    pub(crate) local: Option<LocalData>,
++    pub(crate) error: Option<String>,
++}
++
++impl ProviderData {
++    pub(crate) fn windows(&self) -> Vec<WindowData> {
++        let Some(usage) = &self.usage else {
++            return Vec::new();
++        };
++        let mut windows = Vec::new();
++        for window in [&usage.primary, &usage.secondary, &usage.tertiary]
++            .into_iter()
++            .flatten()
++        {
++            windows.push(window.clone());
++        }
++        if let Some(extra) = &usage.extra_rate_windows {
++            windows.extend(extra.iter().cloned());
++        }
++        windows
++    }
++
++    pub(crate) fn min_remaining(&self) -> Option<f64> {
++        self.windows()
++            .iter()
++            .map(WindowData::remaining)
++            .fold(None, |acc: Option<f64>, pct| {
++                Some(acc.map_or(pct, |current| current.min(pct)))
++            })
++    }
++
++    /// "Claude Max 5x · claude-oauth" style meta line.
++    pub(crate) fn subtitle(&self) -> String {
++        let mut parts = Vec::new();
++        if let Some(account) = &self.account {
++            if let Some(plan) = account.plan.as_ref().filter(|value| !value.is_empty()) {
++                parts.push(plan.clone());
++            }
++            if let Some(email) = account.email.as_ref().filter(|value| !value.is_empty()) {
++                parts.push(email.clone());
++            }
++        }
++        if let Some(source) = self.source.as_ref().filter(|value| !value.is_empty()) {
++            parts.push(source.clone());
++        }
++        parts.join(" · ")
++    }
++
++    pub(crate) fn window_title(&self, window: &WindowData) -> String {
++        let label = window.label.as_deref().unwrap_or("Usage");
++        match (self.provider.as_str(), window.window_minutes) {
++            ("codex", Some(300)) | ("claude", Some(300)) => "5 hour limit".to_owned(),
++            ("codex", Some(10080)) => "Weekly limit".to_owned(),
++            ("claude", Some(10080)) if label.eq_ignore_ascii_case("weekly") => {
++                "Weekly limit".to_owned()
++            }
++            _ => label.to_owned(),
++        }
++    }
++
++    /// Optional credits card as (title, value, detail).
++    pub(crate) fn credit_card(&self) -> Option<(String, String, String)> {
++        let credits = self.credits.as_ref()?;
++        if credits.unlimited.unwrap_or(false) {
++            return Some((
++                "Credits remaining".to_owned(),
++                "Unlimited".to_owned(),
++                "No credit cap reported".to_owned(),
++            ));
++        }
++        if let (Some(used), Some(limit)) = (credits.used, credits.limit)
++            && used >= 0.0
++            && limit >= 0.0
++        {
++            let currency = credits.currency.as_deref();
++            return Some((
++                credits
++                    .period
++                    .clone()
++                    .filter(|value| !value.is_empty())
++                    .unwrap_or_else(|| "Credits".to_owned()),
++                format!(
++                    "{} / {}",
++                    format_money(used, currency),
++                    format_money(limit, currency)
++                ),
++                "Extra usage".to_owned(),
++            ));
++        }
++        let remaining = credits.remaining?;
++        if remaining >= 0.0 {
++            return Some((
++                "Credits remaining".to_owned(),
++                if remaining.fract() == 0.0 {
++                    format!("{remaining:.0}")
++                } else {
++                    format!("{remaining:.2}")
++                },
++                "Use credits to continue beyond your plan limits".to_owned(),
++            ));
++        }
++        None
++    }
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct UsageData {
++    pub(crate) primary: Option<WindowData>,
++    pub(crate) secondary: Option<WindowData>,
++    pub(crate) tertiary: Option<WindowData>,
++    pub(crate) extra_rate_windows: Option<Vec<WindowData>>,
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct WindowData {
++    pub(crate) label: Option<String>,
++    pub(crate) used_percent: f64,
++    pub(crate) remaining_percent: Option<f64>,
++    pub(crate) window_minutes: Option<u64>,
++    pub(crate) resets_at: Option<String>,
++}
++
++impl WindowData {
++    pub(crate) fn remaining(&self) -> f64 {
++        self.remaining_percent
++            .unwrap_or(100.0 - self.used_percent)
++            .clamp(0.0, 100.0)
++    }
++
++    pub(crate) fn reset_time(&self) -> Option<DateTime<Utc>> {
++        self.resets_at
++            .as_deref()
++            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
++            .map(|dt| dt.with_timezone(&Utc))
++    }
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct CreditsData {
++    pub(crate) remaining: Option<f64>,
++    pub(crate) used: Option<f64>,
++    pub(crate) limit: Option<f64>,
++    pub(crate) currency: Option<String>,
++    pub(crate) unlimited: Option<bool>,
++    pub(crate) period: Option<String>,
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct AccountData {
++    pub(crate) email: Option<String>,
++    pub(crate) plan: Option<String>,
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase", default)]
++pub(crate) struct LocalData {
++    pub(crate) prompts_today: Option<u64>,
++    pub(crate) sessions_today: Option<u64>,
++    pub(crate) latest_session_tokens: Option<u64>,
++    pub(crate) latest_model: Option<String>,
++}
++
++pub(crate) async fn fetch_payload() -> Result<ModelbarPayload, String> {
++    match timeout(COMMAND_TIMEOUT, run_command::<ModelbarPayload>("payload")).await {
++        Ok(result) => result,
++        Err(_) => Err("Timed out while fetching ModelBar usage.".to_owned()),
++    }
++}
++
++async fn run_command<T: serde::de::DeserializeOwned>(arg: &str) -> Result<T, String> {
 +    let binary = command_path();
 +    let output = Command::new(&binary)
-+        .arg("status")
++        .arg(arg)
 +        .stdin(Stdio::null())
 +        .stderr(Stdio::piped())
 +        .stdout(Stdio::piped())
@@ -381,7 +1335,7 @@ index 0000000..02898f9
 +        .map_err(|err| format!("failed to run {}: {err}", binary.display()))?;
 +
 +    let stdout = String::from_utf8_lossy(&output.stdout);
-+    serde_json::from_str::<ModelbarStatus>(&stdout).map_err(|err| {
++    serde_json::from_str::<T>(&stdout).map_err(|err| {
 +        let stderr = String::from_utf8_lossy(&output.stderr);
 +        format!("invalid ModelBar JSON: {err}; {}", stderr.trim())
 +    })
@@ -397,6 +1351,63 @@ index 0000000..02898f9
 +        .join("wayle")
 +        .join("bin")
 +        .join("wayle-model-usage")
++}
++
++pub(crate) fn format_local_time(value: &str) -> String {
++    DateTime::parse_from_rfc3339(value)
++        .map(|dt| dt.with_timezone(&Local).format("%-I:%M:%S %p").to_string())
++        .unwrap_or_else(|_| "just now".to_owned())
++}
++
++pub(crate) fn fmt_countdown(secs: i64) -> String {
++    if secs <= 0 {
++        return "now".to_owned();
++    }
++    let days = secs / 86400;
++    let hours = (secs % 86400) / 3600;
++    let minutes = (secs % 3600) / 60;
++    let seconds = secs % 60;
++    if days > 0 {
++        format!("{days}d {hours:02}h")
++    } else if hours > 0 {
++        format!("{hours}h {minutes:02}m")
++    } else {
++        format!("{minutes}:{seconds:02}")
++    }
++}
++
++pub(crate) fn fmt_reset_abs(resets_at: DateTime<Utc>) -> String {
++    let local = resets_at.with_timezone(&Local);
++    if local.date_naive() == Local::now().date_naive() {
++        local.format("%-I:%M %p").to_string()
++    } else {
++        local.format("%b %-d %-I:%M %p").to_string()
++    }
++}
++
++pub(crate) fn format_compact_u64(value: u64) -> String {
++    if value >= 1_000_000 {
++        format!("{:.1}M", value as f64 / 1_000_000.0)
++    } else if value >= 1_000 {
++        format!("{:.1}K", value as f64 / 1_000.0)
++    } else {
++        value.to_string()
++    }
++}
++
++fn format_money(value: f64, currency: Option<&str>) -> String {
++    let amount = if value.abs() >= 1000.0 {
++        format!("{:.1}K", value / 1000.0)
++    } else {
++        format!("{value:.2}")
++    };
++    match currency.unwrap_or("").to_uppercase().as_str() {
++        "USD" => format!("${amount}"),
++        "EUR" => format!("EUR {amount}"),
++        "GBP" => format!("GBP {amount}"),
++        code if !code.is_empty() => format!("{amount} {code}"),
++        _ => amount,
++    }
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/mod.rs b/crates/wayle-shell/src/shell/bar/modules/mod.rs
 index c0022a2..63c62b3 100644
