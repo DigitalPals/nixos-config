@@ -3,6 +3,70 @@
 
 let
   lockCommand = "hyprlock --config ${config.xdg.configHome}/hypr/hyprlock.conf --immediate-render --no-fade-in";
+  configFile = pkgs.writeText "wayle-config.toml" ''
+    # Wayle configuration file
+
+    [styling]
+    scale = 0.90
+
+    [bar]
+    scale = 0.82
+    padding = 0.18
+    padding-ends = 0.30
+    module-gap = 0.25
+    button-icon-size = 0.85
+    button-icon-padding = 0.55
+    button-label-size = 0.85
+    button-label-padding = 0.55
+    button-gap = 0.45
+    button-group-module-gap = 0.15
+  '';
+  runtimeConfig = pkgs.writeText "wayle-runtime.toml" ''
+    [bar]
+    inset-edge = 0.5
+    inset-ends = 0.5
+    padding-ends = 1.2999999523162842
+    module-gap = 0.75
+    rounding = "md"
+
+    [[bar.layout]]
+    monitor = "*"
+    show = true
+    left = [
+        "hyprland-workspaces",
+        "media",
+    ]
+    center = ["clock"]
+    right = [
+        "idle-inhibit",
+        "battery",
+        "network",
+        "modelbar",
+        "dashboard",
+    ]
+
+    [modules.bluetooth]
+    label-show = false
+
+    [modules.clock]
+    format = "%e %b %Y %H:%M"
+    icon-show = false
+    button-bg-color = "transparent"
+
+    [modules.dashboard]
+    dropdown-lock-command = "${lockCommand}"
+
+    [modules.media]
+    icon-type = "default"
+
+    [wallpaper]
+    cycling-directory = "${config.home.homeDirectory}/Pictures/Wallpapers"
+
+    [[wallpaper.monitors]]
+    name = "eDP-1"
+    fit-mode = "fill"
+    wallpaper = "${config.home.homeDirectory}/Pictures/Wallpapers/snow-capped-mountains-with-full-moon-lo.jpg"
+  '';
 in
 {
   home.packages = with pkgs; [
@@ -15,71 +79,8 @@ in
     wayle
   ];
 
-    xdg.configFile."wayle/config.toml".text = ''
-      # Wayle configuration file
-
-      [styling]
-      scale = 0.90
-
-      [bar]
-      scale = 0.82
-      padding = 0.18
-      padding-ends = 0.30
-      module-gap = 0.25
-      button-icon-size = 0.85
-      button-icon-padding = 0.55
-      button-label-size = 0.85
-      button-label-padding = 0.55
-      button-gap = 0.45
-      button-group-module-gap = 0.15
-    '';
-
-    xdg.configFile."wayle/runtime.toml".text = ''
-      [bar]
-      inset-edge = 0.5
-      inset-ends = 0.5
-      padding-ends = 1.2999999523162842
-      module-gap = 0.75
-      rounding = "md"
-
-      [[bar.layout]]
-      monitor = "*"
-      show = true
-      left = [
-          "hyprland-workspaces",
-          "media",
-      ]
-      center = ["clock"]
-      right = [
-          "idle-inhibit",
-          "battery",
-          "network",
-          "modelbar",
-          "dashboard",
-      ]
-
-      [modules.bluetooth]
-      label-show = false
-
-      [modules.clock]
-      format = "%e %b %Y %H:%M"
-      icon-show = false
-      button-bg-color = "transparent"
-
-      [modules.dashboard]
-      dropdown-lock-command = "${lockCommand}"
-
-      [modules.media]
-      icon-type = "default"
-
-      [wallpaper]
-      cycling-directory = "${config.home.homeDirectory}/Pictures/Wallpapers"
-
-      [[wallpaper.monitors]]
-      name = "eDP-1"
-      fit-mode = "fill"
-      wallpaper = "${config.home.homeDirectory}/Pictures/Wallpapers/snow-capped-mountains-with-full-moon-lo.jpg"
-    '';
+    xdg.configFile."wayle/config.toml.default".source = configFile;
+    xdg.configFile."wayle/runtime.toml.default".source = runtimeConfig;
 
     xdg.configFile."wayle/styles/index.scss".text = ''
       // Custom Wayle styles. Anything here overrides the built-in styling.
@@ -101,6 +102,23 @@ in
       .modelbar.error menubutton.bar-button {
         opacity: 0.65;
       }
+    '';
+
+    home.activation.seedWayleConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      seed_mutable_config() {
+        source_file="$1"
+        target_file="$2"
+
+        if [ -L "$target_file" ] || [ ! -e "$target_file" ]; then
+          mkdir -p "$(dirname "$target_file")"
+          rm -f "$target_file"
+          cp "$source_file" "$target_file"
+          chmod u+w "$target_file"
+        fi
+      }
+
+      seed_mutable_config ${configFile} "${config.xdg.configHome}/wayle/config.toml"
+      seed_mutable_config ${runtimeConfig} "${config.xdg.configHome}/wayle/runtime.toml"
     '';
 
     xdg.configFile."walker/config.toml".text = ''
@@ -438,7 +456,6 @@ in
     systemd.user.services.elephant = {
       Unit = {
         Description = "Elephant launcher backend";
-        After = [ config.wayland.systemd.target ];
         PartOf = [ config.wayland.systemd.target ];
       };
       Service = {
