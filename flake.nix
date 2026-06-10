@@ -47,6 +47,11 @@
       icamerasrcIpu75xa = final.callPackage ./packages/icamerasrc-ipu75xa {
         ipu7CameraHal = final.ipu7CameraHal;
       };
+      wayle = prev.wayle.overrideAttrs (old: {
+        patches = (old.patches or []) ++ [
+          ./packages/wayle-modelbar/modelbar.patch
+        ];
+      });
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
       _1password-gui =

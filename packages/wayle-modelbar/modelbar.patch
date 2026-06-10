@@ -1,0 +1,655 @@
+diff --git a/crates/wayle-config/src/schemas/bar/types/mod.rs b/crates/wayle-config/src/schemas/bar/types/mod.rs
+index b918d6c..18c67df 100644
+--- a/crates/wayle-config/src/schemas/bar/types/mod.rs
++++ b/crates/wayle-config/src/schemas/bar/types/mod.rs
+@@ -221,6 +221,8 @@ pub enum BarModule {
+     KeyboardInput,
+     /// Media player controls.
+     Media,
++    /// Model usage status and limits.
++    Modelbar,
+     /// Microphone mute status.
+     Microphone,
+     /// Network connection status.
+@@ -300,6 +302,7 @@ impl BarModule {
+             Self::Hyprsunset => "hyprsunset",
+             Self::KeyboardInput => "keyboard-input",
+             Self::Media => "media",
++            Self::Modelbar => "modelbar",
+             Self::Microphone => "microphone",
+             Self::Network => "network",
+             Self::Netstat => "netstat",
+@@ -335,6 +338,7 @@ impl BarModule {
+             "hyprsunset" => Self::Hyprsunset,
+             "keyboard-input" => Self::KeyboardInput,
+             "media" => Self::Media,
++            "modelbar" => Self::Modelbar,
+             "microphone" => Self::Microphone,
+             "network" => Self::Network,
+             "netstat" => Self::Netstat,
+@@ -421,6 +425,7 @@ const BUILTIN_MODULES: &[&str] = &[
+     "keybind-mode",
+     "keyboard-input",
+     "media",
++    "modelbar",
+     "mango-workspaces",
+     "microphone",
+     "netstat",
+diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
+index 941be38..7c04183 100644
+--- a/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
++++ b/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
+@@ -5,6 +5,7 @@ mod brightness;
+ mod calendar;
+ mod dashboard;
+ mod media;
++mod modelbar;
+ mod network;
+ mod notification;
+ mod registry;
+@@ -47,6 +48,7 @@ register_dropdowns! {
+     "calendar" => calendar::Factory,
+     "dashboard" => dashboard::Factory,
+     "media" => media::Factory,
++    "modelbar" => modelbar::Factory,
+     "network" => network::Factory,
+     "notification" => notification::Factory,
+     "weather" => weather::Factory,
+diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
+new file mode 100644
+index 0000000..63c36cc
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
+@@ -0,0 +1,18 @@
++use relm4::prelude::*;
++
++use super::ModelbarDropdown;
++use crate::shell::{
++    bar::dropdowns::{DropdownFactory, DropdownInstance},
++    services::ShellServices,
++};
++
++pub(crate) struct Factory;
++
++impl DropdownFactory for Factory {
++    fn create(_services: &ShellServices) -> Option<DropdownInstance> {
++        let controller = ModelbarDropdown::builder().launch(()).detach();
++
++        let popover = controller.widget().clone();
++        Some(DropdownInstance::new(popover, Box::new(controller)))
++    }
++}
+diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
+new file mode 100644
+index 0000000..efe5e82
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
+@@ -0,0 +1,221 @@
++mod factory;
++
++use gtk::{pango, prelude::*};
++use relm4::{gtk, prelude::*};
++use wayle_widgets::prelude::*;
++
++pub(super) use self::factory::Factory;
++use crate::shell::{
++    bar::{
++        dropdowns::scaled_dimension,
++        modelbar_data::{ModelbarStatus, fetch_status},
++    },
++    helpers::COMPONENT_CSS_PRIORITY,
++};
++
++const BASE_WIDTH: f32 = 420.0;
++const BASE_HEIGHT: f32 = 520.0;
++
++pub(crate) struct ModelbarDropdown {
++    status: ModelbarStatus,
++    scaled_width: i32,
++    scaled_height: i32,
++}
++
++#[derive(Debug)]
++pub(crate) enum ModelbarDropdownMsg {
++    Refresh,
++}
++
++#[derive(Debug)]
++pub(crate) enum ModelbarDropdownCmd {
++    StatusLoaded(ModelbarStatus),
++}
++
++#[relm4::component(pub(crate))]
++impl Component for ModelbarDropdown {
++    type Init = ();
++    type Input = ModelbarDropdownMsg;
++    type Output = ();
++    type CommandOutput = ModelbarDropdownCmd;
++
++    view! {
++        #[root]
++        gtk::Popover {
++            set_css_classes: &["dropdown", "modelbar-dropdown"],
++            set_has_arrow: false,
++            set_width_request: model.scaled_width,
++            set_height_request: model.scaled_height,
++
++            #[template]
++            Dropdown {
++                set_width_request: model.scaled_width,
++
++                #[template]
++                DropdownHeader {
++                    #[template_child]
++                    icon {
++                        set_visible: true,
++                        set_icon_name: Some("ld-brain-symbolic"),
++                    },
++                    #[template_child]
++                    label {
++                        set_label: "ModelBar",
++                    },
++                    #[template_child]
++                    actions {
++                        #[template]
++                        GhostIconButton {
++                            set_icon_name: "tb-refresh-symbolic",
++                            set_tooltip_text: Some("Refresh usage"),
++                            connect_clicked => ModelbarDropdownMsg::Refresh,
++                        },
++                    },
++                },
++
++                #[template]
++                DropdownContent {
++                    set_vexpand: true,
++
++                    gtk::Box {
++                        add_css_class: "modelbar-summary",
++                        set_orientation: gtk::Orientation::Vertical,
++                        set_spacing: 8,
++
++                        gtk::Label {
++                            add_css_class: "modelbar-title",
++                            set_xalign: 0.0,
++                            set_ellipsize: pango::EllipsizeMode::End,
++                            #[watch]
++                            set_label: &model.status.text,
++                        },
++
++                        gtk::LevelBar {
++                            add_css_class: "modelbar-level",
++                            set_min_value: 0.0,
++                            set_max_value: 100.0,
++                            #[watch]
++                            set_value: model.status.percentage as f64,
++                        },
++                    },
++
++                    gtk::ScrolledWindow {
++                        add_css_class: "modelbar-scroll",
++                        set_vexpand: true,
++                        set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
++
++                        gtk::Box {
++                            add_css_class: "modelbar-details",
++                            set_orientation: gtk::Orientation::Vertical,
++                            set_spacing: 6,
++
++                            #[watch]
++                            set_visible: !model.status.tooltip_lines().is_empty(),
++
++                            #[watch]
++                            set_margin_top: 8,
++
++                            #[watch]
++                            set_tooltip_text: Some(&model.status.tooltip),
++
++                            #[watch]
++                            set_css_classes: &["modelbar-details", &model.status.class],
++
++                            gtk::Label {
++                                add_css_class: "modelbar-detail-text",
++                                set_xalign: 0.0,
++                                set_yalign: 0.0,
++                                set_wrap: true,
++                                set_selectable: true,
++                                #[watch]
++                                set_label: &model.status.tooltip,
++                            },
++                        },
++                    },
++                },
++            },
++        }
++    }
++
++    fn init(
++        _init: Self::Init,
++        _root: Self::Root,
++        sender: ComponentSender<Self>,
++    ) -> ComponentParts<Self> {
++        let scale = 1.0;
++        let model = Self {
++            status: ModelbarStatus::offline("Loading ModelBar usage..."),
++            scaled_width: scaled_dimension(BASE_WIDTH, scale),
++            scaled_height: scaled_dimension(BASE_HEIGHT, scale),
++        };
++        sender.oneshot_command(async { ModelbarDropdownCmd::StatusLoaded(fetch_status().await) });
++        load_css();
++        let widgets = view_output!();
++
++        ComponentParts { model, widgets }
++    }
++
++    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
++        match msg {
++            ModelbarDropdownMsg::Refresh => {
++                sender.oneshot_command(async {
++                    ModelbarDropdownCmd::StatusLoaded(fetch_status().await)
++                });
++            }
++        }
++    }
++
++    fn update_cmd(
++        &mut self,
++        msg: Self::CommandOutput,
++        _sender: ComponentSender<Self>,
++        _root: &Self::Root,
++    ) {
++        match msg {
++            ModelbarDropdownCmd::StatusLoaded(status) => {
++                self.status = status;
++            }
++        }
++    }
++}
++
++fn load_css() {
++    let provider = gtk::CssProvider::new();
++    provider.load_from_string(
++        r#"
++        .modelbar-dropdown .modelbar-summary {
++            padding: 12px;
++            border-radius: 8px;
++            background: alpha(currentColor, 0.05);
++        }
++        .modelbar-dropdown .modelbar-title {
++            font-weight: 600;
++        }
++        .modelbar-dropdown .modelbar-detail-text {
++            font-family: monospace;
++            font-size: 0.88em;
++            line-height: 1.3;
++        }
++        .modelbar.ok .bar-button label,
++        .modelbar-dropdown .ok {
++            color: #46b576;
++        }
++        .modelbar.warning .bar-button label,
++        .modelbar-dropdown .warning {
++            color: #e0a93e;
++        }
++        .modelbar.critical .bar-button label,
++        .modelbar-dropdown .critical {
++            color: #e2604f;
++        }
++        .modelbar.offline .bar-button label,
++        .modelbar-dropdown .offline {
++            opacity: 0.72;
++        }
++        "#,
++    );
++
++    if let Some(display) = gtk::gdk::Display::default() {
++        gtk::style_context_add_provider_for_display(&display, &provider, COMPONENT_CSS_PRIORITY);
++    }
++}
+diff --git a/crates/wayle-shell/src/shell/bar/mod.rs b/crates/wayle-shell/src/shell/bar/mod.rs
+index 5b5cf1c..912fea1 100644
+--- a/crates/wayle-shell/src/shell/bar/mod.rs
++++ b/crates/wayle-shell/src/shell/bar/mod.rs
+@@ -2,6 +2,7 @@ mod dropdowns;
+ mod factory;
+ pub(crate) mod icons;
+ mod methods;
++mod modelbar_data;
+ mod modules;
+ mod styling;
+ mod watchers;
+diff --git a/crates/wayle-shell/src/shell/bar/modelbar_data.rs b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
+new file mode 100644
+index 0000000..02898f9
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
+@@ -0,0 +1,74 @@
++use std::{env, path::PathBuf, process::Stdio, time::Duration};
++
++use serde::Deserialize;
++use tokio::{process::Command, time::timeout};
++
++const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
++
++#[derive(Clone, Debug, Deserialize)]
++pub(crate) struct ModelbarStatus {
++    pub(crate) text: String,
++    pub(crate) tooltip: String,
++    #[serde(default)]
++    pub(crate) class: String,
++    #[serde(default)]
++    pub(crate) percentage: u8,
++}
++
++impl ModelbarStatus {
++    pub(crate) fn offline(error: impl Into<String>) -> Self {
++        Self {
++            text: String::from("Models offline"),
++            tooltip: error.into(),
++            class: String::from("offline"),
++            percentage: 0,
++        }
++    }
++
++    pub(crate) fn tooltip_lines(&self) -> Vec<String> {
++        self.tooltip
++            .lines()
++            .map(str::trim_end)
++            .filter(|line| !line.is_empty())
++            .map(ToOwned::to_owned)
++            .collect()
++    }
++}
++
++pub(crate) async fn fetch_status() -> ModelbarStatus {
++    match timeout(COMMAND_TIMEOUT, run_status_command()).await {
++        Ok(Ok(status)) => status,
++        Ok(Err(error)) => ModelbarStatus::offline(error),
++        Err(_) => ModelbarStatus::offline("Timed out while fetching ModelBar usage."),
++    }
++}
++
++async fn run_status_command() -> Result<ModelbarStatus, String> {
++    let binary = command_path();
++    let output = Command::new(&binary)
++        .arg("status")
++        .stdin(Stdio::null())
++        .stderr(Stdio::piped())
++        .stdout(Stdio::piped())
++        .output()
++        .await
++        .map_err(|err| format!("failed to run {}: {err}", binary.display()))?;
++
++    let stdout = String::from_utf8_lossy(&output.stdout);
++    serde_json::from_str::<ModelbarStatus>(&stdout).map_err(|err| {
++        let stderr = String::from_utf8_lossy(&output.stderr);
++        format!("invalid ModelBar JSON: {err}; {}", stderr.trim())
++    })
++}
++
++fn command_path() -> PathBuf {
++    if let Some(path) = env::var_os("WAYLE_MODELBAR_BIN") {
++        return PathBuf::from(path);
++    }
++    let home = env::var_os("HOME").unwrap_or_else(|| "/home/john".into());
++    PathBuf::from(home)
++        .join(".config")
++        .join("wayle")
++        .join("bin")
++        .join("wayle-model-usage")
++}
+diff --git a/crates/wayle-shell/src/shell/bar/modules/mod.rs b/crates/wayle-shell/src/shell/bar/modules/mod.rs
+index c0022a2..63c62b3 100644
+--- a/crates/wayle-shell/src/shell/bar/modules/mod.rs
++++ b/crates/wayle-shell/src/shell/bar/modules/mod.rs
+@@ -15,6 +15,7 @@ mod keyboard_input;
+ mod mango_workspaces;
+ mod media;
+ mod microphone;
++mod modelbar;
+ mod netstat;
+ mod network;
+ mod niri_workspaces;
+@@ -74,6 +75,7 @@ register_modules! {
+     KeyboardInput => keyboard_input::Factory,
+     MangoWorkspaces => mango_workspaces::Factory,
+     Media => media::Factory,
++    Modelbar => modelbar::Factory,
+     Microphone => microphone::Factory,
+     Netstat => netstat::Factory,
+     Network => network::Factory,
+diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs
+new file mode 100644
+index 0000000..a9bf7d4
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs
+@@ -0,0 +1,31 @@
++use std::rc::Rc;
++
++use relm4::prelude::*;
++use wayle_widgets::prelude::BarSettings;
++
++use super::{ModelbarInit, ModelbarModule};
++use crate::shell::{
++    bar::{
++        dropdowns::DropdownRegistry,
++        modules::registry::{ModuleFactory, ModuleInstance, dynamic_controller},
++    },
++    services::ShellServices,
++};
++
++pub(crate) struct Factory;
++
++impl ModuleFactory for Factory {
++    fn create(
++        settings: &BarSettings,
++        _services: &ShellServices,
++        dropdowns: &Rc<DropdownRegistry>,
++        class: Option<String>,
++    ) -> Option<ModuleInstance> {
++        let init = ModelbarInit {
++            settings: settings.clone(),
++            dropdowns: dropdowns.clone(),
++        };
++        let controller = dynamic_controller(ModelbarModule::builder().launch(init).detach());
++        Some(ModuleInstance { controller, class })
++    }
++}
+diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs
+new file mode 100644
+index 0000000..af2b65a
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs
+@@ -0,0 +1,25 @@
++use std::rc::Rc;
++
++use wayle_widgets::prelude::BarSettings;
++
++use crate::shell::bar::{dropdowns::DropdownRegistry, modelbar_data::ModelbarStatus};
++
++pub(crate) struct ModelbarInit {
++    pub(crate) settings: BarSettings,
++    pub(crate) dropdowns: Rc<DropdownRegistry>,
++}
++
++#[derive(Debug)]
++pub(crate) enum ModelbarMsg {
++    LeftClick,
++    RightClick,
++    MiddleClick,
++    ScrollUp,
++    ScrollDown,
++}
++
++#[derive(Debug)]
++pub(crate) enum ModelbarCmd {
++    Refresh,
++    StatusLoaded(ModelbarStatus),
++}
+diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
+new file mode 100644
+index 0000000..dba5219
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
+@@ -0,0 +1,138 @@
++mod factory;
++mod messages;
++mod watchers;
++
++use std::rc::Rc;
++
++use gtk::prelude::*;
++use relm4::prelude::*;
++use wayle_config::{ClickAction, ConfigProperty, schemas::styling::CssToken};
++use wayle_widgets::prelude::{
++    BarButton, BarButtonBehavior, BarButtonColors, BarButtonInit, BarButtonInput, BarButtonOutput,
++    ColorValue,
++};
++
++pub(crate) use self::{
++    factory::Factory,
++    messages::{ModelbarCmd, ModelbarInit, ModelbarMsg},
++};
++use crate::shell::bar::{
++    dropdowns::{self, DropdownRegistry},
++    modelbar_data::{ModelbarStatus, fetch_status},
++};
++
++pub(crate) struct ModelbarModule {
++    bar_button: Controller<BarButton>,
++    dropdowns: Rc<DropdownRegistry>,
++    dynamic_class: Option<String>,
++}
++
++#[relm4::component(pub(crate))]
++impl Component for ModelbarModule {
++    type Init = ModelbarInit;
++    type Input = ModelbarMsg;
++    type Output = ();
++    type CommandOutput = ModelbarCmd;
++
++    view! {
++        gtk::Box {
++            add_css_class: "modelbar",
++
++            #[local_ref]
++            bar_button -> gtk::MenuButton {},
++        }
++    }
++
++    fn init(
++        init: Self::Init,
++        _root: Self::Root,
++        sender: ComponentSender<Self>,
++    ) -> ComponentParts<Self> {
++        let bar_button = BarButton::builder()
++            .launch(BarButtonInit {
++                icon: String::from("ld-brain-symbolic"),
++                label: String::from("Models --"),
++                tooltip: None,
++                colors: BarButtonColors {
++                    icon_color: ConfigProperty::new(ColorValue::Auto),
++                    label_color: ConfigProperty::new(ColorValue::Token(CssToken::FgDefault)),
++                    icon_background: ConfigProperty::new(ColorValue::Auto),
++                    button_background: ConfigProperty::new(ColorValue::Token(
++                        CssToken::BgSurfaceElevated,
++                    )),
++                    border_color: ConfigProperty::new(ColorValue::Auto),
++                    auto_icon_color: CssToken::Accent,
++                },
++                behavior: BarButtonBehavior {
++                    label_max_chars: ConfigProperty::new(32),
++                    show_icon: ConfigProperty::new(false),
++                    show_label: ConfigProperty::new(true),
++                    show_border: ConfigProperty::new(false),
++                    visible: ConfigProperty::new(true),
++                },
++                settings: init.settings,
++            })
++            .forward(sender.input_sender(), |output| match output {
++                BarButtonOutput::LeftClick => ModelbarMsg::LeftClick,
++                BarButtonOutput::RightClick => ModelbarMsg::RightClick,
++                BarButtonOutput::MiddleClick => ModelbarMsg::MiddleClick,
++                BarButtonOutput::ScrollUp => ModelbarMsg::ScrollUp,
++                BarButtonOutput::ScrollDown => ModelbarMsg::ScrollDown,
++            });
++
++        watchers::spawn_watchers(&sender);
++        sender.oneshot_command(async { ModelbarCmd::StatusLoaded(fetch_status().await) });
++
++        let model = Self {
++            bar_button,
++            dropdowns: init.dropdowns,
++            dynamic_class: None,
++        };
++        let bar_button = model.bar_button.widget();
++        let widgets = view_output!();
++
++        ComponentParts { model, widgets }
++    }
++
++    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
++        let action = match msg {
++            ModelbarMsg::LeftClick => ClickAction::Dropdown(String::from("modelbar")),
++            ModelbarMsg::RightClick
++            | ModelbarMsg::MiddleClick
++            | ModelbarMsg::ScrollUp
++            | ModelbarMsg::ScrollDown => ClickAction::None,
++        };
++
++        dropdowns::dispatch_click(&action, &self.dropdowns, &self.bar_button);
++    }
++
++    fn update_cmd(
++        &mut self,
++        msg: Self::CommandOutput,
++        sender: ComponentSender<Self>,
++        root: &Self::Root,
++    ) {
++        match msg {
++            ModelbarCmd::Refresh => {
++                sender.oneshot_command(async { ModelbarCmd::StatusLoaded(fetch_status().await) });
++            }
++            ModelbarCmd::StatusLoaded(status) => self.apply_status(status, root),
++        }
++    }
++}
++
++impl ModelbarModule {
++    fn apply_status(&mut self, status: ModelbarStatus, root: &gtk::Box) {
++        self.bar_button.emit(BarButtonInput::SetLabel(status.text));
++        self.bar_button
++            .emit(BarButtonInput::SetTooltip(Some(status.tooltip)));
++
++        if let Some(old_class) = self.dynamic_class.take() {
++            root.remove_css_class(&old_class);
++        }
++        if !status.class.is_empty() {
++            root.add_css_class(&status.class);
++            self.dynamic_class = Some(status.class);
++        }
++    }
++}
+diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs
+new file mode 100644
+index 0000000..b7c0cf1
+--- /dev/null
++++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs
+@@ -0,0 +1,17 @@
++use std::time::Duration;
++
++use relm4::ComponentSender;
++use tokio::time::interval;
++use tokio_stream::wrappers::IntervalStream;
++use wayle_widgets::watch;
++
++use super::{ModelbarCmd, ModelbarModule};
++
++const REFRESH_INTERVAL: Duration = Duration::from_secs(300);
++
++pub(super) fn spawn_watchers(sender: &ComponentSender<ModelbarModule>) {
++    let interval_stream = IntervalStream::new(interval(REFRESH_INTERVAL));
++    watch!(sender, [interval_stream], |out| {
++        let _ = out.send(ModelbarCmd::Refresh);
++    });
++}
