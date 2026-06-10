@@ -35,6 +35,402 @@ index b918d6c..18c67df 100644
      "mango-workspaces",
      "microphone",
      "netstat",
+diff --git a/crates/wayle-config/src/schemas/modules/mod.rs b/crates/wayle-config/src/schemas/modules/mod.rs
+index f43c710..fdbc0c8 100644
+--- a/crates/wayle-config/src/schemas/modules/mod.rs
++++ b/crates/wayle-config/src/schemas/modules/mod.rs
+@@ -16,6 +16,7 @@ mod keyboard_input;
+ mod mango_workspaces;
+ mod media;
+ mod microphone;
++mod modelbar;
+ mod netstat;
+ mod network;
+ mod niri_workspaces;
+@@ -52,6 +53,7 @@ pub use keyboard_input::KeyboardInputConfig;
+ pub use mango_workspaces::MangoWorkspacesConfig;
+ pub use media::{BUILTIN_MAPPINGS, MediaConfig, MediaIconType};
+ pub use microphone::MicrophoneConfig;
++pub use modelbar::{ModelbarConfig, ProviderOrder};
+ pub use netstat::NetstatConfig;
+ pub use network::NetworkConfig;
+ pub use niri_workspaces::{
+@@ -113,6 +115,8 @@ pub struct ModulesConfig {
+     pub media: MediaConfig,
+     /// Microphone input module.
+     pub microphone: MicrophoneConfig,
++    /// ModelBar usage limits module.
++    pub modelbar: ModelbarConfig,
+     /// Network connection module.
+     pub network: NetworkConfig,
+     /// Network traffic statistics module.
+diff --git a/crates/wayle-config/src/schemas/modules/modelbar/mod.rs b/crates/wayle-config/src/schemas/modules/modelbar/mod.rs
+new file mode 100644
+index 0000000..299df1e
+--- /dev/null
++++ b/crates/wayle-config/src/schemas/modules/modelbar/mod.rs
+@@ -0,0 +1,162 @@
++use schemars::{JsonSchema, schema_for};
++use serde::{Deserialize, Serialize};
++use wayle_derive::wayle_config;
++
++use crate::{
++    ClickAction, ConfigProperty,
++    docs::{ConfigGroup, GroupDefaults, ModuleInfo, ModuleInfoProvider},
++    schemas::styling::{ColorValue, CssToken},
++};
++
++/// Claude Code and Codex usage limits with a detailed dropdown.
++#[wayle_config(bar_button, i18n_prefix = "settings-modules-modelbar")]
++pub struct ModelbarConfig {
++    /// Path to the `wayle-model-usage` bridge executable. Leave empty to use
++    /// `$WAYLE_MODELBAR_BIN` or `~/.config/wayle/bin/wayle-model-usage`.
++    #[default(String::new())]
++    pub command: ConfigProperty<String>,
++
++    /// Path to the Claude Code CLI binary.
++    #[serde(rename = "claude-bin")]
++    #[default(String::from("claude"))]
++    pub claude_bin: ConfigProperty<String>,
++
++    /// Path to the Codex CLI binary.
++    #[serde(rename = "codex-bin")]
++    #[default(String::from("codex"))]
++    pub codex_bin: ConfigProperty<String>,
++
++    /// Provider tab order in the dropdown.
++    #[serde(rename = "provider-order")]
++    #[default(ProviderOrder::default())]
++    pub provider_order: ConfigProperty<ProviderOrder>,
++
++    /// Polling interval in seconds.
++    #[serde(rename = "refresh-interval-seconds")]
++    #[default(300)]
++    pub refresh_interval_seconds: ConfigProperty<u32>,
++
++    /// Dropdown width in pixels (before bar scaling).
++    #[serde(rename = "dropdown-width")]
++    #[default(560)]
++    pub dropdown_width: ConfigProperty<u32>,
++
++    /// Dropdown height in pixels (before bar scaling).
++    #[serde(rename = "dropdown-height")]
++    #[default(540)]
++    pub dropdown_height: ConfigProperty<u32>,
++
++    /// Icon for the bar button.
++    #[serde(rename = "icon-name")]
++    #[default(String::from("ld-brain-symbolic"))]
++    pub icon_name: ConfigProperty<String>,
++
++    /// Display border around button.
++    #[serde(rename = "border-show")]
++    #[default(false)]
++    pub border_show: ConfigProperty<bool>,
++
++    /// Border color token.
++    #[serde(rename = "border-color")]
++    #[default(ColorValue::Token(CssToken::BorderAccent))]
++    pub border_color: ConfigProperty<ColorValue>,
++
++    /// Display module icon.
++    #[serde(rename = "icon-show")]
++    #[default(false)]
++    pub icon_show: ConfigProperty<bool>,
++
++    /// Icon foreground color. Auto selects based on variant for contrast.
++    #[serde(rename = "icon-color")]
++    #[default(ColorValue::Auto)]
++    pub icon_color: ConfigProperty<ColorValue>,
++
++    /// Icon container background color token.
++    #[serde(rename = "icon-bg-color")]
++    #[default(ColorValue::Token(CssToken::Accent))]
++    pub icon_bg_color: ConfigProperty<ColorValue>,
++
++    /// Display usage label.
++    #[serde(rename = "label-show")]
++    #[default(true)]
++    pub label_show: ConfigProperty<bool>,
++
++    /// Label text color token.
++    #[serde(rename = "label-color")]
++    #[default(ColorValue::Token(CssToken::FgDefault))]
++    pub label_color: ConfigProperty<ColorValue>,
++
++    /// Max label characters before truncation with ellipsis. Set to 0 to disable.
++    #[serde(rename = "label-max-length")]
++    #[default(32)]
++    pub label_max_length: ConfigProperty<u32>,
++
++    /// Button background color token.
++    #[serde(rename = "button-bg-color")]
++    #[default(ColorValue::Token(CssToken::BgSurfaceElevated))]
++    pub button_bg_color: ConfigProperty<ColorValue>,
++
++    /// Action on left click.
++    #[serde(rename = "left-click")]
++    #[default(ClickAction::Dropdown(String::from("modelbar")))]
++    pub left_click: ConfigProperty<ClickAction>,
++
++    /// Action on right click.
++    #[serde(rename = "right-click")]
++    #[default(ClickAction::None)]
++    pub right_click: ConfigProperty<ClickAction>,
++
++    /// Action on middle click.
++    #[serde(rename = "middle-click")]
++    #[default(ClickAction::None)]
++    pub middle_click: ConfigProperty<ClickAction>,
++
++    /// Action on scroll up.
++    #[serde(rename = "scroll-up")]
++    #[default(ClickAction::None)]
++    pub scroll_up: ConfigProperty<ClickAction>,
++
++    /// Action on scroll down.
++    #[serde(rename = "scroll-down")]
++    #[default(ClickAction::None)]
++    pub scroll_down: ConfigProperty<ClickAction>,
++}
++
++/// Provider tab order in the ModelBar dropdown.
++#[derive(
++    Debug,
++    Clone,
++    Copy,
++    Default,
++    PartialEq,
++    Eq,
++    Serialize,
++    Deserialize,
++    JsonSchema,
++    wayle_derive::EnumVariants,
++)]
++#[serde(rename_all = "kebab-case")]
++pub enum ProviderOrder {
++    /// Claude tab first.
++    #[default]
++    ClaudeFirst,
++    /// Codex tab first.
++    CodexFirst,
++}
++
++impl ModuleInfoProvider for ModelbarConfig {
++    fn module_info() -> ModuleInfo {
++        ModuleInfo {
++            name: String::from("modelbar"),
++            schema: || schema_for!(ModelbarConfig),
++            layout_id: Some(String::from("modelbar")),
++            array_entry: false,
++        }
++    }
++
++    fn groups() -> Vec<ConfigGroup> {
++        GroupDefaults::bar_button()
++    }
++}
++
++crate::register_module!(ModelbarConfig);
+diff --git a/crates/wayle-i18n/locales/en-US/_settings.ftl b/crates/wayle-i18n/locales/en-US/_settings.ftl
+index 364bd77..a20ac50 100644
+--- a/crates/wayle-i18n/locales/en-US/_settings.ftl
++++ b/crates/wayle-i18n/locales/en-US/_settings.ftl
+@@ -91,6 +91,7 @@ settings-nav-keyboard-input = Keyboard Input
+ settings-nav-mango-workspaces = Mango Workspaces
+ settings-nav-media = Media
+ settings-nav-microphone = Microphone
++settings-nav-modelbar = ModelBar
+ settings-nav-netstat = Netstat
+ settings-nav-network = Network
+ settings-nav-niri-workspaces = Niri Workspaces
+@@ -174,6 +175,8 @@ settings-page-systray = System Tray
+     .breadcrumb = Modules
+ settings-page-volume = Volume
+     .breadcrumb = Modules
++settings-page-modelbar = ModelBar
++    .breadcrumb = Modules
+ settings-page-weather = Weather
+     .breadcrumb = Modules
+ settings-page-window-title = Window Title
+diff --git a/crates/wayle-i18n/locales/en-US/config/_modules.ftl b/crates/wayle-i18n/locales/en-US/config/_modules.ftl
+index 0c34384..38d07fc 100644
+--- a/crates/wayle-i18n/locales/en-US/config/_modules.ftl
++++ b/crates/wayle-i18n/locales/en-US/config/_modules.ftl
+@@ -35,3 +35,7 @@ enum-temperature-unit-imperial = Imperial
+ ## TimeFormat variants
+ enum-time-format-twelve-hour = 12 Hour
+ enum-time-format-twenty-four-hour = 24 Hour
++
++## ModelBar provider order
++enum-provider-order-claude-first = Claude first
++enum-provider-order-codex-first = Codex first
+diff --git a/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl b/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl
+new file mode 100644
+index 0000000..b40551f
+--- /dev/null
++++ b/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl
+@@ -0,0 +1,72 @@
++### Wayle Configuration - ModelBar Module
++
++## ModelBar Module Configuration
++
++settings-modules-modelbar-command = Bridge Command
++    .description = Path to the wayle-model-usage executable. Empty uses $WAYLE_MODELBAR_BIN or ~/.config/wayle/bin/wayle-model-usage
++
++settings-modules-modelbar-claude-bin = Claude Code Binary
++    .description = Path to the Claude Code CLI used to read usage limits
++
++settings-modules-modelbar-codex-bin = Codex Binary
++    .description = Path to the Codex CLI used to read usage limits
++
++settings-modules-modelbar-provider-order = Provider Order
++    .description = Which provider tab comes first in the dropdown
++
++settings-modules-modelbar-refresh-interval = Refresh Interval
++    .description = Polling interval in seconds
++
++settings-modules-modelbar-refresh-interval-seconds = Refresh Interval
++    .description = Polling interval in seconds
++
++settings-modules-modelbar-dropdown-width = Dropdown Width
++    .description = Dropdown width in pixels, before bar scaling
++
++settings-modules-modelbar-dropdown-height = Dropdown Height
++    .description = Dropdown height in pixels, before bar scaling
++
++settings-modules-modelbar-icon-name = Icon
++    .description = Icon for the bar button
++
++settings-modules-modelbar-border-show = Show Border
++    .description = Display border around button
++
++settings-modules-modelbar-border-color = Border Color
++    .description = Border color token
++
++settings-modules-modelbar-icon-show = Show Icon
++    .description = Display module icon
++
++settings-modules-modelbar-icon-color = Icon Color
++    .description = Icon foreground color
++
++settings-modules-modelbar-icon-bg-color = Icon Background
++    .description = Icon container background color token
++
++settings-modules-modelbar-label-show = Show Label
++    .description = Display usage label
++
++settings-modules-modelbar-label-color = Label Color
++    .description = Label text color token
++
++settings-modules-modelbar-label-max-length = Label Max Length
++    .description = Max label characters before truncation with ellipsis. Set to 0 to disable
++
++settings-modules-modelbar-button-bg-color = Button Background
++    .description = Button background color token
++
++settings-modules-modelbar-left-click = Left Click
++    .description = Action on left click
++
++settings-modules-modelbar-right-click = Right Click
++    .description = Action on right click
++
++settings-modules-modelbar-middle-click = Middle Click
++    .description = Action on middle click
++
++settings-modules-modelbar-scroll-up = Scroll Up
++    .description = Action on scroll up
++
++settings-modules-modelbar-scroll-down = Scroll Down
++    .description = Action on scroll down
+diff --git a/crates/wayle-settings/src/pages/modules/mod.rs b/crates/wayle-settings/src/pages/modules/mod.rs
+index cb2a0f5..259606b 100644
+--- a/crates/wayle-settings/src/pages/modules/mod.rs
++++ b/crates/wayle-settings/src/pages/modules/mod.rs
+@@ -16,6 +16,7 @@ mod keyboard_input;
+ mod mango_workspaces;
+ mod media;
+ mod microphone;
++mod modelbar;
+ mod netstat;
+ mod network;
+ mod niri_workspaces;
+@@ -52,6 +53,7 @@ pub(crate) fn factories() -> Vec<fn(&Config) -> LeafEntry> {
+         mango_workspaces::entry,
+         media::entry,
+         microphone::entry,
++        modelbar::entry,
+         netstat::entry,
+         network::entry,
+         niri_workspaces::entry,
+diff --git a/crates/wayle-settings/src/pages/modules/modelbar.rs b/crates/wayle-settings/src/pages/modules/modelbar.rs
+new file mode 100644
+index 0000000..5378dd5
+--- /dev/null
++++ b/crates/wayle-settings/src/pages/modules/modelbar.rs
+@@ -0,0 +1,62 @@
++//! ModelBar module settings.
++
++use wayle_config::Config;
++
++use crate::{
++    editors::{enum_select::enum_select, number::number_u32, text::text},
++    pages::{
++        nav::LeafEntry,
++        sections::bar_button::{
++            BarButtonFields, actions_section, bar_display_section, colors_section,
++        },
++        spec::{SectionSpec, page_spec},
++    },
++};
++
++pub(crate) fn entry(config: &Config) -> LeafEntry {
++    let module = &config.modules.modelbar;
++
++    let fields = BarButtonFields {
++        icon_show: &module.icon_show,
++        label_show: &module.label_show,
++        label_max_length: &module.label_max_length,
++        border_show: &module.border_show,
++        icon_color: &module.icon_color,
++        icon_bg_color: &module.icon_bg_color,
++        label_color: &module.label_color,
++        button_bg_color: &module.button_bg_color,
++        border_color: &module.border_color,
++        left_click: &module.left_click,
++        right_click: &module.right_click,
++        middle_click: &module.middle_click,
++        scroll_up: &module.scroll_up,
++        scroll_down: &module.scroll_down,
++    };
++
++    LeafEntry {
++        id: "modelbar",
++        i18n_key: "settings-nav-modelbar",
++        icon: "ld-brain-symbolic",
++        spec: page_spec(
++            "settings-page-modelbar",
++            vec![
++                SectionSpec {
++                    title_key: "settings-section-general",
++                    items: vec![
++                        text(&module.command),
++                        text(&module.claude_bin),
++                        text(&module.codex_bin),
++                        enum_select(&module.provider_order),
++                        number_u32(&module.refresh_interval_seconds),
++                        number_u32(&module.dropdown_width),
++                        number_u32(&module.dropdown_height),
++                        text(&module.icon_name),
++                    ],
++                },
++                bar_display_section(&fields),
++                colors_section(&fields),
++                actions_section(&fields),
++            ],
++        ),
++    }
++}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
 index 941be38..7c04183 100644
 --- a/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
@@ -57,10 +453,10 @@ index 941be38..7c04183 100644
      "weather" => weather::Factory,
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
 new file mode 100644
-index 0000000..2959c88
+index 0000000..bd8c51e
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,20 @@
 +use relm4::prelude::*;
 +
 +use super::ModelbarDropdown;
@@ -73,8 +469,9 @@ index 0000000..2959c88
 +
 +impl DropdownFactory for Factory {
 +    fn create(services: &ShellServices) -> Option<DropdownInstance> {
-+        let scale = services.config.config().styling.scale.get().value();
-+        let controller = ModelbarDropdown::builder().launch(scale).detach();
++        let controller = ModelbarDropdown::builder()
++            .launch(services.config.clone())
++            .detach();
 +
 +        let popover = controller.widget().clone();
 +        Some(DropdownInstance::new(popover, Box::new(controller)))
@@ -82,33 +479,32 @@ index 0000000..2959c88
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
 new file mode 100644
-index 0000000..3fcfff6
+index 0000000..c457530
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
-@@ -0,0 +1,987 @@
+@@ -0,0 +1,1055 @@
 +mod factory;
 +
-+use std::time::Instant;
++use std::{sync::Arc, time::Instant};
 +
 +use chrono::Utc;
 +use gtk::{glib, prelude::*};
 +use relm4::{gtk, prelude::*};
++use wayle_config::{ConfigService, schemas::modules::ProviderOrder};
++use wayle_widgets::watch;
 +
 +pub(super) use self::factory::Factory;
 +use crate::shell::{
 +    bar::{
 +        dropdowns::scaled_dimension,
 +        modelbar_data::{
-+            ModelbarPayload, ProviderData, WindowData, fetch_payload, fmt_countdown,
-+            fmt_reset_abs, format_compact_u64, format_local_time,
++            BridgeSettings, ModelbarPayload, ProviderData, WindowData, fetch_payload,
++            fmt_countdown, fmt_reset_abs, format_compact_u64, format_local_time,
 +        },
 +    },
 +    helpers::COMPONENT_CSS_PRIORITY,
 +};
 +
-+const BASE_WIDTH: f32 = 560.0;
-+const BASE_HEIGHT: f32 = 540.0;
-+const REFRESH_INTERVAL_SECS: u64 = 300;
 +/// Reopening the dropdown within this window keeps the cached data.
 +const REOPEN_FETCH_SECS: u64 = 30;
 +const BAR_SEGMENTS: i32 = 30;
@@ -188,6 +584,7 @@ index 0000000..3fcfff6
 +}
 +
 +pub(crate) struct ModelbarDropdown {
++    config: Arc<ConfigService>,
 +    payload: Option<ModelbarPayload>,
 +    error: Option<String>,
 +    active: usize,
@@ -202,6 +599,7 @@ index 0000000..3fcfff6
 +}
 +
 +pub(crate) struct ModelbarUi {
++    tabs_box: gtk::Box,
 +    tabs: Vec<TabUi>,
 +    refresh: gtk::Button,
 +    tool: gtk::Label,
@@ -224,11 +622,12 @@ index 0000000..3fcfff6
 +#[derive(Debug)]
 +pub(crate) enum ModelbarDropdownCmd {
 +    Loaded(Result<ModelbarPayload, String>),
++    ConfigChanged,
 +    Tick,
 +}
 +
 +impl Component for ModelbarDropdown {
-+    type Init = f32;
++    type Init = Arc<ConfigService>;
 +    type Input = ModelbarDropdownMsg;
 +    type Output = ();
 +    type CommandOutput = ModelbarDropdownCmd;
@@ -243,13 +642,11 @@ index 0000000..3fcfff6
 +    }
 +
 +    fn init(
-+        scale: Self::Init,
++        config: Self::Init,
 +        root: Self::Root,
 +        sender: ComponentSender<Self>,
 +    ) -> ComponentParts<Self> {
 +        load_css();
-+        root.set_width_request(scaled_dimension(BASE_WIDTH, scale));
-+        root.set_height_request(scaled_dimension(BASE_HEIGHT, scale));
 +
 +        let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 +        outer.add_css_class("mb-root");
@@ -262,13 +659,6 @@ index 0000000..3fcfff6
 +        tabs_box.add_css_class("mb-tabs");
 +        tabs_box.set_halign(gtk::Align::Start);
 +        tabs_box.set_valign(gtk::Align::Center);
-+
-+        let mut tabs = Vec::new();
-+        for (index, spec) in PROVIDERS.iter().enumerate() {
-+            let tab = build_tab(spec, index, &sender);
-+            tabs_box.append(&tab.button);
-+            tabs.push(tab);
-+        }
 +        header.append(&tabs_box);
 +
 +        let header_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -362,7 +752,23 @@ index 0000000..3fcfff6
 +                .drop_on_shutdown()
 +        });
 +
++        // Re-apply size and tab order when their settings change.
++        {
++            let modelbar = config.config().modules.modelbar.clone();
++            let order = modelbar.provider_order.clone();
++            let width = modelbar.dropdown_width.clone();
++            let height = modelbar.dropdown_height.clone();
++            watch!(
++                sender,
++                [order.watch(), width.watch(), height.watch()],
++                |out| {
++                    let _ = out.send(ModelbarDropdownCmd::ConfigChanged);
++                }
++            );
++        }
++
 +        let mut model = Self {
++            config,
 +            payload: None,
 +            error: None,
 +            active: 0,
@@ -370,10 +776,12 @@ index 0000000..3fcfff6
 +            last_fetch: None,
 +            updated_text: String::from("never"),
 +        };
++        model.apply_size(&root);
 +        model.start_refresh(&sender);
 +
 +        let mut widgets = ModelbarUi {
-+            tabs,
++            tabs_box,
++            tabs: Vec::new(),
 +            refresh,
 +            tool,
 +            meta,
@@ -384,6 +792,7 @@ index 0000000..3fcfff6
 +            next_poll,
 +            countdowns: Vec::new(),
 +        };
++        model.rebuild_tabs(&mut widgets, &sender);
 +        model.render(&mut widgets);
 +
 +        ComponentParts { model, widgets }
@@ -428,6 +837,12 @@ index 0000000..3fcfff6
 +        root: &Self::Root,
 +    ) {
 +        match message {
++            ModelbarDropdownCmd::ConfigChanged => {
++                self.apply_size(root);
++                self.active = 0;
++                self.rebuild_tabs(widgets, &sender);
++                self.render(widgets);
++            }
 +            ModelbarDropdownCmd::Loaded(result) => {
 +                self.busy = false;
 +                match result {
@@ -453,10 +868,11 @@ index 0000000..3fcfff6
 +                        set_countdown_markup(label, *resets_at - now);
 +                    }
 +                    widgets.next_poll.set_markup(&self.next_poll_markup());
++                    let interval = self.refresh_interval_secs();
 +                    if !self.busy
 +                        && self
 +                            .last_fetch
-+                            .map(|at| at.elapsed().as_secs() >= REFRESH_INTERVAL_SECS)
++                            .map(|at| at.elapsed().as_secs() >= interval)
 +                            .unwrap_or(false)
 +                    {
 +                        self.start_refresh(&sender);
@@ -475,24 +891,69 @@ index 0000000..3fcfff6
 +        }
 +        self.busy = true;
 +        self.last_fetch = Some(Instant::now());
-+        sender.oneshot_command(async { ModelbarDropdownCmd::Loaded(fetch_payload().await) });
++        let settings = BridgeSettings::from_config(&self.config.config().modules.modelbar);
++        sender.oneshot_command(async move {
++            ModelbarDropdownCmd::Loaded(fetch_payload(settings).await)
++        });
 +    }
 +
-+    fn provider(&self, index: usize) -> Option<&ProviderData> {
++    /// Provider tab order as indices into `PROVIDERS`.
++    fn order(&self) -> [usize; 2] {
++        match self.config.config().modules.modelbar.provider_order.get() {
++            ProviderOrder::ClaudeFirst => [0, 1],
++            ProviderOrder::CodexFirst => [1, 0],
++        }
++    }
++
++    fn refresh_interval_secs(&self) -> u64 {
++        u64::from(
++            self.config
++                .config()
++                .modules
++                .modelbar
++                .refresh_interval_seconds
++                .get()
++                .max(30),
++        )
++    }
++
++    fn apply_size(&self, root: &gtk::Popover) {
++        let config = self.config.config();
++        let scale = config.styling.scale.get().value();
++        let width = config.modules.modelbar.dropdown_width.get().max(300) as f32;
++        let height = config.modules.modelbar.dropdown_height.get().max(280) as f32;
++        root.set_width_request(scaled_dimension(width, scale));
++        root.set_height_request(scaled_dimension(height, scale));
++    }
++
++    fn rebuild_tabs(&self, ui: &mut ModelbarUi, sender: &ComponentSender<Self>) {
++        while let Some(child) = ui.tabs_box.first_child() {
++            ui.tabs_box.remove(&child);
++        }
++        ui.tabs.clear();
++        for (position, provider_index) in self.order().into_iter().enumerate() {
++            let tab = build_tab(&PROVIDERS[provider_index], position, sender);
++            ui.tabs_box.append(&tab.button);
++            ui.tabs.push(tab);
++        }
++    }
++
++    fn provider(&self, provider_index: usize) -> Option<&ProviderData> {
 +        self.payload
 +            .as_ref()
-+            .and_then(|payload| payload.provider(PROVIDERS[index].id))
++            .and_then(|payload| payload.provider(PROVIDERS[provider_index].id))
 +    }
 +
 +    fn next_poll_markup(&self) -> String {
++        let interval = self.refresh_interval_secs();
 +        let value = if self.busy {
 +            String::from("polling...")
 +        } else {
 +            let elapsed = self
 +                .last_fetch
 +                .map(|at| at.elapsed().as_secs())
-+                .unwrap_or(REFRESH_INTERVAL_SECS);
-+            format!("{}s", REFRESH_INTERVAL_SECS.saturating_sub(elapsed))
++                .unwrap_or(interval);
++            format!("{}s", interval.saturating_sub(elapsed))
 +        };
 +        format!(
 +            "<span foreground=\"{FAINT}\">next poll </span><span foreground=\"{DIM}\">{}</span>",
@@ -502,11 +963,14 @@ index 0000000..3fcfff6
 +
 +    /// Full rebuild of all data-driven widgets.
 +    fn render(&self, ui: &mut ModelbarUi) {
++        let order = self.order();
++
 +        // Tabs.
-+        for (index, tab) in ui.tabs.iter().enumerate() {
-+            let spec = &PROVIDERS[index];
-+            let provider = self.provider(index);
-+            if index == self.active {
++        for (position, tab) in ui.tabs.iter().enumerate() {
++            let provider_index = order[position.min(order.len() - 1)];
++            let spec = &PROVIDERS[provider_index];
++            let provider = self.provider(provider_index);
++            if position == self.active {
 +                tab.button.add_css_class("active");
 +            } else {
 +                tab.button.remove_css_class("active");
@@ -529,8 +993,9 @@ index 0000000..3fcfff6
 +        }
 +
 +        // Provider meta row.
-+        let spec = &PROVIDERS[self.active];
-+        let provider = self.provider(self.active);
++        let active_index = order[self.active.min(order.len() - 1)];
++        let spec = &PROVIDERS[active_index];
++        let provider = self.provider(active_index);
 +        ui.tool.set_label(spec.tool);
 +        let subtitle = provider.map(ProviderData::subtitle).unwrap_or_default();
 +        ui.meta.set_visible(!subtitle.is_empty());
@@ -1087,17 +1552,36 @@ index 5b5cf1c..912fea1 100644
  mod watchers;
 diff --git a/crates/wayle-shell/src/shell/bar/modelbar_data.rs b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
 new file mode 100644
-index 0000000..2b551a5
+index 0000000..9b5190b
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,371 @@
 +use std::{env, path::PathBuf, process::Stdio, time::Duration};
 +
 +use chrono::{DateTime, Local, Utc};
 +use serde::Deserialize;
 +use tokio::{process::Command, time::timeout};
++use wayle_config::schemas::modules::ModelbarConfig;
 +
 +const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
++
++/// Bridge invocation settings resolved from the modelbar module config.
++#[derive(Clone, Debug, Default)]
++pub(crate) struct BridgeSettings {
++    pub(crate) command: String,
++    pub(crate) claude_bin: String,
++    pub(crate) codex_bin: String,
++}
++
++impl BridgeSettings {
++    pub(crate) fn from_config(config: &ModelbarConfig) -> Self {
++        Self {
++            command: config.command.get(),
++            claude_bin: config.claude_bin.get(),
++            codex_bin: config.codex_bin.get(),
++        }
++    }
++}
 +
 +#[derive(Clone, Debug, Deserialize)]
 +pub(crate) struct ModelbarStatus {
@@ -1117,8 +1601,13 @@ index 0000000..2b551a5
 +    }
 +}
 +
-+pub(crate) async fn fetch_status() -> ModelbarStatus {
-+    match timeout(COMMAND_TIMEOUT, run_command::<ModelbarStatus>("status")).await {
++pub(crate) async fn fetch_status(settings: BridgeSettings) -> ModelbarStatus {
++    match timeout(
++        COMMAND_TIMEOUT,
++        run_command::<ModelbarStatus>("status", settings),
++    )
++    .await
++    {
 +        Ok(Ok(status)) => status,
 +        Ok(Err(error)) => ModelbarStatus::offline(error),
 +        Err(_) => ModelbarStatus::offline("Timed out while fetching ModelBar usage."),
@@ -1316,20 +1805,36 @@ index 0000000..2b551a5
 +    pub(crate) latest_model: Option<String>,
 +}
 +
-+pub(crate) async fn fetch_payload() -> Result<ModelbarPayload, String> {
-+    match timeout(COMMAND_TIMEOUT, run_command::<ModelbarPayload>("payload")).await {
++pub(crate) async fn fetch_payload(settings: BridgeSettings) -> Result<ModelbarPayload, String> {
++    match timeout(
++        COMMAND_TIMEOUT,
++        run_command::<ModelbarPayload>("payload", settings),
++    )
++    .await
++    {
 +        Ok(result) => result,
 +        Err(_) => Err("Timed out while fetching ModelBar usage.".to_owned()),
 +    }
 +}
 +
-+async fn run_command<T: serde::de::DeserializeOwned>(arg: &str) -> Result<T, String> {
-+    let binary = command_path();
-+    let output = Command::new(&binary)
++async fn run_command<T: serde::de::DeserializeOwned>(
++    arg: &str,
++    settings: BridgeSettings,
++) -> Result<T, String> {
++    let binary = command_path(&settings);
++    let mut command = Command::new(&binary);
++    command
 +        .arg(arg)
 +        .stdin(Stdio::null())
 +        .stderr(Stdio::piped())
-+        .stdout(Stdio::piped())
++        .stdout(Stdio::piped());
++    if !settings.claude_bin.is_empty() {
++        command.env("MODELBAR_CLAUDE_BIN", &settings.claude_bin);
++    }
++    if !settings.codex_bin.is_empty() {
++        command.env("MODELBAR_CODEX_BIN", &settings.codex_bin);
++    }
++    let output = command
 +        .output()
 +        .await
 +        .map_err(|err| format!("failed to run {}: {err}", binary.display()))?;
@@ -1341,7 +1846,11 @@ index 0000000..2b551a5
 +    })
 +}
 +
-+fn command_path() -> PathBuf {
++fn command_path(settings: &BridgeSettings) -> PathBuf {
++    let configured = settings.command.trim();
++    if !configured.is_empty() {
++        return expand_home(configured);
++    }
 +    if let Some(path) = env::var_os("WAYLE_MODELBAR_BIN") {
 +        return PathBuf::from(path);
 +    }
@@ -1351,6 +1860,15 @@ index 0000000..2b551a5
 +        .join("wayle")
 +        .join("bin")
 +        .join("wayle-model-usage")
++}
++
++fn expand_home(path: &str) -> PathBuf {
++    if let Some(rest) = path.strip_prefix("~/")
++        && let Some(home) = env::var_os("HOME")
++    {
++        return PathBuf::from(home).join(rest);
++    }
++    PathBuf::from(path)
 +}
 +
 +pub(crate) fn format_local_time(value: &str) -> String {
@@ -1431,10 +1949,10 @@ index c0022a2..63c62b3 100644
      Network => network::Factory,
 diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs
 new file mode 100644
-index 0000000..a9bf7d4
+index 0000000..bb2f144
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,32 @@
 +use std::rc::Rc;
 +
 +use relm4::prelude::*;
@@ -1454,12 +1972,13 @@ index 0000000..a9bf7d4
 +impl ModuleFactory for Factory {
 +    fn create(
 +        settings: &BarSettings,
-+        _services: &ShellServices,
++        services: &ShellServices,
 +        dropdowns: &Rc<DropdownRegistry>,
 +        class: Option<String>,
 +    ) -> Option<ModuleInstance> {
 +        let init = ModelbarInit {
 +            settings: settings.clone(),
++            config: services.config.clone(),
 +            dropdowns: dropdowns.clone(),
 +        };
 +        let controller = dynamic_controller(ModelbarModule::builder().launch(init).detach());
@@ -1468,18 +1987,20 @@ index 0000000..a9bf7d4
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs
 new file mode 100644
-index 0000000..af2b65a
+index 0000000..54f7715
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs
-@@ -0,0 +1,25 @@
-+use std::rc::Rc;
+@@ -0,0 +1,27 @@
++use std::{rc::Rc, sync::Arc};
 +
++use wayle_config::ConfigService;
 +use wayle_widgets::prelude::BarSettings;
 +
 +use crate::shell::bar::{dropdowns::DropdownRegistry, modelbar_data::ModelbarStatus};
 +
 +pub(crate) struct ModelbarInit {
 +    pub(crate) settings: BarSettings,
++    pub(crate) config: Arc<ConfigService>,
 +    pub(crate) dropdowns: Rc<DropdownRegistry>,
 +}
 +
@@ -1499,22 +2020,21 @@ index 0000000..af2b65a
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
 new file mode 100644
-index 0000000..dba5219
+index 0000000..edcfbff
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,146 @@
 +mod factory;
 +mod messages;
 +mod watchers;
 +
-+use std::rc::Rc;
++use std::{rc::Rc, sync::Arc};
 +
 +use gtk::prelude::*;
 +use relm4::prelude::*;
-+use wayle_config::{ClickAction, ConfigProperty, schemas::styling::CssToken};
++use wayle_config::{ConfigProperty, ConfigService, schemas::styling::CssToken};
 +use wayle_widgets::prelude::{
 +    BarButton, BarButtonBehavior, BarButtonColors, BarButtonInit, BarButtonInput, BarButtonOutput,
-+    ColorValue,
 +};
 +
 +pub(crate) use self::{
@@ -1523,11 +2043,12 @@ index 0000000..dba5219
 +};
 +use crate::shell::bar::{
 +    dropdowns::{self, DropdownRegistry},
-+    modelbar_data::{ModelbarStatus, fetch_status},
++    modelbar_data::{BridgeSettings, ModelbarStatus, fetch_status},
 +};
 +
 +pub(crate) struct ModelbarModule {
 +    bar_button: Controller<BarButton>,
++    config: Arc<ConfigService>,
 +    dropdowns: Rc<DropdownRegistry>,
 +    dynamic_class: Option<String>,
 +}
@@ -1553,26 +2074,26 @@ index 0000000..dba5219
 +        _root: Self::Root,
 +        sender: ComponentSender<Self>,
 +    ) -> ComponentParts<Self> {
++        let modelbar_config = init.config.config().modules.modelbar.clone();
++
 +        let bar_button = BarButton::builder()
 +            .launch(BarButtonInit {
-+                icon: String::from("ld-brain-symbolic"),
++                icon: modelbar_config.icon_name.get(),
 +                label: String::from("Models --"),
 +                tooltip: None,
 +                colors: BarButtonColors {
-+                    icon_color: ConfigProperty::new(ColorValue::Auto),
-+                    label_color: ConfigProperty::new(ColorValue::Token(CssToken::FgDefault)),
-+                    icon_background: ConfigProperty::new(ColorValue::Auto),
-+                    button_background: ConfigProperty::new(ColorValue::Token(
-+                        CssToken::BgSurfaceElevated,
-+                    )),
-+                    border_color: ConfigProperty::new(ColorValue::Auto),
++                    icon_color: modelbar_config.icon_color.clone(),
++                    label_color: modelbar_config.label_color.clone(),
++                    icon_background: modelbar_config.icon_bg_color.clone(),
++                    button_background: modelbar_config.button_bg_color.clone(),
++                    border_color: modelbar_config.border_color.clone(),
 +                    auto_icon_color: CssToken::Accent,
 +                },
 +                behavior: BarButtonBehavior {
-+                    label_max_chars: ConfigProperty::new(32),
-+                    show_icon: ConfigProperty::new(false),
-+                    show_label: ConfigProperty::new(true),
-+                    show_border: ConfigProperty::new(false),
++                    label_max_chars: modelbar_config.label_max_length.clone(),
++                    show_icon: modelbar_config.icon_show.clone(),
++                    show_label: modelbar_config.label_show.clone(),
++                    show_border: modelbar_config.border_show.clone(),
 +                    visible: ConfigProperty::new(true),
 +                },
 +                settings: init.settings,
@@ -1585,11 +2106,14 @@ index 0000000..dba5219
 +                BarButtonOutput::ScrollDown => ModelbarMsg::ScrollDown,
 +            });
 +
-+        watchers::spawn_watchers(&sender);
-+        sender.oneshot_command(async { ModelbarCmd::StatusLoaded(fetch_status().await) });
++        watchers::spawn_watchers(&sender, modelbar_config.refresh_interval_seconds.clone());
++        let settings = BridgeSettings::from_config(&modelbar_config);
++        sender
++            .oneshot_command(async move { ModelbarCmd::StatusLoaded(fetch_status(settings).await) });
 +
 +        let model = Self {
 +            bar_button,
++            config: init.config,
 +            dropdowns: init.dropdowns,
 +            dynamic_class: None,
 +        };
@@ -1600,12 +2124,14 @@ index 0000000..dba5219
 +    }
 +
 +    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
++        let modelbar = &self.config.config().modules.modelbar;
++
 +        let action = match msg {
-+            ModelbarMsg::LeftClick => ClickAction::Dropdown(String::from("modelbar")),
-+            ModelbarMsg::RightClick
-+            | ModelbarMsg::MiddleClick
-+            | ModelbarMsg::ScrollUp
-+            | ModelbarMsg::ScrollDown => ClickAction::None,
++            ModelbarMsg::LeftClick => modelbar.left_click.get(),
++            ModelbarMsg::RightClick => modelbar.right_click.get(),
++            ModelbarMsg::MiddleClick => modelbar.middle_click.get(),
++            ModelbarMsg::ScrollUp => modelbar.scroll_up.get(),
++            ModelbarMsg::ScrollDown => modelbar.scroll_down.get(),
 +        };
 +
 +        dropdowns::dispatch_click(&action, &self.dropdowns, &self.bar_button);
@@ -1619,7 +2145,10 @@ index 0000000..dba5219
 +    ) {
 +        match msg {
 +            ModelbarCmd::Refresh => {
-+                sender.oneshot_command(async { ModelbarCmd::StatusLoaded(fetch_status().await) });
++                let settings = BridgeSettings::from_config(&self.config.config().modules.modelbar);
++                sender.oneshot_command(async move {
++                    ModelbarCmd::StatusLoaded(fetch_status(settings).await)
++                });
 +            }
 +            ModelbarCmd::StatusLoaded(status) => self.apply_status(status, root),
 +        }
@@ -1643,24 +2172,34 @@ index 0000000..dba5219
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs
 new file mode 100644
-index 0000000..b7c0cf1
+index 0000000..93cae09
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,27 @@
 +use std::time::Duration;
 +
 +use relm4::ComponentSender;
-+use tokio::time::interval;
-+use tokio_stream::wrappers::IntervalStream;
-+use wayle_widgets::watch;
++use wayle_config::ConfigProperty;
 +
 +use super::{ModelbarCmd, ModelbarModule};
 +
-+const REFRESH_INTERVAL: Duration = Duration::from_secs(300);
-+
-+pub(super) fn spawn_watchers(sender: &ComponentSender<ModelbarModule>) {
-+    let interval_stream = IntervalStream::new(interval(REFRESH_INTERVAL));
-+    watch!(sender, [interval_stream], |out| {
-+        let _ = out.send(ModelbarCmd::Refresh);
++/// Polls on the configured interval, re-reading the property each cycle so
++/// settings changes apply without a restart.
++pub(super) fn spawn_watchers(
++    sender: &ComponentSender<ModelbarModule>,
++    refresh_interval_seconds: ConfigProperty<u32>,
++) {
++    sender.command(move |out, shutdown| {
++        shutdown
++            .register(async move {
++                loop {
++                    let secs = u64::from(refresh_interval_seconds.get().max(30));
++                    tokio::time::sleep(Duration::from_secs(secs)).await;
++                    if out.send(ModelbarCmd::Refresh).is_err() {
++                        break;
++                    }
++                }
++            })
++            .drop_on_shutdown()
 +    });
 +}
