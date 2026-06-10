@@ -1,4 +1,4 @@
-# Fish shell configuration for Noctalia
+# Fish shell configuration
 # Custom prompt theme and shell tools
 { config, pkgs, lib, ... }:
 

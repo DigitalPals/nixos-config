@@ -7,14 +7,11 @@ let
   gtkPortal = "${pkgs.xdg-desktop-portal-gtk}/libexec/xdg-desktop-portal-gtk";
 in
 ''
-  -- PAM service for Noctalia lock screen auth.
-  hl.env("NOCTALIA_PAM_SERVICE", "noctalia")
-
   hl.on("hyprland.start", function()
     -- Systemd integration - export environment for user services.
     -- Include HYPRLAND_INSTANCE_SIGNATURE so portal services can connect.
-    hl.exec_cmd([[systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE NOCTALIA_PAM_SERVICE]])
-    hl.exec_cmd([[dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE NOCTALIA_PAM_SERVICE]])
+    hl.exec_cmd([[systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE]])
+    hl.exec_cmd([[dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE]])
 
     -- Portal setup: GTK portal provides Settings interface (dark mode).
     -- Start GTK portal first, wait for D-Bus registration, then restart main portal.

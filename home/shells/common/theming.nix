@@ -1,4 +1,4 @@
-# Theming configuration for Noctalia
+# GTK, cursor, and icon theme configuration
 # GTK theme, cursor, and icons
 { config, pkgs, lib, ... }:
 
@@ -7,13 +7,13 @@
   gtk = {
     enable = true;
     theme = {
-      name = "Adwaita-dark";
-      package = pkgs.gnome-themes-extra;
+      name = "adw-gtk3-dark";
+      package = pkgs.adw-gtk3;
     };
     gtk4 = {
       theme = {
-        name = "Adwaita-dark";
-        package = pkgs.gnome-themes-extra;
+        name = "adw-gtk3-dark";
+        package = pkgs.adw-gtk3;
       };
     };
     iconTheme = {

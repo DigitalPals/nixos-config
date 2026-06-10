@@ -80,7 +80,7 @@
   # Fingerprint reader (Synaptics FS7606, power button)
   services.fprintd.enable = true;
   security.pam.services = {
-    noctalia.fprintAuth = true;
+    hyprlock.fprintAuth = true;
     polkit-1.fprintAuth = true;
     sudo.fprintAuth = true;
   };

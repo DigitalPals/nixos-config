@@ -23,7 +23,8 @@ in
     ./neovim.nix      # Neovim with LazyVim dependencies
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers)
-    ./shells/noctalia
+    ./shells/common
+    ./shells/wayle
   ];
 
   home.username = username;
@@ -320,9 +321,9 @@ in
     container_init_hook="${config.home.homeDirectory}/.local/bin/dev-distrobox-init"
   '';
 
-  # Distrobox can export Terminal=true desktop files for these boxes. Noctalia
-  # launches those through its terminalCommand, so stale exports can point at a
-  # missing terminal or old distrobox store path. Replace them declaratively.
+  # Distrobox can export Terminal=true desktop files for these boxes. Replace
+  # stale exports declaratively so they do not point at an old terminal or
+  # distrobox store path.
   home.activation.removeStaleDistroboxDevDesktopEntries =
     lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
       $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
@@ -696,7 +697,6 @@ in
     MOZ_ENABLE_WAYLAND = "1";
     QT_QPA_PLATFORM = "wayland";
     XDG_SESSION_TYPE = "wayland";
-    NOCTALIA_PAM_SERVICE = "noctalia";
   };
 
   # === Mic mute LED sync service ===

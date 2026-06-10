@@ -306,9 +306,9 @@ in
   security.pam.services.greetd.enableGnomeKeyring = true;
   security.pam.services.login.enableGnomeKeyring = true;
 
-  # Clean PAM service for Noctalia lock screen. This keeps SUPER+L as the
-  # deliberate password/fingerprint auth path without GNOME Keyring hooks.
-  security.pam.services.noctalia = {};
+  # Clean PAM service for Hyprlock. This keeps SUPER+L as the deliberate
+  # password/fingerprint auth path without GNOME Keyring hooks.
+  security.pam.services.hyprlock = {};
   # Setuid wrapper for polkit-agent-helper-1 (needed by badged polkit agent)
   security.wrappers.polkit-agent-helper-1 = lib.mkIf config.services.fprintd.enable {
     setuid = true;

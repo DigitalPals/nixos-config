@@ -1,17 +1,16 @@
 { pkgs }:
 
 let
-  # Wrapper script for Hyprland with Noctalia Desktop Shell
-  hyprland-noctalia-bin = pkgs.writeShellScriptBin "hyprland-noctalia" ''
+  hyprland-wayle-bin = pkgs.writeShellScriptBin "hyprland-wayle" ''
     # Required environment variables for Wayland session
     # XDG_SESSION_TYPE must be set early (Hyprland 0.47+ regression fix)
     export XDG_SESSION_TYPE=wayland
     export XDG_CURRENT_DESKTOP=Hyprland
-    export DESKTOP_SHELL=noctalia
+    export DESKTOP_SHELL=wayle
 
     # Create runtime directory and mark desktop shell
     mkdir -p "$XDG_RUNTIME_DIR"
-    echo "noctalia" > "$XDG_RUNTIME_DIR/desktop-shell"
+    echo "wayle" > "$XDG_RUNTIME_DIR/desktop-shell"
 
     # Set up log directory
     mkdir -p "''${XDG_STATE_HOME:-$HOME/.local/state}/hyprland"
@@ -23,40 +22,38 @@ let
     exec start-hyprland -- --config "$HOME/.config/hypr/hyprland.lua" "$@" > "$HYPRLAND_LOG" 2>&1
   '';
 
-  # Session package with .desktop file for Noctalia
-  hyprland-noctalia-session = pkgs.stdenvNoCC.mkDerivation {
-    pname = "hyprland-noctalia-session";
+  hyprland-wayle-session = pkgs.stdenvNoCC.mkDerivation {
+    pname = "hyprland-wayle-session";
     version = "1.0.0";
     dontUnpack = true;
 
-    passthru.providedSessions = [ "hyprland-noctalia" ];
+    passthru.providedSessions = [ "hyprland-wayle" ];
 
     installPhase = ''
       mkdir -p $out/share/wayland-sessions
       mkdir -p $out/bin
 
       # Symlink the wrapper script
-      ln -s ${hyprland-noctalia-bin}/bin/hyprland-noctalia $out/bin/hyprland-noctalia
+      ln -s ${hyprland-wayle-bin}/bin/hyprland-wayle $out/bin/hyprland-wayle
 
       # Create .desktop file
-      cat > $out/share/wayland-sessions/hyprland-noctalia.desktop << EOF
+      cat > $out/share/wayland-sessions/hyprland-wayle.desktop << EOF
       [Desktop Entry]
-      Name=Hyprland (Noctalia)
-      Comment=Hyprland with Noctalia Desktop Shell
-      Exec=$out/bin/hyprland-noctalia
+      Name=Hyprland (Wayle)
+      Comment=Hyprland with Wayle Desktop Shell
+      Exec=$out/bin/hyprland-wayle
       Type=Application
       DesktopNames=Hyprland
       EOF
     '';
   };
-
 in {
   # Session package for display manager registration
-  noctalia = hyprland-noctalia-session;
+  wayle = hyprland-wayle-session;
 
   # All session packages as a list
-  sessions = [ hyprland-noctalia-session ];
+  sessions = [ hyprland-wayle-session ];
 
   # Wrapper script for PATH
-  script = hyprland-noctalia-bin;
+  script = hyprland-wayle-bin;
 }

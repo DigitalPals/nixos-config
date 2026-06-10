@@ -3,7 +3,7 @@
 { hostname, lib ? builtins }:
 
 let
-  noctaliaColors = builtins.fromJSON (builtins.readFile ../shells/noctalia/colors.json);
+  shellColors = builtins.fromJSON (builtins.readFile ../shells/common/colors.json);
   rgb = hex: "rgb(${lib.removePrefix "#" hex})";
 
   # Check base hostname (handles -illogical suffix)
@@ -47,8 +47,8 @@ in
       border_size = 1,
       layout = "${layoutType}",
       col = {
-        active_border = "${rgb noctaliaColors.mPrimary}",
-        inactive_border = "${rgb noctaliaColors.mSurface}",
+        active_border = "${rgb shellColors.mPrimary}",
+        inactive_border = "${rgb shellColors.mSurface}",
       },
     },
 
@@ -90,18 +90,18 @@ in
 
     group = {
       col = {
-        border_active = "${rgb noctaliaColors.mSecondary}",
-        border_inactive = "${rgb noctaliaColors.mSurface}",
-        border_locked_active = "${rgb noctaliaColors.mError}",
-        border_locked_inactive = "${rgb noctaliaColors.mSurface}",
+        border_active = "${rgb shellColors.mSecondary}",
+        border_inactive = "${rgb shellColors.mSurface}",
+        border_locked_active = "${rgb shellColors.mError}",
+        border_locked_inactive = "${rgb shellColors.mSurface}",
       },
 
       groupbar = {
         col = {
-          active = "${rgb noctaliaColors.mSecondary}",
-          inactive = "${rgb noctaliaColors.mSurface}",
-          locked_active = "${rgb noctaliaColors.mError}",
-          locked_inactive = "${rgb noctaliaColors.mSurface}",
+          active = "${rgb shellColors.mSecondary}",
+          inactive = "${rgb shellColors.mSurface}",
+          locked_active = "${rgb shellColors.mError}",
+          locked_inactive = "${rgb shellColors.mSurface}",
         },
       },
     },

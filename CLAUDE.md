@@ -16,7 +16,6 @@ Configuration details and solutions to issues in this NixOS setup.
 ├── modules/
 │   ├── boot/limine-plymouth.nix    # Bootloader + Plymouth config
 │   ├── common.nix                  # Shared system config
-│   ├── shell-config.nix            # Desktop shell option
 │   ├── desktop-environments.nix
 │   ├── gaming.nix
 │   ├── disko/                      # Disk partitioning configs
@@ -37,7 +36,8 @@ Configuration details and solutions to issues in this NixOS setup.
 │   │   ├── monitors.nix
 │   │   └── ...
 │   └── shells/
-│       └── noctalia/               # Noctalia Desktop Shell config
+│       ├── common/                 # Shared shell, prompt, and theme config
+│       └── wayle/                  # Wayle Desktop Shell config
 └── packages/
     ├── forge/                      # Rust TUI configuration tool
     ├── plymouth-cybex/             # Custom Plymouth theme
@@ -678,24 +678,21 @@ The LVM swap configuration is retained for potential future driver support.
 
 NVIDIA hosts use `lib.mkForce` where needed to ensure all modules load together.
 
-## Noctalia v5
+## Wayle
 
-Noctalia v5 is the only configured desktop shell. The old quickshell-based v4
-input, Home Manager module, JSON settings deployment, restart hook, and boot
-specialisation have been removed.
+Wayle is the configured desktop shell.
 
 Implementation:
-- `flake.nix` uses only `noctalia`, which now tracks upstream main/v5
-- `modules/noctalia-v5-default.nix` imports the v5 Home Manager module and
-  enables `programs.noctalia.systemd`
-- Hyprland starts Home Manager's configured graphical session target; the v5
-  `noctalia.service` is wanted by that target
+- `home/shells/wayle/default.nix` installs Wayle, awww, Hyprlock, and fuzzel
+- Hyprland starts Home Manager's configured graphical session target; the
+  `wayle.service` user unit is wanted by that target
+- Hyprlock handles lock screen authentication
 
 Useful commands:
 ```bash
-systemctl --user restart noctalia.service
-noctalia msg panel-toggle launcher
-noctalia msg session lock
+systemctl --user restart wayle.service
+wayle panel settings
+hyprlock --config ~/.config/hypr/hyprlock.conf --immediate-render --no-fade-in
 ```
 
 ## 1Password SSH Agent

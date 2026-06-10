@@ -1,5 +1,5 @@
 {
-  description = "NixOS configuration with Home Manager, Hyprland, and Noctalia Desktop Shell";
+  description = "NixOS configuration with Home Manager, Hyprland, and Wayle Desktop Shell";
 
   inputs = {
     # Use nixos-unstable so updates stay close to Hydra cache availability.
@@ -11,12 +11,6 @@
     # Home Manager following nixpkgs-unstable
     home-manager = {
       url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    # Noctalia desktop shell (v5)
-    noctalia = {
-      url = "github:noctalia-dev/noctalia-shell";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -134,9 +128,7 @@
         ++ [
           ./hosts/${hostname}
           ./modules/common.nix
-          ./modules/shell-config.nix
           ./modules/desktop-environments.nix
-          ./modules/noctalia-v5-default.nix
 
           # Home Manager
           home-manager.nixosModules.home-manager

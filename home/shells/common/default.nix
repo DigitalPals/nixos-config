@@ -1,4 +1,4 @@
-# Desktop shell-adjacent user environment.
+# Common user shell and theme environment.
 { ... }:
 
 {

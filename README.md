@@ -1,6 +1,6 @@
 # NixOS Configuration
 
-A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring Hyprland with Noctalia Desktop Shell.
+A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring Hyprland with Wayle Desktop Shell.
 
 ## Features
 
@@ -8,7 +8,7 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 - **Full disk encryption** with LUKS2 (interactive passphrase at boot)
 - **Btrfs filesystem** with subvolumes and zstd compression
 - **Passwordless auto-login** via greetd (password set after first boot)
-- **Hyprland** window manager with [Noctalia Desktop Shell](https://github.com/noctalia-dev/noctalia-shell)
+- **Hyprland** window manager with [Wayle Desktop Shell](https://github.com/wayle-rs/wayle)
 - **Home Manager** integration for user configuration
 
 ## Hosts
@@ -215,7 +215,8 @@ nixos-config/
 │   │   ├── autostart.nix
 │   │   └── bindings.nix
 │   └── shells/
-│       └── noctalia/         # Noctalia Desktop Shell config
+│       ├── common/           # Shared shell, prompt, and theme config
+│       └── wayle/            # Wayle Desktop Shell config
 └── packages/
     ├── forge/                # TUI installer and system management tool
     ├── plymouth-cybex/       # Custom Plymouth theme
