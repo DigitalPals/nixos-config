@@ -66,10 +66,10 @@ index f43c710..fdbc0c8 100644
      /// Network traffic statistics module.
 diff --git a/crates/wayle-config/src/schemas/modules/modelbar/mod.rs b/crates/wayle-config/src/schemas/modules/modelbar/mod.rs
 new file mode 100644
-index 0000000..299df1e
+index 0000000..9d1b24a
 --- /dev/null
 +++ b/crates/wayle-config/src/schemas/modules/modelbar/mod.rs
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,157 @@
 +use schemars::{JsonSchema, schema_for};
 +use serde::{Deserialize, Serialize};
 +use wayle_derive::wayle_config;
@@ -77,7 +77,7 @@ index 0000000..299df1e
 +use crate::{
 +    ClickAction, ConfigProperty,
 +    docs::{ConfigGroup, GroupDefaults, ModuleInfo, ModuleInfoProvider},
-+    schemas::styling::{ColorValue, CssToken},
++    schemas::styling::{ColorValue, CssToken, ScaleFactor},
 +};
 +
 +/// Claude Code and Codex usage limits with a detailed dropdown.
@@ -108,19 +108,14 @@ index 0000000..299df1e
 +    #[default(300)]
 +    pub refresh_interval_seconds: ConfigProperty<u32>,
 +
-+    /// Dropdown width in pixels (before bar scaling).
-+    #[serde(rename = "dropdown-width")]
-+    #[default(560)]
-+    pub dropdown_width: ConfigProperty<u32>,
-+
-+    /// Dropdown height in pixels (before bar scaling).
-+    #[serde(rename = "dropdown-height")]
-+    #[default(540)]
-+    pub dropdown_height: ConfigProperty<u32>,
++    /// Dropdown size scale, applied on top of the global UI scale.
++    #[serde(rename = "dropdown-scale")]
++    #[default(ScaleFactor::new(0.9))]
++    pub dropdown_scale: ConfigProperty<ScaleFactor>,
 +
 +    /// Icon for the bar button.
 +    #[serde(rename = "icon-name")]
-+    #[default(String::from("ld-brain-symbolic"))]
++    #[default(String::from("ld-sparkles-symbolic"))]
 +    pub icon_name: ConfigProperty<String>,
 +
 +    /// Display border around button.
@@ -267,10 +262,10 @@ index 0c34384..38d07fc 100644
 +enum-provider-order-codex-first = Codex first
 diff --git a/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl b/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl
 new file mode 100644
-index 0000000..b40551f
+index 0000000..16bda73
 --- /dev/null
 +++ b/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,69 @@
 +### Wayle Configuration - ModelBar Module
 +
 +## ModelBar Module Configuration
@@ -293,11 +288,8 @@ index 0000000..b40551f
 +settings-modules-modelbar-refresh-interval-seconds = Refresh Interval
 +    .description = Polling interval in seconds
 +
-+settings-modules-modelbar-dropdown-width = Dropdown Width
-+    .description = Dropdown width in pixels, before bar scaling
-+
-+settings-modules-modelbar-dropdown-height = Dropdown Height
-+    .description = Dropdown height in pixels, before bar scaling
++settings-modules-modelbar-dropdown-scale = Dropdown Size
++    .description = Dropdown size scale, applied on top of the global UI scale
 +
 +settings-modules-modelbar-icon-name = Icon
 +    .description = Icon for the bar button
@@ -365,16 +357,20 @@ index cb2a0f5..259606b 100644
          niri_workspaces::entry,
 diff --git a/crates/wayle-settings/src/pages/modules/modelbar.rs b/crates/wayle-settings/src/pages/modules/modelbar.rs
 new file mode 100644
-index 0000000..5378dd5
+index 0000000..92ed71a
 --- /dev/null
 +++ b/crates/wayle-settings/src/pages/modules/modelbar.rs
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,65 @@
 +//! ModelBar module settings.
 +
 +use wayle_config::Config;
 +
 +use crate::{
-+    editors::{enum_select::enum_select, number::number_u32, text::text},
++    editors::{
++        enum_select::enum_select,
++        number::{number_u32, scale},
++        text::text,
++    },
 +    pages::{
 +        nav::LeafEntry,
 +        sections::bar_button::{
@@ -407,7 +403,7 @@ index 0000000..5378dd5
 +    LeafEntry {
 +        id: "modelbar",
 +        i18n_key: "settings-nav-modelbar",
-+        icon: "ld-brain-symbolic",
++        icon: "ld-sparkles-symbolic",
 +        spec: page_spec(
 +            "settings-page-modelbar",
 +            vec![
@@ -419,8 +415,7 @@ index 0000000..5378dd5
 +                        text(&module.codex_bin),
 +                        enum_select(&module.provider_order),
 +                        number_u32(&module.refresh_interval_seconds),
-+                        number_u32(&module.dropdown_width),
-+                        number_u32(&module.dropdown_height),
++                        scale(&module.dropdown_scale),
 +                        text(&module.icon_name),
 +                    ],
 +                },
@@ -479,16 +474,16 @@ index 0000000..bd8c51e
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
 new file mode 100644
-index 0000000..c457530
+index 0000000..1236930
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
-@@ -0,0 +1,1055 @@
+@@ -0,0 +1,975 @@
 +mod factory;
 +
 +use std::{sync::Arc, time::Instant};
 +
 +use chrono::Utc;
-+use gtk::{glib, prelude::*};
++use gtk::prelude::*;
 +use relm4::{gtk, prelude::*};
 +use wayle_config::{ConfigService, schemas::modules::ProviderOrder};
 +use wayle_widgets::watch;
@@ -499,22 +494,19 @@ index 0000000..c457530
 +        dropdowns::scaled_dimension,
 +        modelbar_data::{
 +            BridgeSettings, ModelbarPayload, ProviderData, WindowData, fetch_payload,
-+            fmt_countdown, fmt_reset_abs, format_compact_u64, format_local_time,
++            fmt_countdown, fmt_reset_abs, format_local_time,
 +        },
 +    },
 +    helpers::COMPONENT_CSS_PRIORITY,
 +};
 +
++const BASE_WIDTH: f32 = 560.0;
++/// Cards area grows with its content up to this height, then scrolls.
++const MAX_CARDS_HEIGHT: f32 = 560.0;
 +/// Reopening the dropdown within this window keeps the cached data.
 +const REOPEN_FETCH_SECS: u64 = 30;
 +const BAR_SEGMENTS: i32 = 30;
 +
-+const TEXT: &str = "#e8ecf1";
-+const DIM: &str = "#8b95a3";
-+const FAINT: &str = "#5b6470";
-+const WARN: &str = "#e0a93e";
-+const DANGER: &str = "#e2604f";
-+const OK_GREEN: &str = "#46b576";
 +const INSET_RGB: (f64, f64, f64) = (0.051, 0.067, 0.082);
 +const BORDER_RGB: (f64, f64, f64) = (0.137, 0.169, 0.208);
 +
@@ -522,7 +514,6 @@ index 0000000..c457530
 +    id: &'static str,
 +    name: &'static str,
 +    tool: &'static str,
-+    accent: &'static str,
 +    accent_rgb: (f64, f64, f64),
 +    dot_class: &'static str,
 +}
@@ -532,7 +523,6 @@ index 0000000..c457530
 +        id: "claude",
 +        name: "Claude",
 +        tool: "Claude Code",
-+        accent: "#d97757",
 +        accent_rgb: (0.851, 0.467, 0.341),
 +        dot_class: "claude",
 +    },
@@ -540,7 +530,6 @@ index 0000000..c457530
 +        id: "codex",
 +        name: "Codex",
 +        tool: "Codex CLI",
-+        accent: "#4fb8a8",
 +        accent_rgb: (0.310, 0.722, 0.659),
 +        dot_class: "codex",
 +    },
@@ -563,11 +552,11 @@ index 0000000..c457530
 +    }
 +}
 +
-+fn level_hex(level: Level, accent: &'static str) -> &'static str {
++fn level_class(level: Level) -> Option<&'static str> {
 +    match level {
-+        Level::Ok => accent,
-+        Level::Warn => WARN,
-+        Level::Danger => DANGER,
++        Level::Ok => None,
++        Level::Warn => Some("warn"),
++        Level::Danger => Some("danger"),
 +    }
 +}
 +
@@ -579,12 +568,9 @@ index 0000000..c457530
 +    }
 +}
 +
-+fn esc(text: &str) -> glib::GString {
-+    glib::markup_escape_text(text)
-+}
-+
 +pub(crate) struct ModelbarDropdown {
 +    config: Arc<ConfigService>,
++    css: gtk::CssProvider,
 +    payload: Option<ModelbarPayload>,
 +    error: Option<String>,
 +    active: usize,
@@ -604,9 +590,8 @@ index 0000000..c457530
 +    refresh: gtk::Button,
 +    tool: gtk::Label,
 +    meta: gtk::Label,
-+    live_dot: gtk::Box,
-+    live_label: gtk::Label,
 +    cards: gtk::Box,
++    scroll: gtk::ScrolledWindow,
 +    updated: gtk::Label,
 +    next_poll: gtk::Label,
 +    countdowns: Vec<(gtk::Label, i64)>,
@@ -646,38 +631,41 @@ index 0000000..c457530
 +        root: Self::Root,
 +        sender: ComponentSender<Self>,
 +    ) -> ComponentParts<Self> {
-+        load_css();
++        let css = gtk::CssProvider::new();
++        if let Some(display) = gtk::gdk::Display::default() {
++            gtk::style_context_add_provider_for_display(&display, &css, COMPONENT_CSS_PRIORITY);
++        }
 +
++        // Standard dropdown container: themed surface, rounded border.
 +        let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-+        outer.add_css_class("mb-root");
++        outer.set_css_classes(&["dropdown"]);
 +
-+        // Header: provider tab switcher + refresh.
++        // Header: provider tab switcher + refresh action.
 +        let header = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-+        header.add_css_class("mb-header");
++        header.add_css_class("dropdown-header");
 +
 +        let tabs_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
 +        tabs_box.add_css_class("mb-tabs");
 +        tabs_box.set_halign(gtk::Align::Start);
 +        tabs_box.set_valign(gtk::Align::Center);
++        tabs_box.set_hexpand(true);
 +        header.append(&tabs_box);
 +
-+        let header_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-+        header_spacer.set_hexpand(true);
-+        header.append(&header_spacer);
-+
++        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
++        actions.add_css_class("dropdown-actions");
 +        let refresh = gtk::Button::from_icon_name("tb-refresh-symbolic");
 +        refresh.add_css_class("mb-refresh");
 +        refresh.set_valign(gtk::Align::Center);
 +        refresh.set_tooltip_text(Some("Refresh usage"));
 +        let refresh_sender = sender.input_sender().clone();
 +        refresh.connect_clicked(move |_| refresh_sender.emit(ModelbarDropdownMsg::Refresh));
-+        header.append(&refresh);
++        actions.append(&refresh);
++        header.append(&actions);
 +        outer.append(&header);
 +
-+        // Body: provider meta row + scrollable cards.
++        // Content: provider meta row + scrollable cards.
 +        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
-+        body.add_css_class("mb-body");
-+        body.set_vexpand(true);
++        body.add_css_class("dropdown-content");
 +
 +        let provider_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 +        provider_row.add_css_class("mb-provider-row");
@@ -694,36 +682,38 @@ index 0000000..c457530
 +        meta.set_hexpand(true);
 +        provider_row.append(&meta);
 +
-+        let live_dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-+        live_dot.add_css_class("mb-live-dot");
-+        live_dot.set_size_request(7, 7);
-+        live_dot.set_valign(gtk::Align::Center);
-+        provider_row.append(&live_dot);
-+
-+        let live_label = gtk::Label::new(None);
-+        live_label.add_css_class("mb-live");
-+        provider_row.append(&live_label);
 +        body.append(&provider_row);
 +
 +        let cards = gtk::Box::new(gtk::Orientation::Vertical, 12);
 +        cards.add_css_class("mb-cards");
 +
++        // Height follows the cards' natural size up to the scaled cap, so the
++        // dropdown shrinks/grows with the available metrics instead of
++        // reserving a fixed height.
 +        let scroll = gtk::ScrolledWindow::new();
-+        scroll.set_vexpand(true);
 +        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
++        scroll.set_propagate_natural_height(true);
 +        scroll.set_child(Some(&cards));
 +        body.append(&scroll);
 +        outer.append(&body);
 +
 +        // Footer: updated time + next poll countdown.
-+        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-+        footer.add_css_class("mb-footer");
++        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 4);
++        footer.add_css_class("dropdown-footer");
++
++        let updated_key = gtk::Label::new(Some("updated"));
++        updated_key.set_css_classes(&["mb-foot", "key"]);
++        footer.append(&updated_key);
 +
 +        let updated = gtk::Label::new(None);
 +        updated.add_css_class("mb-foot");
 +        updated.set_xalign(0.0);
 +        updated.set_hexpand(true);
 +        footer.append(&updated);
++
++        let next_poll_key = gtk::Label::new(Some("next poll"));
++        next_poll_key.set_css_classes(&["mb-foot", "key"]);
++        footer.append(&next_poll_key);
 +
 +        let next_poll = gtk::Label::new(None);
 +        next_poll.add_css_class("mb-foot");
@@ -756,19 +746,15 @@ index 0000000..c457530
 +        {
 +            let modelbar = config.config().modules.modelbar.clone();
 +            let order = modelbar.provider_order.clone();
-+            let width = modelbar.dropdown_width.clone();
-+            let height = modelbar.dropdown_height.clone();
-+            watch!(
-+                sender,
-+                [order.watch(), width.watch(), height.watch()],
-+                |out| {
-+                    let _ = out.send(ModelbarDropdownCmd::ConfigChanged);
-+                }
-+            );
++            let dropdown_scale = modelbar.dropdown_scale.clone();
++            watch!(sender, [order.watch(), dropdown_scale.watch()], |out| {
++                let _ = out.send(ModelbarDropdownCmd::ConfigChanged);
++            });
 +        }
 +
 +        let mut model = Self {
 +            config,
++            css,
 +            payload: None,
 +            error: None,
 +            active: 0,
@@ -776,7 +762,6 @@ index 0000000..c457530
 +            last_fetch: None,
 +            updated_text: String::from("never"),
 +        };
-+        model.apply_size(&root);
 +        model.start_refresh(&sender);
 +
 +        let mut widgets = ModelbarUi {
@@ -785,13 +770,13 @@ index 0000000..c457530
 +            refresh,
 +            tool,
 +            meta,
-+            live_dot,
-+            live_label,
 +            cards,
++            scroll,
 +            updated,
 +            next_poll,
 +            countdowns: Vec::new(),
 +        };
++        model.apply_size(&root, &widgets);
 +        model.rebuild_tabs(&mut widgets, &sender);
 +        model.render(&mut widgets);
 +
@@ -838,7 +823,7 @@ index 0000000..c457530
 +    ) {
 +        match message {
 +            ModelbarDropdownCmd::ConfigChanged => {
-+                self.apply_size(root);
++                self.apply_size(root, widgets);
 +                self.active = 0;
 +                self.rebuild_tabs(widgets, &sender);
 +                self.render(widgets);
@@ -865,9 +850,9 @@ index 0000000..c457530
 +                if root.is_visible() {
 +                    let now = Utc::now().timestamp();
 +                    for (label, resets_at) in &widgets.countdowns {
-+                        set_countdown_markup(label, *resets_at - now);
++                        label.set_label(&fmt_countdown(*resets_at - now));
 +                    }
-+                    widgets.next_poll.set_markup(&self.next_poll_markup());
++                    widgets.next_poll.set_label(&self.next_poll_value());
 +                    let interval = self.refresh_interval_secs();
 +                    if !self.busy
 +                        && self
@@ -917,13 +902,31 @@ index 0000000..c457530
 +        )
 +    }
 +
-+    fn apply_size(&self, root: &gtk::Popover) {
++    /// Combined global UI scale and dropdown scale.
++    fn scale(&self) -> f32 {
 +        let config = self.config.config();
-+        let scale = config.styling.scale.get().value();
-+        let width = config.modules.modelbar.dropdown_width.get().max(300) as f32;
-+        let height = config.modules.modelbar.dropdown_height.get().max(280) as f32;
-+        root.set_width_request(scaled_dimension(width, scale));
-+        root.set_height_request(scaled_dimension(height, scale));
++        config.styling.scale.get().value()
++            * config.modules.modelbar.dropdown_scale.get().value()
++    }
++
++    fn apply_size(&self, root: &gtk::Popover, ui: &ModelbarUi) {
++        let scale = self.scale();
++        // Width scales with the setting; height follows the content (the
++        // cards area scrolls past the scaled cap).
++        root.set_width_request(scaled_dimension(BASE_WIDTH, scale));
++        root.set_height_request(-1);
++        ui.scroll
++            .set_max_content_height(scaled_dimension(MAX_CARDS_HEIGHT, scale));
++        ui.cards.set_spacing(scaled_dimension(12.0, scale));
++        let dropdown_scale = self
++            .config
++            .config()
++            .modules
++            .modelbar
++            .dropdown_scale
++            .get()
++            .value();
++        self.css.load_from_string(&build_css(scale, dropdown_scale));
 +    }
 +
 +    fn rebuild_tabs(&self, ui: &mut ModelbarUi, sender: &ComponentSender<Self>) {
@@ -931,8 +934,9 @@ index 0000000..c457530
 +            ui.tabs_box.remove(&child);
 +        }
 +        ui.tabs.clear();
++        let scale = self.scale();
 +        for (position, provider_index) in self.order().into_iter().enumerate() {
-+            let tab = build_tab(&PROVIDERS[provider_index], position, sender);
++            let tab = build_tab(&PROVIDERS[provider_index], position, scale, sender);
 +            ui.tabs_box.append(&tab.button);
 +            ui.tabs.push(tab);
 +        }
@@ -944,21 +948,16 @@ index 0000000..c457530
 +            .and_then(|payload| payload.provider(PROVIDERS[provider_index].id))
 +    }
 +
-+    fn next_poll_markup(&self) -> String {
++    fn next_poll_value(&self) -> String {
++        if self.busy {
++            return String::from("polling...");
++        }
 +        let interval = self.refresh_interval_secs();
-+        let value = if self.busy {
-+            String::from("polling...")
-+        } else {
-+            let elapsed = self
-+                .last_fetch
-+                .map(|at| at.elapsed().as_secs())
-+                .unwrap_or(interval);
-+            format!("{}s", interval.saturating_sub(elapsed))
-+        };
-+        format!(
-+            "<span foreground=\"{FAINT}\">next poll </span><span foreground=\"{DIM}\">{}</span>",
-+            esc(&value)
-+        )
++        let elapsed = self
++            .last_fetch
++            .map(|at| at.elapsed().as_secs())
++            .unwrap_or(interval);
++        format!("{}s", interval.saturating_sub(elapsed))
 +    }
 +
 +    /// Full rebuild of all data-driven widgets.
@@ -968,28 +967,25 @@ index 0000000..c457530
 +        // Tabs.
 +        for (position, tab) in ui.tabs.iter().enumerate() {
 +            let provider_index = order[position.min(order.len() - 1)];
-+            let spec = &PROVIDERS[provider_index];
 +            let provider = self.provider(provider_index);
 +            if position == self.active {
 +                tab.button.add_css_class("active");
 +            } else {
 +                tab.button.remove_css_class("active");
 +            }
-+            let badge = match provider {
-+                Some(p) if !p.ok => format!("<span foreground=\"{DANGER}\">ERR</span>"),
++            let (text, class) = match provider {
++                Some(p) if !p.ok => (String::from("ERR"), "danger"),
 +                Some(p) => match p.min_remaining() {
-+                    Some(pct) => {
-+                        let color = match pct_level(pct) {
-+                            Level::Ok => DIM,
-+                            level => level_hex(level, spec.accent),
-+                        };
-+                        format!("<span foreground=\"{color}\">{pct:.0}%</span>")
-+                    }
-+                    None => format!("<span foreground=\"{DIM}\">--</span>"),
++                    Some(pct) => (
++                        format!("{pct:.0}%"),
++                        level_class(pct_level(pct)).unwrap_or("dim"),
++                    ),
++                    None => (String::from("--"), "dim"),
 +                },
-+                None => format!("<span foreground=\"{DIM}\">--</span>"),
++                None => (String::from("--"), "dim"),
 +            };
-+            tab.pct.set_markup(&badge);
++            tab.pct.set_label(&text);
++            tab.pct.set_css_classes(&["mb-tab-pct", class]);
 +        }
 +
 +        // Provider meta row.
@@ -1001,13 +997,6 @@ index 0000000..c457530
 +        ui.meta.set_visible(!subtitle.is_empty());
 +        ui.meta.set_label(&subtitle);
 +
-+        let ok = provider.map(|p| p.ok).unwrap_or(false);
-+        ui.live_dot
-+            .set_css_classes(&["mb-live-dot", if ok { "ok" } else { "err" }]);
-+        ui.live_label
-+            .set_css_classes(&["mb-live", if ok { "ok" } else { "err" }]);
-+        ui.live_label.set_label(if ok { "LIVE" } else { "ERROR" });
-+
 +        // Cards.
 +        ui.countdowns.clear();
 +        while let Some(child) = ui.cards.first_child() {
@@ -1017,30 +1006,33 @@ index 0000000..c457530
 +            Some(provider) => {
 +                if !provider.ok {
 +                    let (title, body) = unavailable_notice(provider);
-+                    ui.cards.append(&build_notice(&title, &body, DANGER));
++                    ui.cards.append(&build_notice(&title, &body, "danger"));
 +                }
 +                let windows = provider.windows();
 +                if windows.is_empty() && provider.ok {
 +                    ui.cards.append(&build_notice(
 +                        "No usage windows",
 +                        "The CLI credentials were found, but no live limit windows were returned.",
-+                        DIM,
++                        "dim",
 +                    ));
 +                }
 +
++                let scale = self.scale();
++                let spacing = scaled_dimension(12.0, scale);
 +                let grid = gtk::Grid::new();
 +                grid.set_column_homogeneous(true);
-+                grid.set_column_spacing(12);
-+                grid.set_row_spacing(12);
++                grid.set_column_spacing(spacing as u32);
++                grid.set_row_spacing(spacing as u32);
 +                let mut cell = 0_i32;
 +                for window in &windows {
-+                    let card = build_window_card(provider, window, spec, &mut ui.countdowns);
++                    let card =
++                        build_window_card(provider, window, spec, scale, &mut ui.countdowns);
 +                    grid.attach(&card, cell % 2, cell / 2, 1, 1);
 +                    cell += 1;
 +                }
 +                if let Some((title, value, detail)) = provider.credit_card() {
 +                    grid.attach(
-+                        &build_credit_card(&title, &value, &detail),
++                        &build_credit_card(&title, &value, &detail, scale),
 +                        cell % 2,
 +                        cell / 2,
 +                        1,
@@ -1051,31 +1043,24 @@ index 0000000..c457530
 +                if cell > 0 {
 +                    ui.cards.append(&grid);
 +                }
-+
-+                if let Some(local) = build_local_stats(provider) {
-+                    ui.cards.append(&local);
-+                }
 +            }
 +            None if self.busy => ui.cards.append(&build_notice(
 +                "Fetching usage",
 +                "Reading local CLI credentials and requesting live limit windows.",
-+                OK_GREEN,
++                "ok",
 +            )),
 +            None => ui.cards.append(&build_notice(
 +                "No usage data",
 +                self.error
 +                    .as_deref()
 +                    .unwrap_or("Usage has not been fetched yet."),
-+                DANGER,
++                "danger",
 +            )),
 +        }
 +
 +        // Footer.
-+        ui.updated.set_markup(&format!(
-+            "<span foreground=\"{FAINT}\">updated </span><span foreground=\"{DIM}\">{}</span>",
-+            esc(&self.updated_text)
-+        ));
-+        ui.next_poll.set_markup(&self.next_poll_markup());
++        ui.updated.set_label(&self.updated_text);
++        ui.next_poll.set_label(&self.next_poll_value());
 +        ui.refresh.set_sensitive(!self.busy);
 +    }
 +}
@@ -1083,15 +1068,17 @@ index 0000000..c457530
 +fn build_tab(
 +    spec: &'static ProviderSpec,
 +    index: usize,
++    scale: f32,
 +    sender: &ComponentSender<ModelbarDropdown>,
 +) -> TabUi {
 +    let button = gtk::Button::new();
 +    button.set_css_classes(&["mb-tab"]);
 +
-+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++    let row = gtk::Box::new(gtk::Orientation::Horizontal, scaled_dimension(8.0, scale));
 +    let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
 +    dot.set_css_classes(&["mb-dot", spec.dot_class]);
-+    dot.set_size_request(8, 8);
++    let dot_size = scaled_dimension(8.0, scale);
++    dot.set_size_request(dot_size, dot_size);
 +    dot.set_valign(gtk::Align::Center);
 +    row.append(&dot);
 +
@@ -1114,34 +1101,27 @@ index 0000000..c457530
 +    provider: &ProviderData,
 +    window: &WindowData,
 +    spec: &ProviderSpec,
++    scale: f32,
 +    countdowns: &mut Vec<(gtk::Label, i64)>,
 +) -> gtk::Box {
 +    let pct = window.remaining();
 +    let level = pct_level(pct);
-+    let level_class = match level {
-+        Level::Ok => None,
-+        Level::Warn => Some("warn"),
-+        Level::Danger => Some("danger"),
-+    };
++    let class = level_class(level);
 +
-+    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
++    let card = gtk::Box::new(gtk::Orientation::Vertical, scaled_dimension(12.0, scale));
 +    card.set_css_classes(&["mb-card"]);
-+    if let Some(class) = level_class {
++    if let Some(class) = class {
 +        card.add_css_class(class);
 +    }
 +
 +    // Title row with optional LOW/CRITICAL badge.
 +    let title_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-+    let title = gtk::Label::new(None);
++    let title = gtk::Label::new(Some(&provider.window_title(window).to_uppercase()));
 +    title.add_css_class("mb-card-title");
 +    title.set_xalign(0.0);
 +    title.set_hexpand(true);
-+    title.set_markup(&format!(
-+        "<span letter_spacing=\"1024\">{}</span>",
-+        esc(&provider.window_title(window).to_uppercase())
-+    ));
 +    title_row.append(&title);
-+    if let Some(class) = level_class {
++    if let Some(class) = class {
 +        let badge = gtk::Label::new(Some(if level == Level::Danger {
 +            "CRITICAL"
 +        } else {
@@ -1154,48 +1134,57 @@ index 0000000..c457530
 +    card.append(&title_row);
 +
 +    // Big "80% remaining" line.
-+    let number_color = match level {
-+        Level::Ok => TEXT,
-+        level => level_hex(level, spec.accent),
-+    };
-+    let value = gtk::Label::new(None);
-+    value.set_xalign(0.0);
-+    value.set_markup(&format!(
-+        "<span font=\"JetBrains Mono 27\" weight=\"600\" foreground=\"{number_color}\">{pct:.0}</span><span font=\"JetBrains Mono 14\" foreground=\"{DIM}\">%</span><span font=\"9.5\" foreground=\"{FAINT}\"> remaining</span>",
-+    ));
-+    card.append(&value);
++    let value_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
++    value_row.set_baseline_position(gtk::BaselinePosition::Bottom);
 +
-+    card.append(&build_segment_bar(pct, level_rgb(level, spec.accent_rgb)));
++    let number = gtk::Label::new(Some(&format!("{pct:.0}")));
++    number.set_css_classes(&["mb-value", class.unwrap_or("ok")]);
++    number.set_valign(gtk::Align::Baseline);
++    value_row.append(&number);
++
++    let unit = gtk::Label::new(Some("%"));
++    unit.add_css_class("mb-value-unit");
++    unit.set_valign(gtk::Align::Baseline);
++    value_row.append(&unit);
++
++    let caption = gtk::Label::new(Some("remaining"));
++    caption.add_css_class("mb-value-caption");
++    caption.set_valign(gtk::Align::Baseline);
++    value_row.append(&caption);
++    card.append(&value_row);
++
++    card.append(&build_segment_bar(
++        pct,
++        level_rgb(level, spec.accent_rgb),
++        scale,
++    ));
 +
 +    // Reset countdown row.
-+    let reset_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
++    let reset_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
 +    match window.reset_time() {
 +        Some(resets_at) => {
++            let key = gtk::Label::new(Some("resets in "));
++            key.set_css_classes(&["mb-reset", "key"]);
++            reset_row.append(&key);
++
 +            let countdown = gtk::Label::new(None);
 +            countdown.add_css_class("mb-reset");
 +            countdown.set_xalign(0.0);
 +            countdown.set_hexpand(true);
 +            let epoch = resets_at.timestamp();
-+            set_countdown_markup(&countdown, epoch - Utc::now().timestamp());
++            countdown.set_label(&fmt_countdown(epoch - Utc::now().timestamp()));
 +            reset_row.append(&countdown);
 +            countdowns.push((countdown, epoch));
 +
-+            let absolute = gtk::Label::new(None);
-+            absolute.add_css_class("mb-reset");
-+            absolute.set_markup(&format!(
-+                "<span foreground=\"{FAINT}\">{}</span>",
-+                esc(&fmt_reset_abs(resets_at))
-+            ));
++            let absolute = gtk::Label::new(Some(&fmt_reset_abs(resets_at)));
++            absolute.set_css_classes(&["mb-reset", "faint"]);
 +            reset_row.append(&absolute);
 +        }
 +        None => {
-+            let unavailable = gtk::Label::new(None);
-+            unavailable.add_css_class("mb-reset");
++            let unavailable = gtk::Label::new(Some("reset time unavailable"));
++            unavailable.set_css_classes(&["mb-reset", "faint"]);
 +            unavailable.set_xalign(0.0);
 +            unavailable.set_hexpand(true);
-+            unavailable.set_markup(&format!(
-+                "<span foreground=\"{FAINT}\">reset time unavailable</span>"
-+            ));
 +            reset_row.append(&unavailable);
 +        }
 +    }
@@ -1203,16 +1192,9 @@ index 0000000..c457530
 +    card
 +}
 +
-+fn set_countdown_markup(label: &gtk::Label, secs_left: i64) {
-+    label.set_markup(&format!(
-+        "<span foreground=\"{DIM}\">resets in </span><span foreground=\"{TEXT}\">{}</span>",
-+        esc(&fmt_countdown(secs_left))
-+    ));
-+}
-+
-+fn build_segment_bar(pct: f64, color: (f64, f64, f64)) -> gtk::DrawingArea {
++fn build_segment_bar(pct: f64, color: (f64, f64, f64), scale: f32) -> gtk::DrawingArea {
 +    let area = gtk::DrawingArea::new();
-+    area.set_content_height(10);
++    area.set_content_height(scaled_dimension(10.0, scale));
 +    area.set_hexpand(true);
 +    area.set_draw_func(move |_, cr, width, height| {
 +        let gap = 2.0;
@@ -1240,106 +1222,43 @@ index 0000000..c457530
 +    area
 +}
 +
-+fn build_credit_card(title: &str, value: &str, detail: &str) -> gtk::Box {
-+    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
++fn build_credit_card(title: &str, value: &str, detail: &str, scale: f32) -> gtk::Box {
++    let card = gtk::Box::new(gtk::Orientation::Vertical, scaled_dimension(12.0, scale));
 +    card.set_css_classes(&["mb-card"]);
 +
-+    let title_label = gtk::Label::new(None);
++    let title_label = gtk::Label::new(Some(&title.to_uppercase()));
 +    title_label.add_css_class("mb-card-title");
 +    title_label.set_xalign(0.0);
-+    title_label.set_markup(&format!(
-+        "<span letter_spacing=\"1024\">{}</span>",
-+        esc(&title.to_uppercase())
-+    ));
 +    card.append(&title_label);
 +
-+    let value_label = gtk::Label::new(None);
++    let value_label = gtk::Label::new(Some(value));
++    value_label.add_css_class("mb-credit-value");
 +    value_label.set_xalign(0.0);
-+    value_label.set_markup(&format!(
-+        "<span font=\"JetBrains Mono 21\" weight=\"600\" foreground=\"{TEXT}\">{}</span>",
-+        esc(value)
-+    ));
 +    card.append(&value_label);
 +
 +    if !detail.is_empty() {
-+        let detail_label = gtk::Label::new(None);
-+        detail_label.add_css_class("mb-reset");
++        let detail_label = gtk::Label::new(Some(detail));
++        detail_label.set_css_classes(&["mb-reset", "faint"]);
 +        detail_label.set_xalign(0.0);
 +        detail_label.set_wrap(true);
-+        detail_label.set_markup(&format!(
-+            "<span foreground=\"{FAINT}\">{}</span>",
-+            esc(detail)
-+        ));
 +        card.append(&detail_label);
 +    }
 +    card
 +}
 +
-+fn build_local_stats(provider: &ProviderData) -> Option<gtk::Box> {
-+    let local = provider.local.as_ref()?;
-+    let stats = [
-+        ("prompts today", local.prompts_today.map(|v| v.to_string())),
-+        (
-+            "sessions today",
-+            local.sessions_today.map(|v| v.to_string()),
-+        ),
-+        (
-+            "latest tokens",
-+            local.latest_session_tokens.map(format_compact_u64),
-+        ),
-+        (
-+            "latest model",
-+            local.latest_model.clone().filter(|s| !s.is_empty()),
-+        ),
-+    ];
-+    if stats.iter().all(|(_, value)| value.is_none()) {
-+        return None;
-+    }
-+
-+    let section = gtk::Box::new(gtk::Orientation::Vertical, 8);
-+    let header = gtk::Label::new(None);
-+    header.add_css_class("mb-card-title");
-+    header.set_xalign(0.0);
-+    header.set_markup("<span letter_spacing=\"1024\">LOCAL ACTIVITY</span>");
-+    section.append(&header);
-+
-+    let chips = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-+    for (label, value) in stats {
-+        let Some(value) = value else { continue };
-+        let chip = gtk::Box::new(gtk::Orientation::Vertical, 2);
-+        chip.set_css_classes(&["mb-chip"]);
-+
-+        let caption = gtk::Label::new(Some(label));
-+        caption.add_css_class("mb-chip-label");
-+        caption.set_xalign(0.0);
-+        chip.append(&caption);
-+
-+        let amount = gtk::Label::new(Some(&value));
-+        amount.add_css_class("mb-chip-value");
-+        amount.set_xalign(0.0);
-+        chip.append(&amount);
-+        chips.append(&chip);
-+    }
-+    section.append(&chips);
-+    Some(section)
-+}
-+
-+fn build_notice(title: &str, body: &str, accent: &str) -> gtk::Box {
++fn build_notice(title: &str, body: &str, accent_class: &str) -> gtk::Box {
 +    let card = gtk::Box::new(gtk::Orientation::Vertical, 4);
 +    card.set_css_classes(&["mb-card", "mb-notice"]);
 +
-+    let title_label = gtk::Label::new(None);
++    let title_label = gtk::Label::new(Some(title));
++    title_label.set_css_classes(&["mb-notice-title", accent_class]);
 +    title_label.set_xalign(0.0);
-+    title_label.set_markup(&format!(
-+        "<span weight=\"600\" foreground=\"{accent}\">{}</span>",
-+        esc(title)
-+    ));
 +    card.append(&title_label);
 +
-+    let body_label = gtk::Label::new(None);
++    let body_label = gtk::Label::new(Some(body));
++    body_label.add_css_class("mb-notice-body");
 +    body_label.set_xalign(0.0);
 +    body_label.set_wrap(true);
-+    body_label.set_markup(&format!("<span foreground=\"{DIM}\">{}</span>", esc(body)));
 +    card.append(&body_label);
 +    card
 +}
@@ -1368,133 +1287,110 @@ index 0000000..c457530
 +    ("Usage unavailable".to_owned(), raw_error.to_owned())
 +}
 +
-+fn load_css() {
-+    let provider = gtk::CssProvider::new();
-+    provider.load_from_string(
-+        r#"
-+        popover.modelbar-dropdown > contents {
-+            background-color: #11151a;
-+            border: 1px solid #222932;
++/// Modelbar-specific styles. Token values (`--text-*`, `--space-*`) already
++/// include the global UI scale, so they are multiplied by the dropdown scale
++/// only (`@DS@`); raw px/pt values get the full combined scale (`@FS@`).
++fn build_css(full_scale: f32, dropdown_scale: f32) -> String {
++    const TEMPLATE: &str = r#"
++        .modelbar-dropdown .dropdown-header {
++            padding: calc(var(--space-sm) * @DS@) calc(var(--space-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-header {
-+            padding-bottom: 12px;
-+            border-bottom: 1px solid #222932;
++        .modelbar-dropdown .dropdown-content {
++            padding: calc((var(--space-sm) + var(--space-xs)) * @DS@);
++        }
++        .modelbar-dropdown .dropdown-footer {
++            padding: calc(var(--space-sm) * @DS@) calc(var(--space-md) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-tabs {
-+            background-color: #0d1115;
-+            border: 1px solid #222932;
-+            border-radius: 9px;
-+            padding: 3px;
++            background-color: var(--bg-base);
++            border: 1px solid var(--border-default);
++            border-radius: var(--rounding-element);
++            padding: calc(3px * @FS@);
 +        }
 +        .modelbar-dropdown .mb-tab {
 +            background: none;
 +            border: none;
 +            box-shadow: none;
-+            padding: 6px 12px;
-+            border-radius: 7px;
++            padding: calc(6px * @FS@) calc(12px * @FS@);
++            border-radius: var(--rounding-element);
 +            min-height: 0;
 +        }
 +        .modelbar-dropdown .mb-tab:hover {
-+            background-color: alpha(#161b22, 0.55);
++            background-color: var(--bg-hover);
 +        }
 +        .modelbar-dropdown .mb-tab.active {
-+            background-color: #161b22;
-+            border: 1px solid #232b35;
++            background-color: var(--bg-elevated);
++            border: 1px solid var(--border-default);
 +        }
 +        .modelbar-dropdown .mb-tab-name {
-+            color: #8b95a3;
-+            font-weight: 600;
-+            font-size: 13px;
++            color: var(--fg-muted);
++            font-weight: var(--weight-semibold);
++            font-size: calc(var(--text-md) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-tab.active .mb-tab-name {
-+            color: #e8ecf1;
++            color: var(--fg-default);
 +        }
 +        .modelbar-dropdown .mb-tab-pct {
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 11px;
-+            font-weight: 600;
++            font-family: var(--font-mono);
++            font-size: calc(var(--text-xs) * @DS@);
++            font-weight: var(--weight-semibold);
 +        }
++        .modelbar-dropdown .mb-tab-pct.dim { color: var(--fg-muted); }
++        .modelbar-dropdown .mb-tab-pct.warn { color: #e0a93e; }
++        .modelbar-dropdown .mb-tab-pct.danger { color: #e2604f; }
 +        .modelbar-dropdown .mb-dot {
-+            border-radius: 4px;
-+            min-width: 8px;
-+            min-height: 8px;
++            border-radius: calc(4px * @FS@);
++            min-width: calc(8px * @FS@);
++            min-height: calc(8px * @FS@);
 +        }
 +        .modelbar-dropdown .mb-dot.claude { background-color: #d97757; }
 +        .modelbar-dropdown .mb-dot.codex { background-color: #4fb8a8; }
 +        .modelbar-dropdown .mb-tab:not(.active) .mb-dot { opacity: 0.45; }
 +        .modelbar-dropdown .mb-refresh {
 +            background: none;
-+            border: 1px solid #232b35;
-+            border-radius: 6px;
-+            min-width: 28px;
-+            min-height: 28px;
++            border: 1px solid var(--border-default);
++            border-radius: var(--rounding-element);
++            min-width: calc(28px * @FS@);
++            min-height: calc(28px * @FS@);
 +            padding: 0;
-+            color: #8b95a3;
++            color: var(--fg-muted);
 +            box-shadow: none;
 +        }
-+        .modelbar-dropdown .mb-refresh:hover { color: #e8ecf1; }
-+        .modelbar-dropdown .mb-body {
-+            padding-top: 14px;
-+        }
++        .modelbar-dropdown .mb-refresh:hover { color: var(--fg-default); }
 +        .modelbar-dropdown .mb-provider-row {
-+            padding-bottom: 14px;
++            padding-bottom: calc(var(--space-md) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-tool {
-+            color: #e8ecf1;
-+            font-weight: 600;
-+            font-size: 15px;
++            color: var(--fg-default);
++            font-weight: var(--weight-semibold);
++            font-size: calc(var(--text-lg) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-meta {
-+            color: #8b95a3;
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 12px;
-+        }
-+        .modelbar-dropdown .mb-live {
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 11px;
-+            font-weight: 600;
-+            letter-spacing: 1px;
-+        }
-+        .modelbar-dropdown .mb-live.ok { color: #46b576; }
-+        .modelbar-dropdown .mb-live.err { color: #e2604f; }
-+        .modelbar-dropdown .mb-live-dot {
-+            border-radius: 4px;
-+            min-width: 7px;
-+            min-height: 7px;
-+        }
-+        .modelbar-dropdown .mb-live-dot.ok {
-+            background-color: #46b576;
-+            animation: mb-pulse 2s ease-in-out infinite;
-+        }
-+        .modelbar-dropdown .mb-live-dot.err { background-color: #e2604f; }
-+        @keyframes mb-pulse {
-+            0% { opacity: 1; }
-+            50% { opacity: 0.35; }
-+            100% { opacity: 1; }
-+        }
-+        .modelbar-dropdown .mb-cards {
-+            padding-bottom: 14px;
++            color: var(--fg-muted);
++            font-family: var(--font-mono);
++            font-size: calc(var(--text-sm) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-card {
-+            background-color: #161b22;
-+            border: 1px solid #232b35;
-+            border-radius: 8px;
-+            padding: 16px 18px;
++            background-color: var(--bg-elevated);
++            border: 1px solid var(--border-default);
++            border-radius: var(--rounding-element);
++            padding: calc(var(--space-md) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-card.warn { border-color: alpha(#e0a93e, 0.35); }
 +        .modelbar-dropdown .mb-card.danger { border-color: alpha(#e2604f, 0.35); }
 +        .modelbar-dropdown .mb-card-title {
-+            color: #8b95a3;
-+            font-weight: 600;
-+            font-size: 12px;
++            color: var(--fg-muted);
++            font-weight: var(--weight-semibold);
++            font-size: calc(var(--text-sm) * @DS@);
++            letter-spacing: 1px;
 +        }
 +        .modelbar-dropdown .mb-card-badge {
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 10px;
-+            font-weight: 700;
++            font-family: var(--font-mono);
++            font-size: calc(var(--text-xs) * @DS@);
++            font-weight: var(--weight-bold);
 +            border: 1px solid;
-+            border-radius: 4px;
-+            padding: 1px 6px;
++            border-radius: calc(4px * @FS@);
++            padding: calc(1px * @FS@) calc(6px * @FS@);
 +        }
 +        .modelbar-dropdown .mb-card-badge.warn {
 +            color: #e0a93e;
@@ -1504,39 +1400,58 @@ index 0000000..c457530
 +            color: #e2604f;
 +            border-color: alpha(#e2604f, 0.4);
 +        }
++        .modelbar-dropdown .mb-value {
++            font-family: var(--font-mono);
++            font-size: calc(27pt * @FS@);
++            font-weight: var(--weight-semibold);
++        }
++        .modelbar-dropdown .mb-value.ok { color: var(--fg-default); }
++        .modelbar-dropdown .mb-value.warn { color: #e0a93e; }
++        .modelbar-dropdown .mb-value.danger { color: #e2604f; }
++        .modelbar-dropdown .mb-value-unit {
++            font-family: var(--font-mono);
++            font-size: calc(14pt * @FS@);
++            color: var(--fg-muted);
++        }
++        .modelbar-dropdown .mb-value-caption {
++            font-size: calc(var(--text-sm) * @DS@);
++            color: var(--fg-subtle);
++            margin-left: calc(var(--space-sm) * @DS@);
++        }
++        .modelbar-dropdown .mb-credit-value {
++            font-family: var(--font-mono);
++            font-size: calc(21pt * @FS@);
++            font-weight: var(--weight-semibold);
++            color: var(--fg-default);
++        }
 +        .modelbar-dropdown .mb-reset {
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 12px;
++            font-family: var(--font-mono);
++            font-size: calc(var(--text-sm) * @DS@);
++            color: var(--fg-default);
 +        }
-+        .modelbar-dropdown .mb-chip {
-+            background-color: #161b22;
-+            border: 1px solid #232b35;
-+            border-radius: 6px;
-+            padding: 8px 12px;
++        .modelbar-dropdown .mb-reset.key { color: var(--fg-muted); }
++        .modelbar-dropdown .mb-reset.faint { color: var(--fg-subtle); }
++        .modelbar-dropdown .mb-notice-title {
++            font-weight: var(--weight-semibold);
++            font-size: calc(var(--text-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-chip-label {
-+            color: #5b6470;
-+            font-size: 11px;
-+        }
-+        .modelbar-dropdown .mb-chip-value {
-+            color: #e8ecf1;
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 13px;
-+        }
-+        .modelbar-dropdown .mb-footer {
-+            padding-top: 8px;
-+            border-top: 1px solid #222932;
++        .modelbar-dropdown .mb-notice-title.ok { color: #46b576; }
++        .modelbar-dropdown .mb-notice-title.dim { color: var(--fg-muted); }
++        .modelbar-dropdown .mb-notice-title.danger { color: #e2604f; }
++        .modelbar-dropdown .mb-notice-body {
++            color: var(--fg-muted);
++            font-size: calc(var(--text-sm) * @DS@);
 +        }
 +        .modelbar-dropdown .mb-foot {
-+            font-family: "JetBrains Mono", monospace;
-+            font-size: 11px;
++            font-family: var(--font-mono);
++            font-size: calc(var(--text-xs) * @DS@);
++            color: var(--fg-muted);
 +        }
-+        "#,
-+    );
-+
-+    if let Some(display) = gtk::gdk::Display::default() {
-+        gtk::style_context_add_provider_for_display(&display, &provider, COMPONENT_CSS_PRIORITY);
-+    }
++        .modelbar-dropdown .mb-foot.key { color: var(--fg-subtle); }
++    "#;
++    TEMPLATE
++        .replace("@DS@", &format!("{dropdown_scale:.4}"))
++        .replace("@FS@", &format!("{full_scale:.4}"))
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/mod.rs b/crates/wayle-shell/src/shell/bar/mod.rs
 index 5b5cf1c..912fea1 100644
@@ -1552,10 +1467,10 @@ index 5b5cf1c..912fea1 100644
  mod watchers;
 diff --git a/crates/wayle-shell/src/shell/bar/modelbar_data.rs b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
 new file mode 100644
-index 0000000..9b5190b
+index 0000000..d599193
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
-@@ -0,0 +1,371 @@
+@@ -0,0 +1,350 @@
 +use std::{env, path::PathBuf, process::Stdio, time::Duration};
 +
 +use chrono::{DateTime, Local, Utc};
@@ -1586,16 +1501,15 @@ index 0000000..9b5190b
 +#[derive(Clone, Debug, Deserialize)]
 +pub(crate) struct ModelbarStatus {
 +    pub(crate) text: String,
-+    pub(crate) tooltip: String,
 +    #[serde(default)]
 +    pub(crate) class: String,
 +}
 +
 +impl ModelbarStatus {
-+    pub(crate) fn offline(error: impl Into<String>) -> Self {
++    pub(crate) fn offline(error: &str) -> Self {
++        tracing::warn!(error, "modelbar status unavailable");
 +        Self {
 +            text: String::from("Models offline"),
-+            tooltip: error.into(),
 +            class: String::from("offline"),
 +        }
 +    }
@@ -1609,8 +1523,8 @@ index 0000000..9b5190b
 +    .await
 +    {
 +        Ok(Ok(status)) => status,
-+        Ok(Err(error)) => ModelbarStatus::offline(error),
-+        Err(_) => ModelbarStatus::offline("Timed out while fetching ModelBar usage."),
++        Ok(Err(error)) => ModelbarStatus::offline(&error),
++        Err(_) => ModelbarStatus::offline("timed out while fetching ModelBar usage"),
 +    }
 +}
 +
@@ -1639,7 +1553,6 @@ index 0000000..9b5190b
 +    pub(crate) usage: Option<UsageData>,
 +    pub(crate) credits: Option<CreditsData>,
 +    pub(crate) account: Option<AccountData>,
-+    pub(crate) local: Option<LocalData>,
 +    pub(crate) error: Option<String>,
 +}
 +
@@ -1796,15 +1709,6 @@ index 0000000..9b5190b
 +    pub(crate) plan: Option<String>,
 +}
 +
-+#[derive(Clone, Debug, Default, Deserialize)]
-+#[serde(rename_all = "camelCase", default)]
-+pub(crate) struct LocalData {
-+    pub(crate) prompts_today: Option<u64>,
-+    pub(crate) sessions_today: Option<u64>,
-+    pub(crate) latest_session_tokens: Option<u64>,
-+    pub(crate) latest_model: Option<String>,
-+}
-+
 +pub(crate) async fn fetch_payload(settings: BridgeSettings) -> Result<ModelbarPayload, String> {
 +    match timeout(
 +        COMMAND_TIMEOUT,
@@ -1900,16 +1804,6 @@ index 0000000..9b5190b
 +        local.format("%-I:%M %p").to_string()
 +    } else {
 +        local.format("%b %-d %-I:%M %p").to_string()
-+    }
-+}
-+
-+pub(crate) fn format_compact_u64(value: u64) -> String {
-+    if value >= 1_000_000 {
-+        format!("{:.1}M", value as f64 / 1_000_000.0)
-+    } else if value >= 1_000 {
-+        format!("{:.1}K", value as f64 / 1_000.0)
-+    } else {
-+        value.to_string()
 +    }
 +}
 +
@@ -2020,10 +1914,10 @@ index 0000000..54f7715
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
 new file mode 100644
-index 0000000..edcfbff
+index 0000000..1f92539
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,144 @@
 +mod factory;
 +mod messages;
 +mod watchers;
@@ -2158,8 +2052,6 @@ index 0000000..edcfbff
 +impl ModelbarModule {
 +    fn apply_status(&mut self, status: ModelbarStatus, root: &gtk::Box) {
 +        self.bar_button.emit(BarButtonInput::SetLabel(status.text));
-+        self.bar_button
-+            .emit(BarButtonInput::SetTooltip(Some(status.tooltip)));
 +
 +        if let Some(old_class) = self.dynamic_class.take() {
 +            root.remove_css_class(&old_class);
@@ -2203,3 +2095,14 @@ index 0000000..93cae09
 +            .drop_on_shutdown()
 +    });
 +}
+diff --git a/resources/icons/hicolor/scalable/actions/ld-sparkles-symbolic.svg b/resources/icons/hicolor/scalable/actions/ld-sparkles-symbolic.svg
+new file mode 100644
+index 0000000..b799e0b
+--- /dev/null
++++ b/resources/icons/hicolor/scalable/actions/ld-sparkles-symbolic.svg
+@@ -0,0 +1,5 @@
++<svg width='16' height='16' xmlns='http://www.w3.org/2000/svg'>
++  <path d='M7 2.6 Q7.35 6.3 8.55 7.45 Q9.7 8.65 13.4 9 Q9.7 9.35 8.55 10.55 Q7.35 11.7 7 15.4 Q6.65 11.7 5.45 10.55 Q4.3 9.35 0.6 9 Q4.3 8.65 5.45 7.45 Q6.65 6.3 7 2.6 Z' fill='#000000'/>
++  <path d='M12.4 0.8 Q12.62 2.6 13.2 3.18 Q13.78 3.76 15.58 3.98 Q13.78 4.2 13.2 4.78 Q12.62 5.36 12.4 7.16 Q12.18 5.36 11.6 4.78 Q11.02 4.2 9.22 3.98 Q11.02 3.76 11.6 3.18 Q12.18 2.6 12.4 0.8 Z' fill='#000000'/>
++  <path d='M13.1 10.9 Q13.27 12.2 13.7 12.63 Q14.13 13.06 15.43 13.23 Q14.13 13.4 13.7 13.83 Q13.27 14.26 13.1 15.56 Q12.93 14.26 12.5 13.83 Q12.07 13.4 10.77 13.23 Q12.07 13.06 12.5 12.63 Q12.93 12.2 13.1 10.9 Z' fill='#000000'/>
++</svg>
