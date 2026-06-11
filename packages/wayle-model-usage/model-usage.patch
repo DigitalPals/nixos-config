@@ -1,5 +1,5 @@
 diff --git a/crates/wayle-config/src/schemas/bar/types/mod.rs b/crates/wayle-config/src/schemas/bar/types/mod.rs
-index b918d6c..18c67df 100644
+index b918d6c..90c44d0 100644
 --- a/crates/wayle-config/src/schemas/bar/types/mod.rs
 +++ b/crates/wayle-config/src/schemas/bar/types/mod.rs
 @@ -221,6 +221,8 @@ pub enum BarModule {
@@ -7,7 +7,7 @@ index b918d6c..18c67df 100644
      /// Media player controls.
      Media,
 +    /// Model usage status and limits.
-+    Modelbar,
++    ModelUsage,
      /// Microphone mute status.
      Microphone,
      /// Network connection status.
@@ -15,7 +15,7 @@ index b918d6c..18c67df 100644
              Self::Hyprsunset => "hyprsunset",
              Self::KeyboardInput => "keyboard-input",
              Self::Media => "media",
-+            Self::Modelbar => "modelbar",
++            Self::ModelUsage => "model-usage",
              Self::Microphone => "microphone",
              Self::Network => "network",
              Self::Netstat => "netstat",
@@ -23,7 +23,7 @@ index b918d6c..18c67df 100644
              "hyprsunset" => Self::Hyprsunset,
              "keyboard-input" => Self::KeyboardInput,
              "media" => Self::Media,
-+            "modelbar" => Self::Modelbar,
++            "model-usage" => Self::ModelUsage,
              "microphone" => Self::Microphone,
              "network" => Self::Network,
              "netstat" => Self::Netstat,
@@ -31,19 +31,19 @@ index b918d6c..18c67df 100644
      "keybind-mode",
      "keyboard-input",
      "media",
-+    "modelbar",
++    "model-usage",
      "mango-workspaces",
      "microphone",
      "netstat",
 diff --git a/crates/wayle-config/src/schemas/modules/mod.rs b/crates/wayle-config/src/schemas/modules/mod.rs
-index f43c710..fdbc0c8 100644
+index 7f7aafb..2bc4006 100644
 --- a/crates/wayle-config/src/schemas/modules/mod.rs
 +++ b/crates/wayle-config/src/schemas/modules/mod.rs
 @@ -16,6 +16,7 @@ mod keyboard_input;
  mod mango_workspaces;
  mod media;
  mod microphone;
-+mod modelbar;
++mod model_usage;
  mod netstat;
  mod network;
  mod niri_workspaces;
@@ -51,24 +51,25 @@ index f43c710..fdbc0c8 100644
  pub use mango_workspaces::MangoWorkspacesConfig;
  pub use media::{BUILTIN_MAPPINGS, MediaConfig, MediaIconType};
  pub use microphone::MicrophoneConfig;
-+pub use modelbar::{ModelbarConfig, ProviderOrder};
++pub use model_usage::{ModelUsageConfig, ProviderOrder};
  pub use netstat::NetstatConfig;
  pub use network::NetworkConfig;
  pub use niri_workspaces::{
-@@ -113,6 +115,8 @@ pub struct ModulesConfig {
+@@ -113,6 +115,9 @@ pub struct ModulesConfig {
      pub media: MediaConfig,
      /// Microphone input module.
      pub microphone: MicrophoneConfig,
-+    /// ModelBar usage limits module.
-+    pub modelbar: ModelbarConfig,
++    /// Model usage limits module.
++    #[serde(rename = "model-usage")]
++    pub model_usage: ModelUsageConfig,
      /// Network connection module.
      pub network: NetworkConfig,
      /// Network traffic statistics module.
-diff --git a/crates/wayle-config/src/schemas/modules/modelbar/mod.rs b/crates/wayle-config/src/schemas/modules/modelbar/mod.rs
+diff --git a/crates/wayle-config/src/schemas/modules/model_usage/mod.rs b/crates/wayle-config/src/schemas/modules/model_usage/mod.rs
 new file mode 100644
-index 0000000..9d1b24a
+index 0000000..42eabc8
 --- /dev/null
-+++ b/crates/wayle-config/src/schemas/modules/modelbar/mod.rs
++++ b/crates/wayle-config/src/schemas/modules/model_usage/mod.rs
 @@ -0,0 +1,157 @@
 +use schemars::{JsonSchema, schema_for};
 +use serde::{Deserialize, Serialize};
@@ -81,10 +82,10 @@ index 0000000..9d1b24a
 +};
 +
 +/// Claude Code and Codex usage limits with a detailed dropdown.
-+#[wayle_config(bar_button, i18n_prefix = "settings-modules-modelbar")]
-+pub struct ModelbarConfig {
-+    /// Path to the `wayle-model-usage` bridge executable. Leave empty to use
-+    /// `$WAYLE_MODELBAR_BIN` or `~/.config/wayle/bin/wayle-model-usage`.
++#[wayle_config(bar_button, i18n_prefix = "settings-modules-model-usage")]
++pub struct ModelUsageConfig {
++    /// Path to a command that prints model usage JSON. Leave empty to use
++    /// `$WAYLE_MODEL_USAGE_BIN` or find `wayle-model-usage` on `PATH`.
 +    #[default(String::new())]
 +    pub command: ConfigProperty<String>,
 +
@@ -115,7 +116,7 @@ index 0000000..9d1b24a
 +
 +    /// Icon for the bar button.
 +    #[serde(rename = "icon-name")]
-+    #[default(String::from("ld-sparkles-symbolic"))]
++    #[default(String::from("ld-code-symbolic"))]
 +    pub icon_name: ConfigProperty<String>,
 +
 +    /// Display border around button.
@@ -165,7 +166,7 @@ index 0000000..9d1b24a
 +
 +    /// Action on left click.
 +    #[serde(rename = "left-click")]
-+    #[default(ClickAction::Dropdown(String::from("modelbar")))]
++    #[default(ClickAction::Dropdown(String::from("model-usage")))]
 +    pub left_click: ConfigProperty<ClickAction>,
 +
 +    /// Action on right click.
@@ -189,7 +190,7 @@ index 0000000..9d1b24a
 +    pub scroll_down: ConfigProperty<ClickAction>,
 +}
 +
-+/// Provider tab order in the ModelBar dropdown.
++/// Provider tab order in the Model Usage dropdown.
 +#[derive(
 +    Debug,
 +    Clone,
@@ -211,12 +212,12 @@ index 0000000..9d1b24a
 +    CodexFirst,
 +}
 +
-+impl ModuleInfoProvider for ModelbarConfig {
++impl ModuleInfoProvider for ModelUsageConfig {
 +    fn module_info() -> ModuleInfo {
 +        ModuleInfo {
-+            name: String::from("modelbar"),
-+            schema: || schema_for!(ModelbarConfig),
-+            layout_id: Some(String::from("modelbar")),
++            name: String::from("model-usage"),
++            schema: || schema_for!(ModelUsageConfig),
++            layout_id: Some(String::from("model-usage")),
 +            array_entry: false,
 +        }
 +    }
@@ -226,16 +227,16 @@ index 0000000..9d1b24a
 +    }
 +}
 +
-+crate::register_module!(ModelbarConfig);
++crate::register_module!(ModelUsageConfig);
 diff --git a/crates/wayle-i18n/locales/en-US/_settings.ftl b/crates/wayle-i18n/locales/en-US/_settings.ftl
-index 364bd77..a20ac50 100644
+index 364bd77..e9ac84e 100644
 --- a/crates/wayle-i18n/locales/en-US/_settings.ftl
 +++ b/crates/wayle-i18n/locales/en-US/_settings.ftl
 @@ -91,6 +91,7 @@ settings-nav-keyboard-input = Keyboard Input
  settings-nav-mango-workspaces = Mango Workspaces
  settings-nav-media = Media
  settings-nav-microphone = Microphone
-+settings-nav-modelbar = ModelBar
++settings-nav-model-usage = Model Usage
  settings-nav-netstat = Netstat
  settings-nav-network = Network
  settings-nav-niri-workspaces = Niri Workspaces
@@ -243,13 +244,13 @@ index 364bd77..a20ac50 100644
      .breadcrumb = Modules
  settings-page-volume = Volume
      .breadcrumb = Modules
-+settings-page-modelbar = ModelBar
++settings-page-model-usage = Model Usage
 +    .breadcrumb = Modules
  settings-page-weather = Weather
      .breadcrumb = Modules
  settings-page-window-title = Window Title
 diff --git a/crates/wayle-i18n/locales/en-US/config/_modules.ftl b/crates/wayle-i18n/locales/en-US/config/_modules.ftl
-index 0c34384..38d07fc 100644
+index 0c34384..a28770e 100644
 --- a/crates/wayle-i18n/locales/en-US/config/_modules.ftl
 +++ b/crates/wayle-i18n/locales/en-US/config/_modules.ftl
 @@ -35,3 +35,7 @@ enum-temperature-unit-imperial = Imperial
@@ -257,93 +258,93 @@ index 0c34384..38d07fc 100644
  enum-time-format-twelve-hour = 12 Hour
  enum-time-format-twenty-four-hour = 24 Hour
 +
-+## ModelBar provider order
++## Model Usage provider order
 +enum-provider-order-claude-first = Claude first
 +enum-provider-order-codex-first = Codex first
-diff --git a/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl b/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl
+diff --git a/crates/wayle-i18n/locales/en-US/config/modules/_model_usage.ftl b/crates/wayle-i18n/locales/en-US/config/modules/_model_usage.ftl
 new file mode 100644
-index 0000000..16bda73
+index 0000000..212addd
 --- /dev/null
-+++ b/crates/wayle-i18n/locales/en-US/config/modules/_modelbar.ftl
++++ b/crates/wayle-i18n/locales/en-US/config/modules/_model_usage.ftl
 @@ -0,0 +1,69 @@
-+### Wayle Configuration - ModelBar Module
++### Wayle Configuration - Model Usage Module
 +
-+## ModelBar Module Configuration
++## Model Usage Module Configuration
 +
-+settings-modules-modelbar-command = Bridge Command
-+    .description = Path to the wayle-model-usage executable. Empty uses $WAYLE_MODELBAR_BIN or ~/.config/wayle/bin/wayle-model-usage
++settings-modules-model-usage-command = Bridge Command
++    .description = Path to a command that prints model usage JSON. Empty uses $WAYLE_MODEL_USAGE_BIN or wayle-model-usage from PATH
 +
-+settings-modules-modelbar-claude-bin = Claude Code Binary
++settings-modules-model-usage-claude-bin = Claude Code Binary
 +    .description = Path to the Claude Code CLI used to read usage limits
 +
-+settings-modules-modelbar-codex-bin = Codex Binary
++settings-modules-model-usage-codex-bin = Codex Binary
 +    .description = Path to the Codex CLI used to read usage limits
 +
-+settings-modules-modelbar-provider-order = Provider Order
++settings-modules-model-usage-provider-order = Provider Order
 +    .description = Which provider tab comes first in the dropdown
 +
-+settings-modules-modelbar-refresh-interval = Refresh Interval
++settings-modules-model-usage-refresh-interval = Refresh Interval
 +    .description = Polling interval in seconds
 +
-+settings-modules-modelbar-refresh-interval-seconds = Refresh Interval
++settings-modules-model-usage-refresh-interval-seconds = Refresh Interval
 +    .description = Polling interval in seconds
 +
-+settings-modules-modelbar-dropdown-scale = Dropdown Size
++settings-modules-model-usage-dropdown-scale = Dropdown Size
 +    .description = Dropdown size scale, applied on top of the global UI scale
 +
-+settings-modules-modelbar-icon-name = Icon
++settings-modules-model-usage-icon-name = Icon
 +    .description = Icon for the bar button
 +
-+settings-modules-modelbar-border-show = Show Border
++settings-modules-model-usage-border-show = Show Border
 +    .description = Display border around button
 +
-+settings-modules-modelbar-border-color = Border Color
++settings-modules-model-usage-border-color = Border Color
 +    .description = Border color token
 +
-+settings-modules-modelbar-icon-show = Show Icon
++settings-modules-model-usage-icon-show = Show Icon
 +    .description = Display module icon
 +
-+settings-modules-modelbar-icon-color = Icon Color
++settings-modules-model-usage-icon-color = Icon Color
 +    .description = Icon foreground color
 +
-+settings-modules-modelbar-icon-bg-color = Icon Background
++settings-modules-model-usage-icon-bg-color = Icon Background
 +    .description = Icon container background color token
 +
-+settings-modules-modelbar-label-show = Show Label
++settings-modules-model-usage-label-show = Show Label
 +    .description = Display usage label
 +
-+settings-modules-modelbar-label-color = Label Color
++settings-modules-model-usage-label-color = Label Color
 +    .description = Label text color token
 +
-+settings-modules-modelbar-label-max-length = Label Max Length
++settings-modules-model-usage-label-max-length = Label Max Length
 +    .description = Max label characters before truncation with ellipsis. Set to 0 to disable
 +
-+settings-modules-modelbar-button-bg-color = Button Background
++settings-modules-model-usage-button-bg-color = Button Background
 +    .description = Button background color token
 +
-+settings-modules-modelbar-left-click = Left Click
++settings-modules-model-usage-left-click = Left Click
 +    .description = Action on left click
 +
-+settings-modules-modelbar-right-click = Right Click
++settings-modules-model-usage-right-click = Right Click
 +    .description = Action on right click
 +
-+settings-modules-modelbar-middle-click = Middle Click
++settings-modules-model-usage-middle-click = Middle Click
 +    .description = Action on middle click
 +
-+settings-modules-modelbar-scroll-up = Scroll Up
++settings-modules-model-usage-scroll-up = Scroll Up
 +    .description = Action on scroll up
 +
-+settings-modules-modelbar-scroll-down = Scroll Down
++settings-modules-model-usage-scroll-down = Scroll Down
 +    .description = Action on scroll down
 diff --git a/crates/wayle-settings/src/pages/modules/mod.rs b/crates/wayle-settings/src/pages/modules/mod.rs
-index cb2a0f5..259606b 100644
+index cb2a0f5..522b449 100644
 --- a/crates/wayle-settings/src/pages/modules/mod.rs
 +++ b/crates/wayle-settings/src/pages/modules/mod.rs
 @@ -16,6 +16,7 @@ mod keyboard_input;
  mod mango_workspaces;
  mod media;
  mod microphone;
-+mod modelbar;
++mod model_usage;
  mod netstat;
  mod network;
  mod niri_workspaces;
@@ -351,17 +352,17 @@ index cb2a0f5..259606b 100644
          mango_workspaces::entry,
          media::entry,
          microphone::entry,
-+        modelbar::entry,
++        model_usage::entry,
          netstat::entry,
          network::entry,
          niri_workspaces::entry,
-diff --git a/crates/wayle-settings/src/pages/modules/modelbar.rs b/crates/wayle-settings/src/pages/modules/modelbar.rs
+diff --git a/crates/wayle-settings/src/pages/modules/model_usage.rs b/crates/wayle-settings/src/pages/modules/model_usage.rs
 new file mode 100644
-index 0000000..92ed71a
+index 0000000..a07fa00
 --- /dev/null
-+++ b/crates/wayle-settings/src/pages/modules/modelbar.rs
++++ b/crates/wayle-settings/src/pages/modules/model_usage.rs
 @@ -0,0 +1,65 @@
-+//! ModelBar module settings.
++//! Model Usage module settings.
 +
 +use wayle_config::Config;
 +
@@ -381,7 +382,7 @@ index 0000000..92ed71a
 +};
 +
 +pub(crate) fn entry(config: &Config) -> LeafEntry {
-+    let module = &config.modules.modelbar;
++    let module = &config.modules.model_usage;
 +
 +    let fields = BarButtonFields {
 +        icon_show: &module.icon_show,
@@ -401,11 +402,11 @@ index 0000000..92ed71a
 +    };
 +
 +    LeafEntry {
-+        id: "modelbar",
-+        i18n_key: "settings-nav-modelbar",
-+        icon: "ld-sparkles-symbolic",
++        id: "model-usage",
++        i18n_key: "settings-nav-model-usage",
++        icon: "ld-code-symbolic",
 +        spec: page_spec(
-+            "settings-page-modelbar",
++            "settings-page-model-usage",
 +            vec![
 +                SectionSpec {
 +                    title_key: "settings-section-general",
@@ -427,14 +428,14 @@ index 0000000..92ed71a
 +    }
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
-index 941be38..7c04183 100644
+index 941be38..a83e6b9 100644
 --- a/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/mod.rs
 @@ -5,6 +5,7 @@ mod brightness;
  mod calendar;
  mod dashboard;
  mod media;
-+mod modelbar;
++mod model_usage;
  mod network;
  mod notification;
  mod registry;
@@ -442,19 +443,19 @@ index 941be38..7c04183 100644
      "calendar" => calendar::Factory,
      "dashboard" => dashboard::Factory,
      "media" => media::Factory,
-+    "modelbar" => modelbar::Factory,
++    "model-usage" => model_usage::Factory,
      "network" => network::Factory,
      "notification" => notification::Factory,
      "weather" => weather::Factory,
-diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
+diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/factory.rs b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/factory.rs
 new file mode 100644
-index 0000000..bd8c51e
+index 0000000..40dd1b6
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/factory.rs
++++ b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/factory.rs
 @@ -0,0 +1,20 @@
 +use relm4::prelude::*;
 +
-+use super::ModelbarDropdown;
++use super::ModelUsageDropdown;
 +use crate::shell::{
 +    bar::dropdowns::{DropdownFactory, DropdownInstance},
 +    services::ShellServices,
@@ -464,7 +465,7 @@ index 0000000..bd8c51e
 +
 +impl DropdownFactory for Factory {
 +    fn create(services: &ShellServices) -> Option<DropdownInstance> {
-+        let controller = ModelbarDropdown::builder()
++        let controller = ModelUsageDropdown::builder()
 +            .launch(services.config.clone())
 +            .detach();
 +
@@ -472,12 +473,12 @@ index 0000000..bd8c51e
 +        Some(DropdownInstance::new(popover, Box::new(controller)))
 +    }
 +}
-diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
+diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs
 new file mode 100644
-index 0000000..1236930
+index 0000000..e8070f3
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/dropdowns/modelbar/mod.rs
-@@ -0,0 +1,975 @@
++++ b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs
+@@ -0,0 +1,980 @@
 +mod factory;
 +
 +use std::{sync::Arc, time::Instant};
@@ -492,8 +493,8 @@ index 0000000..1236930
 +use crate::shell::{
 +    bar::{
 +        dropdowns::scaled_dimension,
-+        modelbar_data::{
-+            BridgeSettings, ModelbarPayload, ProviderData, WindowData, fetch_payload,
++        model_usage_data::{
++            BridgeSettings, ModelUsagePayload, ProviderData, WindowData, fetch_payload,
 +            fmt_countdown, fmt_reset_abs, format_local_time,
 +        },
 +    },
@@ -568,10 +569,10 @@ index 0000000..1236930
 +    }
 +}
 +
-+pub(crate) struct ModelbarDropdown {
++pub(crate) struct ModelUsageDropdown {
 +    config: Arc<ConfigService>,
 +    css: gtk::CssProvider,
-+    payload: Option<ModelbarPayload>,
++    payload: Option<ModelUsagePayload>,
 +    error: Option<String>,
 +    active: usize,
 +    busy: bool,
@@ -584,7 +585,7 @@ index 0000000..1236930
 +    pct: gtk::Label,
 +}
 +
-+pub(crate) struct ModelbarUi {
++pub(crate) struct ModelUsageUi {
 +    tabs_box: gtk::Box,
 +    tabs: Vec<TabUi>,
 +    refresh: gtk::Button,
@@ -598,30 +599,30 @@ index 0000000..1236930
 +}
 +
 +#[derive(Debug)]
-+pub(crate) enum ModelbarDropdownMsg {
++pub(crate) enum ModelUsageDropdownMsg {
 +    Refresh,
 +    SelectTab(usize),
 +    Opened(bool),
 +}
 +
 +#[derive(Debug)]
-+pub(crate) enum ModelbarDropdownCmd {
-+    Loaded(Result<ModelbarPayload, String>),
++pub(crate) enum ModelUsageDropdownCmd {
++    Loaded(Result<ModelUsagePayload, String>),
 +    ConfigChanged,
 +    Tick,
 +}
 +
-+impl Component for ModelbarDropdown {
++impl Component for ModelUsageDropdown {
 +    type Init = Arc<ConfigService>;
-+    type Input = ModelbarDropdownMsg;
++    type Input = ModelUsageDropdownMsg;
 +    type Output = ();
-+    type CommandOutput = ModelbarDropdownCmd;
++    type CommandOutput = ModelUsageDropdownCmd;
 +    type Root = gtk::Popover;
-+    type Widgets = ModelbarUi;
++    type Widgets = ModelUsageUi;
 +
 +    fn init_root() -> Self::Root {
 +        let popover = gtk::Popover::new();
-+        popover.set_css_classes(&["dropdown", "modelbar-dropdown"]);
++        popover.set_css_classes(&["dropdown", "model-usage-dropdown"]);
 +        popover.set_has_arrow(false);
 +        popover
 +    }
@@ -658,7 +659,7 @@ index 0000000..1236930
 +        refresh.set_valign(gtk::Align::Center);
 +        refresh.set_tooltip_text(Some("Refresh usage"));
 +        let refresh_sender = sender.input_sender().clone();
-+        refresh.connect_clicked(move |_| refresh_sender.emit(ModelbarDropdownMsg::Refresh));
++        refresh.connect_clicked(move |_| refresh_sender.emit(ModelUsageDropdownMsg::Refresh));
 +        actions.append(&refresh);
 +        header.append(&actions);
 +        outer.append(&header);
@@ -724,7 +725,7 @@ index 0000000..1236930
 +
 +        let visibility_sender = sender.input_sender().clone();
 +        root.connect_visible_notify(move |popover| {
-+            visibility_sender.emit(ModelbarDropdownMsg::Opened(popover.is_visible()));
++            visibility_sender.emit(ModelUsageDropdownMsg::Opened(popover.is_visible()));
 +        });
 +
 +        // 1s tick drives countdowns, the next-poll label, and auto-refresh.
@@ -734,7 +735,7 @@ index 0000000..1236930
 +                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 +                    loop {
 +                        interval.tick().await;
-+                        if out.send(ModelbarDropdownCmd::Tick).is_err() {
++                        if out.send(ModelUsageDropdownCmd::Tick).is_err() {
 +                            break;
 +                        }
 +                    }
@@ -744,11 +745,11 @@ index 0000000..1236930
 +
 +        // Re-apply size and tab order when their settings change.
 +        {
-+            let modelbar = config.config().modules.modelbar.clone();
-+            let order = modelbar.provider_order.clone();
-+            let dropdown_scale = modelbar.dropdown_scale.clone();
++            let model_usage = config.config().modules.model_usage.clone();
++            let order = model_usage.provider_order.clone();
++            let dropdown_scale = model_usage.dropdown_scale.clone();
 +            watch!(sender, [order.watch(), dropdown_scale.watch()], |out| {
-+                let _ = out.send(ModelbarDropdownCmd::ConfigChanged);
++                let _ = out.send(ModelUsageDropdownCmd::ConfigChanged);
 +            });
 +        }
 +
@@ -764,7 +765,7 @@ index 0000000..1236930
 +        };
 +        model.start_refresh(&sender);
 +
-+        let mut widgets = ModelbarUi {
++        let mut widgets = ModelUsageUi {
 +            tabs_box,
 +            tabs: Vec::new(),
 +            refresh,
@@ -791,17 +792,17 @@ index 0000000..1236930
 +        _root: &Self::Root,
 +    ) {
 +        match message {
-+            ModelbarDropdownMsg::Refresh => {
++            ModelUsageDropdownMsg::Refresh => {
 +                self.start_refresh(&sender);
 +                self.render(widgets);
 +            }
-+            ModelbarDropdownMsg::SelectTab(index) => {
++            ModelUsageDropdownMsg::SelectTab(index) => {
 +                if self.active != index {
 +                    self.active = index;
 +                    self.render(widgets);
 +                }
 +            }
-+            ModelbarDropdownMsg::Opened(visible) => {
++            ModelUsageDropdownMsg::Opened(visible) => {
 +                let stale = self
 +                    .last_fetch
 +                    .map(|at| at.elapsed().as_secs() >= REOPEN_FETCH_SECS)
@@ -822,13 +823,13 @@ index 0000000..1236930
 +        root: &Self::Root,
 +    ) {
 +        match message {
-+            ModelbarDropdownCmd::ConfigChanged => {
++            ModelUsageDropdownCmd::ConfigChanged => {
 +                self.apply_size(root, widgets);
 +                self.active = 0;
 +                self.rebuild_tabs(widgets, &sender);
 +                self.render(widgets);
 +            }
-+            ModelbarDropdownCmd::Loaded(result) => {
++            ModelUsageDropdownCmd::Loaded(result) => {
 +                self.busy = false;
 +                match result {
 +                    Ok(payload) => {
@@ -846,7 +847,7 @@ index 0000000..1236930
 +                }
 +                self.render(widgets);
 +            }
-+            ModelbarDropdownCmd::Tick => {
++            ModelUsageDropdownCmd::Tick => {
 +                if root.is_visible() {
 +                    let now = Utc::now().timestamp();
 +                    for (label, resets_at) in &widgets.countdowns {
@@ -869,22 +870,29 @@ index 0000000..1236930
 +    }
 +}
 +
-+impl ModelbarDropdown {
++impl ModelUsageDropdown {
 +    fn start_refresh(&mut self, sender: &ComponentSender<Self>) {
 +        if self.busy {
 +            return;
 +        }
 +        self.busy = true;
 +        self.last_fetch = Some(Instant::now());
-+        let settings = BridgeSettings::from_config(&self.config.config().modules.modelbar);
++        let settings = BridgeSettings::from_config(&self.config.config().modules.model_usage);
 +        sender.oneshot_command(async move {
-+            ModelbarDropdownCmd::Loaded(fetch_payload(settings).await)
++            ModelUsageDropdownCmd::Loaded(fetch_payload(settings).await)
 +        });
 +    }
 +
 +    /// Provider tab order as indices into `PROVIDERS`.
 +    fn order(&self) -> [usize; 2] {
-+        match self.config.config().modules.modelbar.provider_order.get() {
++        match self
++            .config
++            .config()
++            .modules
++            .model_usage
++            .provider_order
++            .get()
++        {
 +            ProviderOrder::ClaudeFirst => [0, 1],
 +            ProviderOrder::CodexFirst => [1, 0],
 +        }
@@ -895,7 +903,7 @@ index 0000000..1236930
 +            self.config
 +                .config()
 +                .modules
-+                .modelbar
++                .model_usage
 +                .refresh_interval_seconds
 +                .get()
 +                .max(30),
@@ -905,11 +913,10 @@ index 0000000..1236930
 +    /// Combined global UI scale and dropdown scale.
 +    fn scale(&self) -> f32 {
 +        let config = self.config.config();
-+        config.styling.scale.get().value()
-+            * config.modules.modelbar.dropdown_scale.get().value()
++        config.styling.scale.get().value() * config.modules.model_usage.dropdown_scale.get().value()
 +    }
 +
-+    fn apply_size(&self, root: &gtk::Popover, ui: &ModelbarUi) {
++    fn apply_size(&self, root: &gtk::Popover, ui: &ModelUsageUi) {
 +        let scale = self.scale();
 +        // Width scales with the setting; height follows the content (the
 +        // cards area scrolls past the scaled cap).
@@ -922,14 +929,14 @@ index 0000000..1236930
 +            .config
 +            .config()
 +            .modules
-+            .modelbar
++            .model_usage
 +            .dropdown_scale
 +            .get()
 +            .value();
 +        self.css.load_from_string(&build_css(scale, dropdown_scale));
 +    }
 +
-+    fn rebuild_tabs(&self, ui: &mut ModelbarUi, sender: &ComponentSender<Self>) {
++    fn rebuild_tabs(&self, ui: &mut ModelUsageUi, sender: &ComponentSender<Self>) {
 +        while let Some(child) = ui.tabs_box.first_child() {
 +            ui.tabs_box.remove(&child);
 +        }
@@ -961,7 +968,7 @@ index 0000000..1236930
 +    }
 +
 +    /// Full rebuild of all data-driven widgets.
-+    fn render(&self, ui: &mut ModelbarUi) {
++    fn render(&self, ui: &mut ModelUsageUi) {
 +        let order = self.order();
 +
 +        // Tabs.
@@ -1025,8 +1032,7 @@ index 0000000..1236930
 +                grid.set_row_spacing(spacing as u32);
 +                let mut cell = 0_i32;
 +                for window in &windows {
-+                    let card =
-+                        build_window_card(provider, window, spec, scale, &mut ui.countdowns);
++                    let card = build_window_card(provider, window, spec, scale, &mut ui.countdowns);
 +                    grid.attach(&card, cell % 2, cell / 2, 1, 1);
 +                    cell += 1;
 +                }
@@ -1069,7 +1075,7 @@ index 0000000..1236930
 +    spec: &'static ProviderSpec,
 +    index: usize,
 +    scale: f32,
-+    sender: &ComponentSender<ModelbarDropdown>,
++    sender: &ComponentSender<ModelUsageDropdown>,
 +) -> TabUi {
 +    let button = gtk::Button::new();
 +    button.set_css_classes(&["mb-tab"]);
@@ -1092,7 +1098,7 @@ index 0000000..1236930
 +
 +    button.set_child(Some(&row));
 +    let tab_sender = sender.input_sender().clone();
-+    button.connect_clicked(move |_| tab_sender.emit(ModelbarDropdownMsg::SelectTab(index)));
++    button.connect_clicked(move |_| tab_sender.emit(ModelUsageDropdownMsg::SelectTab(index)));
 +
 +    TabUi { button, pct }
 +}
@@ -1287,27 +1293,27 @@ index 0000000..1236930
 +    ("Usage unavailable".to_owned(), raw_error.to_owned())
 +}
 +
-+/// Modelbar-specific styles. Token values (`--text-*`, `--space-*`) already
++/// ModelUsage-specific styles. Token values (`--text-*`, `--space-*`) already
 +/// include the global UI scale, so they are multiplied by the dropdown scale
 +/// only (`@DS@`); raw px/pt values get the full combined scale (`@FS@`).
 +fn build_css(full_scale: f32, dropdown_scale: f32) -> String {
 +    const TEMPLATE: &str = r#"
-+        .modelbar-dropdown .dropdown-header {
++        .model-usage-dropdown .dropdown-header {
 +            padding: calc(var(--space-sm) * @DS@) calc(var(--space-md) * @DS@);
 +        }
-+        .modelbar-dropdown .dropdown-content {
++        .model-usage-dropdown .dropdown-content {
 +            padding: calc((var(--space-sm) + var(--space-xs)) * @DS@);
 +        }
-+        .modelbar-dropdown .dropdown-footer {
++        .model-usage-dropdown .dropdown-footer {
 +            padding: calc(var(--space-sm) * @DS@) calc(var(--space-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-tabs {
++        .model-usage-dropdown .mb-tabs {
 +            background-color: var(--bg-base);
 +            border: 1px solid var(--border-default);
 +            border-radius: var(--rounding-element);
 +            padding: calc(3px * @FS@);
 +        }
-+        .modelbar-dropdown .mb-tab {
++        .model-usage-dropdown .mb-tab {
 +            background: none;
 +            border: none;
 +            box-shadow: none;
@@ -1315,38 +1321,38 @@ index 0000000..1236930
 +            border-radius: var(--rounding-element);
 +            min-height: 0;
 +        }
-+        .modelbar-dropdown .mb-tab:hover {
++        .model-usage-dropdown .mb-tab:hover {
 +            background-color: var(--bg-hover);
 +        }
-+        .modelbar-dropdown .mb-tab.active {
++        .model-usage-dropdown .mb-tab.active {
 +            background-color: var(--bg-elevated);
 +            border: 1px solid var(--border-default);
 +        }
-+        .modelbar-dropdown .mb-tab-name {
++        .model-usage-dropdown .mb-tab-name {
 +            color: var(--fg-muted);
 +            font-weight: var(--weight-semibold);
 +            font-size: calc(var(--text-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-tab.active .mb-tab-name {
++        .model-usage-dropdown .mb-tab.active .mb-tab-name {
 +            color: var(--fg-default);
 +        }
-+        .modelbar-dropdown .mb-tab-pct {
++        .model-usage-dropdown .mb-tab-pct {
 +            font-family: var(--font-mono);
 +            font-size: calc(var(--text-xs) * @DS@);
 +            font-weight: var(--weight-semibold);
 +        }
-+        .modelbar-dropdown .mb-tab-pct.dim { color: var(--fg-muted); }
-+        .modelbar-dropdown .mb-tab-pct.warn { color: #e0a93e; }
-+        .modelbar-dropdown .mb-tab-pct.danger { color: #e2604f; }
-+        .modelbar-dropdown .mb-dot {
++        .model-usage-dropdown .mb-tab-pct.dim { color: var(--fg-muted); }
++        .model-usage-dropdown .mb-tab-pct.warn { color: #e0a93e; }
++        .model-usage-dropdown .mb-tab-pct.danger { color: #e2604f; }
++        .model-usage-dropdown .mb-dot {
 +            border-radius: calc(4px * @FS@);
 +            min-width: calc(8px * @FS@);
 +            min-height: calc(8px * @FS@);
 +        }
-+        .modelbar-dropdown .mb-dot.claude { background-color: #d97757; }
-+        .modelbar-dropdown .mb-dot.codex { background-color: #4fb8a8; }
-+        .modelbar-dropdown .mb-tab:not(.active) .mb-dot { opacity: 0.45; }
-+        .modelbar-dropdown .mb-refresh {
++        .model-usage-dropdown .mb-dot.claude { background-color: #d97757; }
++        .model-usage-dropdown .mb-dot.codex { background-color: #4fb8a8; }
++        .model-usage-dropdown .mb-tab:not(.active) .mb-dot { opacity: 0.45; }
++        .model-usage-dropdown .mb-refresh {
 +            background: none;
 +            border: 1px solid var(--border-default);
 +            border-radius: var(--rounding-element);
@@ -1356,35 +1362,35 @@ index 0000000..1236930
 +            color: var(--fg-muted);
 +            box-shadow: none;
 +        }
-+        .modelbar-dropdown .mb-refresh:hover { color: var(--fg-default); }
-+        .modelbar-dropdown .mb-provider-row {
++        .model-usage-dropdown .mb-refresh:hover { color: var(--fg-default); }
++        .model-usage-dropdown .mb-provider-row {
 +            padding-bottom: calc(var(--space-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-tool {
++        .model-usage-dropdown .mb-tool {
 +            color: var(--fg-default);
 +            font-weight: var(--weight-semibold);
 +            font-size: calc(var(--text-lg) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-meta {
++        .model-usage-dropdown .mb-meta {
 +            color: var(--fg-muted);
 +            font-family: var(--font-mono);
 +            font-size: calc(var(--text-sm) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-card {
++        .model-usage-dropdown .mb-card {
 +            background-color: var(--bg-elevated);
 +            border: 1px solid var(--border-default);
 +            border-radius: var(--rounding-element);
 +            padding: calc(var(--space-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-card.warn { border-color: alpha(#e0a93e, 0.35); }
-+        .modelbar-dropdown .mb-card.danger { border-color: alpha(#e2604f, 0.35); }
-+        .modelbar-dropdown .mb-card-title {
++        .model-usage-dropdown .mb-card.warn { border-color: alpha(#e0a93e, 0.35); }
++        .model-usage-dropdown .mb-card.danger { border-color: alpha(#e2604f, 0.35); }
++        .model-usage-dropdown .mb-card-title {
 +            color: var(--fg-muted);
 +            font-weight: var(--weight-semibold);
 +            font-size: calc(var(--text-sm) * @DS@);
 +            letter-spacing: 1px;
 +        }
-+        .modelbar-dropdown .mb-card-badge {
++        .model-usage-dropdown .mb-card-badge {
 +            font-family: var(--font-mono);
 +            font-size: calc(var(--text-xs) * @DS@);
 +            font-weight: var(--weight-bold);
@@ -1392,95 +1398,95 @@ index 0000000..1236930
 +            border-radius: calc(4px * @FS@);
 +            padding: calc(1px * @FS@) calc(6px * @FS@);
 +        }
-+        .modelbar-dropdown .mb-card-badge.warn {
++        .model-usage-dropdown .mb-card-badge.warn {
 +            color: #e0a93e;
 +            border-color: alpha(#e0a93e, 0.4);
 +        }
-+        .modelbar-dropdown .mb-card-badge.danger {
++        .model-usage-dropdown .mb-card-badge.danger {
 +            color: #e2604f;
 +            border-color: alpha(#e2604f, 0.4);
 +        }
-+        .modelbar-dropdown .mb-value {
++        .model-usage-dropdown .mb-value {
 +            font-family: var(--font-mono);
 +            font-size: calc(27pt * @FS@);
 +            font-weight: var(--weight-semibold);
 +        }
-+        .modelbar-dropdown .mb-value.ok { color: var(--fg-default); }
-+        .modelbar-dropdown .mb-value.warn { color: #e0a93e; }
-+        .modelbar-dropdown .mb-value.danger { color: #e2604f; }
-+        .modelbar-dropdown .mb-value-unit {
++        .model-usage-dropdown .mb-value.ok { color: var(--fg-default); }
++        .model-usage-dropdown .mb-value.warn { color: #e0a93e; }
++        .model-usage-dropdown .mb-value.danger { color: #e2604f; }
++        .model-usage-dropdown .mb-value-unit {
 +            font-family: var(--font-mono);
 +            font-size: calc(14pt * @FS@);
 +            color: var(--fg-muted);
 +        }
-+        .modelbar-dropdown .mb-value-caption {
++        .model-usage-dropdown .mb-value-caption {
 +            font-size: calc(var(--text-sm) * @DS@);
 +            color: var(--fg-subtle);
 +            margin-left: calc(var(--space-sm) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-credit-value {
++        .model-usage-dropdown .mb-credit-value {
 +            font-family: var(--font-mono);
 +            font-size: calc(21pt * @FS@);
 +            font-weight: var(--weight-semibold);
 +            color: var(--fg-default);
 +        }
-+        .modelbar-dropdown .mb-reset {
++        .model-usage-dropdown .mb-reset {
 +            font-family: var(--font-mono);
 +            font-size: calc(var(--text-sm) * @DS@);
 +            color: var(--fg-default);
 +        }
-+        .modelbar-dropdown .mb-reset.key { color: var(--fg-muted); }
-+        .modelbar-dropdown .mb-reset.faint { color: var(--fg-subtle); }
-+        .modelbar-dropdown .mb-notice-title {
++        .model-usage-dropdown .mb-reset.key { color: var(--fg-muted); }
++        .model-usage-dropdown .mb-reset.faint { color: var(--fg-subtle); }
++        .model-usage-dropdown .mb-notice-title {
 +            font-weight: var(--weight-semibold);
 +            font-size: calc(var(--text-md) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-notice-title.ok { color: #46b576; }
-+        .modelbar-dropdown .mb-notice-title.dim { color: var(--fg-muted); }
-+        .modelbar-dropdown .mb-notice-title.danger { color: #e2604f; }
-+        .modelbar-dropdown .mb-notice-body {
++        .model-usage-dropdown .mb-notice-title.ok { color: #46b576; }
++        .model-usage-dropdown .mb-notice-title.dim { color: var(--fg-muted); }
++        .model-usage-dropdown .mb-notice-title.danger { color: #e2604f; }
++        .model-usage-dropdown .mb-notice-body {
 +            color: var(--fg-muted);
 +            font-size: calc(var(--text-sm) * @DS@);
 +        }
-+        .modelbar-dropdown .mb-foot {
++        .model-usage-dropdown .mb-foot {
 +            font-family: var(--font-mono);
 +            font-size: calc(var(--text-xs) * @DS@);
 +            color: var(--fg-muted);
 +        }
-+        .modelbar-dropdown .mb-foot.key { color: var(--fg-subtle); }
++        .model-usage-dropdown .mb-foot.key { color: var(--fg-subtle); }
 +    "#;
 +    TEMPLATE
 +        .replace("@DS@", &format!("{dropdown_scale:.4}"))
 +        .replace("@FS@", &format!("{full_scale:.4}"))
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/mod.rs b/crates/wayle-shell/src/shell/bar/mod.rs
-index 5b5cf1c..912fea1 100644
+index 5b5cf1c..22681e1 100644
 --- a/crates/wayle-shell/src/shell/bar/mod.rs
 +++ b/crates/wayle-shell/src/shell/bar/mod.rs
 @@ -2,6 +2,7 @@ mod dropdowns;
  mod factory;
  pub(crate) mod icons;
  mod methods;
-+mod modelbar_data;
++mod model_usage_data;
  mod modules;
  mod styling;
  mod watchers;
-diff --git a/crates/wayle-shell/src/shell/bar/modelbar_data.rs b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
+diff --git a/crates/wayle-shell/src/shell/bar/model_usage_data.rs b/crates/wayle-shell/src/shell/bar/model_usage_data.rs
 new file mode 100644
-index 0000000..d599193
+index 0000000..1cd2dfb
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/modelbar_data.rs
-@@ -0,0 +1,350 @@
++++ b/crates/wayle-shell/src/shell/bar/model_usage_data.rs
+@@ -0,0 +1,427 @@
 +use std::{env, path::PathBuf, process::Stdio, time::Duration};
 +
 +use chrono::{DateTime, Local, Utc};
 +use serde::Deserialize;
 +use tokio::{process::Command, time::timeout};
-+use wayle_config::schemas::modules::ModelbarConfig;
++use wayle_config::schemas::modules::ModelUsageConfig;
 +
 +const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 +
-+/// Bridge invocation settings resolved from the modelbar module config.
++/// Bridge invocation settings resolved from the model usage module config.
 +#[derive(Clone, Debug, Default)]
 +pub(crate) struct BridgeSettings {
 +    pub(crate) command: String,
@@ -1489,7 +1495,7 @@ index 0000000..d599193
 +}
 +
 +impl BridgeSettings {
-+    pub(crate) fn from_config(config: &ModelbarConfig) -> Self {
++    pub(crate) fn from_config(config: &ModelUsageConfig) -> Self {
 +        Self {
 +            command: config.command.get(),
 +            claude_bin: config.claude_bin.get(),
@@ -1499,15 +1505,15 @@ index 0000000..d599193
 +}
 +
 +#[derive(Clone, Debug, Deserialize)]
-+pub(crate) struct ModelbarStatus {
++pub(crate) struct ModelUsageStatus {
 +    pub(crate) text: String,
 +    #[serde(default)]
 +    pub(crate) class: String,
 +}
 +
-+impl ModelbarStatus {
++impl ModelUsageStatus {
 +    pub(crate) fn offline(error: &str) -> Self {
-+        tracing::warn!(error, "modelbar status unavailable");
++        tracing::warn!(error, "model usage status unavailable");
 +        Self {
 +            text: String::from("Models offline"),
 +            class: String::from("offline"),
@@ -1515,30 +1521,30 @@ index 0000000..d599193
 +    }
 +}
 +
-+pub(crate) async fn fetch_status(settings: BridgeSettings) -> ModelbarStatus {
++pub(crate) async fn fetch_status(settings: BridgeSettings) -> ModelUsageStatus {
 +    match timeout(
 +        COMMAND_TIMEOUT,
-+        run_command::<ModelbarStatus>("status", settings),
++        run_command::<ModelUsageStatus>("status", settings),
 +    )
 +    .await
 +    {
 +        Ok(Ok(status)) => status,
-+        Ok(Err(error)) => ModelbarStatus::offline(&error),
-+        Err(_) => ModelbarStatus::offline("timed out while fetching ModelBar usage"),
++        Ok(Err(error)) => ModelUsageStatus::offline(&error),
++        Err(_) => ModelUsageStatus::offline("timed out while fetching model usage"),
 +    }
 +}
 +
 +/// Full structured usage payload used by the dropdown UI.
 +#[derive(Clone, Debug, Default, Deserialize)]
 +#[serde(rename_all = "camelCase", default)]
-+pub(crate) struct ModelbarPayload {
++pub(crate) struct ModelUsagePayload {
 +    pub(crate) ok: bool,
 +    pub(crate) updated_at: Option<String>,
 +    pub(crate) providers: Vec<ProviderData>,
 +    pub(crate) error: Option<String>,
 +}
 +
-+impl ModelbarPayload {
++impl ModelUsagePayload {
 +    pub(crate) fn provider(&self, id: &str) -> Option<&ProviderData> {
 +        self.providers.iter().find(|p| p.provider == id)
 +    }
@@ -1709,15 +1715,15 @@ index 0000000..d599193
 +    pub(crate) plan: Option<String>,
 +}
 +
-+pub(crate) async fn fetch_payload(settings: BridgeSettings) -> Result<ModelbarPayload, String> {
++pub(crate) async fn fetch_payload(settings: BridgeSettings) -> Result<ModelUsagePayload, String> {
 +    match timeout(
 +        COMMAND_TIMEOUT,
-+        run_command::<ModelbarPayload>("payload", settings),
++        run_command::<ModelUsagePayload>("payload", settings),
 +    )
 +    .await
 +    {
 +        Ok(result) => result,
-+        Err(_) => Err("Timed out while fetching ModelBar usage.".to_owned()),
++        Err(_) => Err("Timed out while fetching model usage.".to_owned()),
 +    }
 +}
 +
@@ -1733,10 +1739,10 @@ index 0000000..d599193
 +        .stderr(Stdio::piped())
 +        .stdout(Stdio::piped());
 +    if !settings.claude_bin.is_empty() {
-+        command.env("MODELBAR_CLAUDE_BIN", &settings.claude_bin);
++        command.env("MODEL_USAGE_CLAUDE_BIN", &settings.claude_bin);
 +    }
 +    if !settings.codex_bin.is_empty() {
-+        command.env("MODELBAR_CODEX_BIN", &settings.codex_bin);
++        command.env("MODEL_USAGE_CODEX_BIN", &settings.codex_bin);
 +    }
 +    let output = command
 +        .output()
@@ -1746,7 +1752,7 @@ index 0000000..d599193
 +    let stdout = String::from_utf8_lossy(&output.stdout);
 +    serde_json::from_str::<T>(&stdout).map_err(|err| {
 +        let stderr = String::from_utf8_lossy(&output.stderr);
-+        format!("invalid ModelBar JSON: {err}; {}", stderr.trim())
++        format!("invalid Model Usage JSON: {err}; {}", stderr.trim())
 +    })
 +}
 +
@@ -1755,15 +1761,10 @@ index 0000000..d599193
 +    if !configured.is_empty() {
 +        return expand_home(configured);
 +    }
-+    if let Some(path) = env::var_os("WAYLE_MODELBAR_BIN") {
++    if let Some(path) = env::var_os("WAYLE_MODEL_USAGE_BIN") {
 +        return PathBuf::from(path);
 +    }
-+    let home = env::var_os("HOME").unwrap_or_else(|| "/home/john".into());
-+    PathBuf::from(home)
-+        .join(".config")
-+        .join("wayle")
-+        .join("bin")
-+        .join("wayle-model-usage")
++    PathBuf::from("wayle-model-usage")
 +}
 +
 +fn expand_home(path: &str) -> PathBuf {
@@ -1821,15 +1822,97 @@ index 0000000..d599193
 +        _ => amount,
 +    }
 +}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn window_remaining_uses_explicit_remaining_percent() {
++        let window = WindowData {
++            used_percent: 88.0,
++            remaining_percent: Some(14.5),
++            ..Default::default()
++        };
++
++        assert_eq!(window.remaining(), 14.5);
++    }
++
++    #[test]
++    fn window_remaining_falls_back_to_used_percent_and_clamps() {
++        let window = WindowData {
++            used_percent: 122.0,
++            remaining_percent: None,
++            ..Default::default()
++        };
++
++        assert_eq!(window.remaining(), 0.0);
++    }
++
++    #[test]
++    fn provider_windows_include_extra_rate_windows() {
++        let provider: ProviderData = serde_json::from_str(
++            r#"{
++                "provider": "codex",
++                "ok": true,
++                "usage": {
++                    "primary": { "label": "5h", "usedPercent": 10.0 },
++                    "extraRateWindows": [
++                        { "label": "weekly", "usedPercent": 40.0 }
++                    ]
++                }
++            }"#,
++        )
++        .expect("valid provider payload");
++
++        assert_eq!(provider.windows().len(), 2);
++        assert_eq!(provider.min_remaining(), Some(60.0));
++    }
++
++    #[test]
++    fn credit_card_formats_currency_usage() {
++        let provider: ProviderData = serde_json::from_str(
++            r#"{
++                "provider": "codex",
++                "credits": {
++                    "used": 3.5,
++                    "limit": 20.0,
++                    "currency": "USD",
++                    "period": "Monthly credits"
++                }
++            }"#,
++        )
++        .expect("valid credits payload");
++
++        assert_eq!(
++            provider.credit_card(),
++            Some((
++                String::from("Monthly credits"),
++                String::from("$3.50 / $20.00"),
++                String::from("Extra usage")
++            ))
++        );
++    }
++
++    #[test]
++    fn command_path_uses_configured_command_before_defaults() {
++        let settings = BridgeSettings {
++            command: String::from(" /tmp/usage-helper "),
++            ..Default::default()
++        };
++
++        assert_eq!(command_path(&settings), PathBuf::from("/tmp/usage-helper"));
++    }
++}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/mod.rs b/crates/wayle-shell/src/shell/bar/modules/mod.rs
-index c0022a2..63c62b3 100644
+index c0022a2..fe8fda2 100644
 --- a/crates/wayle-shell/src/shell/bar/modules/mod.rs
 +++ b/crates/wayle-shell/src/shell/bar/modules/mod.rs
 @@ -15,6 +15,7 @@ mod keyboard_input;
  mod mango_workspaces;
  mod media;
  mod microphone;
-+mod modelbar;
++mod model_usage;
  mod netstat;
  mod network;
  mod niri_workspaces;
@@ -1837,22 +1920,22 @@ index c0022a2..63c62b3 100644
      KeyboardInput => keyboard_input::Factory,
      MangoWorkspaces => mango_workspaces::Factory,
      Media => media::Factory,
-+    Modelbar => modelbar::Factory,
++    ModelUsage => model_usage::Factory,
      Microphone => microphone::Factory,
      Netstat => netstat::Factory,
      Network => network::Factory,
-diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs
+diff --git a/crates/wayle-shell/src/shell/bar/modules/model_usage/factory.rs b/crates/wayle-shell/src/shell/bar/modules/model_usage/factory.rs
 new file mode 100644
-index 0000000..bb2f144
+index 0000000..f5a981c
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/factory.rs
++++ b/crates/wayle-shell/src/shell/bar/modules/model_usage/factory.rs
 @@ -0,0 +1,32 @@
 +use std::rc::Rc;
 +
 +use relm4::prelude::*;
 +use wayle_widgets::prelude::BarSettings;
 +
-+use super::{ModelbarInit, ModelbarModule};
++use super::{ModelUsageInit, ModelUsageModule};
 +use crate::shell::{
 +    bar::{
 +        dropdowns::DropdownRegistry,
@@ -1870,36 +1953,36 @@ index 0000000..bb2f144
 +        dropdowns: &Rc<DropdownRegistry>,
 +        class: Option<String>,
 +    ) -> Option<ModuleInstance> {
-+        let init = ModelbarInit {
++        let init = ModelUsageInit {
 +            settings: settings.clone(),
 +            config: services.config.clone(),
 +            dropdowns: dropdowns.clone(),
 +        };
-+        let controller = dynamic_controller(ModelbarModule::builder().launch(init).detach());
++        let controller = dynamic_controller(ModelUsageModule::builder().launch(init).detach());
 +        Some(ModuleInstance { controller, class })
 +    }
 +}
-diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs
+diff --git a/crates/wayle-shell/src/shell/bar/modules/model_usage/messages.rs b/crates/wayle-shell/src/shell/bar/modules/model_usage/messages.rs
 new file mode 100644
-index 0000000..54f7715
+index 0000000..a9edef6
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/messages.rs
++++ b/crates/wayle-shell/src/shell/bar/modules/model_usage/messages.rs
 @@ -0,0 +1,27 @@
 +use std::{rc::Rc, sync::Arc};
 +
 +use wayle_config::ConfigService;
 +use wayle_widgets::prelude::BarSettings;
 +
-+use crate::shell::bar::{dropdowns::DropdownRegistry, modelbar_data::ModelbarStatus};
++use crate::shell::bar::{dropdowns::DropdownRegistry, model_usage_data::ModelUsageStatus};
 +
-+pub(crate) struct ModelbarInit {
++pub(crate) struct ModelUsageInit {
 +    pub(crate) settings: BarSettings,
 +    pub(crate) config: Arc<ConfigService>,
 +    pub(crate) dropdowns: Rc<DropdownRegistry>,
 +}
 +
 +#[derive(Debug)]
-+pub(crate) enum ModelbarMsg {
++pub(crate) enum ModelUsageMsg {
 +    LeftClick,
 +    RightClick,
 +    MiddleClick,
@@ -1908,16 +1991,16 @@ index 0000000..54f7715
 +}
 +
 +#[derive(Debug)]
-+pub(crate) enum ModelbarCmd {
++pub(crate) enum ModelUsageCmd {
 +    Refresh,
-+    StatusLoaded(ModelbarStatus),
++    StatusLoaded(ModelUsageStatus),
 +}
-diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
+diff --git a/crates/wayle-shell/src/shell/bar/modules/model_usage/mod.rs b/crates/wayle-shell/src/shell/bar/modules/model_usage/mod.rs
 new file mode 100644
-index 0000000..1f92539
+index 0000000..46a0089
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/mod.rs
-@@ -0,0 +1,144 @@
++++ b/crates/wayle-shell/src/shell/bar/modules/model_usage/mod.rs
+@@ -0,0 +1,146 @@
 +mod factory;
 +mod messages;
 +mod watchers;
@@ -1933,14 +2016,14 @@ index 0000000..1f92539
 +
 +pub(crate) use self::{
 +    factory::Factory,
-+    messages::{ModelbarCmd, ModelbarInit, ModelbarMsg},
++    messages::{ModelUsageCmd, ModelUsageInit, ModelUsageMsg},
 +};
 +use crate::shell::bar::{
 +    dropdowns::{self, DropdownRegistry},
-+    modelbar_data::{BridgeSettings, ModelbarStatus, fetch_status},
++    model_usage_data::{BridgeSettings, ModelUsageStatus, fetch_status},
 +};
 +
-+pub(crate) struct ModelbarModule {
++pub(crate) struct ModelUsageModule {
 +    bar_button: Controller<BarButton>,
 +    config: Arc<ConfigService>,
 +    dropdowns: Rc<DropdownRegistry>,
@@ -1948,15 +2031,15 @@ index 0000000..1f92539
 +}
 +
 +#[relm4::component(pub(crate))]
-+impl Component for ModelbarModule {
-+    type Init = ModelbarInit;
-+    type Input = ModelbarMsg;
++impl Component for ModelUsageModule {
++    type Init = ModelUsageInit;
++    type Input = ModelUsageMsg;
 +    type Output = ();
-+    type CommandOutput = ModelbarCmd;
++    type CommandOutput = ModelUsageCmd;
 +
 +    view! {
 +        gtk::Box {
-+            add_css_class: "modelbar",
++            add_css_class: "model-usage",
 +
 +            #[local_ref]
 +            bar_button -> gtk::MenuButton {},
@@ -1968,42 +2051,43 @@ index 0000000..1f92539
 +        _root: Self::Root,
 +        sender: ComponentSender<Self>,
 +    ) -> ComponentParts<Self> {
-+        let modelbar_config = init.config.config().modules.modelbar.clone();
++        let model_usage_config = init.config.config().modules.model_usage.clone();
 +
 +        let bar_button = BarButton::builder()
 +            .launch(BarButtonInit {
-+                icon: modelbar_config.icon_name.get(),
++                icon: model_usage_config.icon_name.get(),
 +                label: String::from("Models --"),
 +                tooltip: None,
 +                colors: BarButtonColors {
-+                    icon_color: modelbar_config.icon_color.clone(),
-+                    label_color: modelbar_config.label_color.clone(),
-+                    icon_background: modelbar_config.icon_bg_color.clone(),
-+                    button_background: modelbar_config.button_bg_color.clone(),
-+                    border_color: modelbar_config.border_color.clone(),
++                    icon_color: model_usage_config.icon_color.clone(),
++                    label_color: model_usage_config.label_color.clone(),
++                    icon_background: model_usage_config.icon_bg_color.clone(),
++                    button_background: model_usage_config.button_bg_color.clone(),
++                    border_color: model_usage_config.border_color.clone(),
 +                    auto_icon_color: CssToken::Accent,
 +                },
 +                behavior: BarButtonBehavior {
-+                    label_max_chars: modelbar_config.label_max_length.clone(),
-+                    show_icon: modelbar_config.icon_show.clone(),
-+                    show_label: modelbar_config.label_show.clone(),
-+                    show_border: modelbar_config.border_show.clone(),
++                    label_max_chars: model_usage_config.label_max_length.clone(),
++                    show_icon: model_usage_config.icon_show.clone(),
++                    show_label: model_usage_config.label_show.clone(),
++                    show_border: model_usage_config.border_show.clone(),
 +                    visible: ConfigProperty::new(true),
 +                },
 +                settings: init.settings,
 +            })
 +            .forward(sender.input_sender(), |output| match output {
-+                BarButtonOutput::LeftClick => ModelbarMsg::LeftClick,
-+                BarButtonOutput::RightClick => ModelbarMsg::RightClick,
-+                BarButtonOutput::MiddleClick => ModelbarMsg::MiddleClick,
-+                BarButtonOutput::ScrollUp => ModelbarMsg::ScrollUp,
-+                BarButtonOutput::ScrollDown => ModelbarMsg::ScrollDown,
++                BarButtonOutput::LeftClick => ModelUsageMsg::LeftClick,
++                BarButtonOutput::RightClick => ModelUsageMsg::RightClick,
++                BarButtonOutput::MiddleClick => ModelUsageMsg::MiddleClick,
++                BarButtonOutput::ScrollUp => ModelUsageMsg::ScrollUp,
++                BarButtonOutput::ScrollDown => ModelUsageMsg::ScrollDown,
 +            });
 +
-+        watchers::spawn_watchers(&sender, modelbar_config.refresh_interval_seconds.clone());
-+        let settings = BridgeSettings::from_config(&modelbar_config);
-+        sender
-+            .oneshot_command(async move { ModelbarCmd::StatusLoaded(fetch_status(settings).await) });
++        watchers::spawn_watchers(&sender, model_usage_config.refresh_interval_seconds.clone());
++        let settings = BridgeSettings::from_config(&model_usage_config);
++        sender.oneshot_command(
++            async move { ModelUsageCmd::StatusLoaded(fetch_status(settings).await) },
++        );
 +
 +        let model = Self {
 +            bar_button,
@@ -2018,14 +2102,14 @@ index 0000000..1f92539
 +    }
 +
 +    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
-+        let modelbar = &self.config.config().modules.modelbar;
++        let model_usage = &self.config.config().modules.model_usage;
 +
 +        let action = match msg {
-+            ModelbarMsg::LeftClick => modelbar.left_click.get(),
-+            ModelbarMsg::RightClick => modelbar.right_click.get(),
-+            ModelbarMsg::MiddleClick => modelbar.middle_click.get(),
-+            ModelbarMsg::ScrollUp => modelbar.scroll_up.get(),
-+            ModelbarMsg::ScrollDown => modelbar.scroll_down.get(),
++            ModelUsageMsg::LeftClick => model_usage.left_click.get(),
++            ModelUsageMsg::RightClick => model_usage.right_click.get(),
++            ModelUsageMsg::MiddleClick => model_usage.middle_click.get(),
++            ModelUsageMsg::ScrollUp => model_usage.scroll_up.get(),
++            ModelUsageMsg::ScrollDown => model_usage.scroll_down.get(),
 +        };
 +
 +        dropdowns::dispatch_click(&action, &self.dropdowns, &self.bar_button);
@@ -2038,19 +2122,20 @@ index 0000000..1f92539
 +        root: &Self::Root,
 +    ) {
 +        match msg {
-+            ModelbarCmd::Refresh => {
-+                let settings = BridgeSettings::from_config(&self.config.config().modules.modelbar);
++            ModelUsageCmd::Refresh => {
++                let settings =
++                    BridgeSettings::from_config(&self.config.config().modules.model_usage);
 +                sender.oneshot_command(async move {
-+                    ModelbarCmd::StatusLoaded(fetch_status(settings).await)
++                    ModelUsageCmd::StatusLoaded(fetch_status(settings).await)
 +                });
 +            }
-+            ModelbarCmd::StatusLoaded(status) => self.apply_status(status, root),
++            ModelUsageCmd::StatusLoaded(status) => self.apply_status(status, root),
 +        }
 +    }
 +}
 +
-+impl ModelbarModule {
-+    fn apply_status(&mut self, status: ModelbarStatus, root: &gtk::Box) {
++impl ModelUsageModule {
++    fn apply_status(&mut self, status: ModelUsageStatus, root: &gtk::Box) {
 +        self.bar_button.emit(BarButtonInput::SetLabel(status.text));
 +
 +        if let Some(old_class) = self.dynamic_class.take() {
@@ -2062,23 +2147,23 @@ index 0000000..1f92539
 +        }
 +    }
 +}
-diff --git a/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs b/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs
+diff --git a/crates/wayle-shell/src/shell/bar/modules/model_usage/watchers.rs b/crates/wayle-shell/src/shell/bar/modules/model_usage/watchers.rs
 new file mode 100644
-index 0000000..93cae09
+index 0000000..af670a9
 --- /dev/null
-+++ b/crates/wayle-shell/src/shell/bar/modules/modelbar/watchers.rs
++++ b/crates/wayle-shell/src/shell/bar/modules/model_usage/watchers.rs
 @@ -0,0 +1,27 @@
 +use std::time::Duration;
 +
 +use relm4::ComponentSender;
 +use wayle_config::ConfigProperty;
 +
-+use super::{ModelbarCmd, ModelbarModule};
++use super::{ModelUsageCmd, ModelUsageModule};
 +
 +/// Polls on the configured interval, re-reading the property each cycle so
 +/// settings changes apply without a restart.
 +pub(super) fn spawn_watchers(
-+    sender: &ComponentSender<ModelbarModule>,
++    sender: &ComponentSender<ModelUsageModule>,
 +    refresh_interval_seconds: ConfigProperty<u32>,
 +) {
 +    sender.command(move |out, shutdown| {
@@ -2087,7 +2172,7 @@ index 0000000..93cae09
 +                loop {
 +                    let secs = u64::from(refresh_interval_seconds.get().max(30));
 +                    tokio::time::sleep(Duration::from_secs(secs)).await;
-+                    if out.send(ModelbarCmd::Refresh).is_err() {
++                    if out.send(ModelUsageCmd::Refresh).is_err() {
 +                        break;
 +                    }
 +                }
@@ -2095,14 +2180,3 @@ index 0000000..93cae09
 +            .drop_on_shutdown()
 +    });
 +}
-diff --git a/resources/icons/hicolor/scalable/actions/ld-sparkles-symbolic.svg b/resources/icons/hicolor/scalable/actions/ld-sparkles-symbolic.svg
-new file mode 100644
-index 0000000..b799e0b
---- /dev/null
-+++ b/resources/icons/hicolor/scalable/actions/ld-sparkles-symbolic.svg
-@@ -0,0 +1,5 @@
-+<svg width='16' height='16' xmlns='http://www.w3.org/2000/svg'>
-+  <path d='M7 2.6 Q7.35 6.3 8.55 7.45 Q9.7 8.65 13.4 9 Q9.7 9.35 8.55 10.55 Q7.35 11.7 7 15.4 Q6.65 11.7 5.45 10.55 Q4.3 9.35 0.6 9 Q4.3 8.65 5.45 7.45 Q6.65 6.3 7 2.6 Z' fill='#000000'/>
-+  <path d='M12.4 0.8 Q12.62 2.6 13.2 3.18 Q13.78 3.76 15.58 3.98 Q13.78 4.2 13.2 4.78 Q12.62 5.36 12.4 7.16 Q12.18 5.36 11.6 4.78 Q11.02 4.2 9.22 3.98 Q11.02 3.76 11.6 3.18 Q12.18 2.6 12.4 0.8 Z' fill='#000000'/>
-+  <path d='M13.1 10.9 Q13.27 12.2 13.7 12.63 Q14.13 13.06 15.43 13.23 Q14.13 13.4 13.7 13.83 Q13.27 14.26 13.1 15.56 Q12.93 14.26 12.5 13.83 Q12.07 13.4 10.77 13.23 Q12.07 13.06 12.5 12.63 Q12.93 12.2 13.1 10.9 Z' fill='#000000'/>
-+</svg>

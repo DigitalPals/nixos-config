@@ -41,7 +41,7 @@ let
         "idle-inhibit",
         "battery",
         "network",
-        "modelbar",
+        "model-usage",
         "dashboard",
     ]
 
@@ -86,20 +86,20 @@ in
       // Custom Wayle styles. Anything here overrides the built-in styling.
       // Use @import "name" to bring in _name.scss from this folder.
 
-      .modelbar.ok menubutton.bar-button {
+      .model-usage.ok menubutton.bar-button {
         color: #46b576;
       }
 
-      .modelbar.warning menubutton.bar-button {
+      .model-usage.warning menubutton.bar-button {
         color: #e0a93e;
       }
 
-      .modelbar.critical menubutton.bar-button {
+      .model-usage.critical menubutton.bar-button {
         color: #e2604f;
       }
 
-      .modelbar.offline menubutton.bar-button,
-      .modelbar.error menubutton.bar-button {
+      .model-usage.offline menubutton.bar-button,
+      .model-usage.error menubutton.bar-button {
         opacity: 0.65;
       }
     '';
@@ -445,7 +445,7 @@ in
         ExecStart = "${pkgs.wayle}/bin/wayle shell";
         Environment = [
           "PATH=${config.home.homeDirectory}/.local/bin:${config.home.homeDirectory}/.npm-global/bin:/etc/profiles/per-user/${config.home.username}/bin:/run/current-system/sw/bin:${lib.makeBinPath [ pkgs.awww pkgs.bash pkgs.coreutils pkgs.hyprlock pkgs.matugen pkgs.python3 pkgs.wayle ]}"
-          "WAYLE_MODELBAR_BIN=${config.home.homeDirectory}/.config/wayle/bin/wayle-model-usage"
+          "WAYLE_MODEL_USAGE_BIN=${config.home.homeDirectory}/.config/wayle/bin/wayle-model-usage"
         ];
         Restart = "on-failure";
         RestartSec = 2;

@@ -49,7 +49,7 @@
       };
       wayle = prev.wayle.overrideAttrs (old: {
         patches = (old.patches or []) ++ [
-          ./packages/wayle-modelbar/modelbar.patch
+          ./packages/wayle-model-usage/model-usage.patch
         ];
       });
 
