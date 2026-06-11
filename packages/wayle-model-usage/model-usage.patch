@@ -475,10 +475,10 @@ index 0000000..40dd1b6
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs
 new file mode 100644
-index 0000000..ce4a1bb
+index 0000000..708c46d
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs
-@@ -0,0 +1,1045 @@
+@@ -0,0 +1,1165 @@
 +mod factory;
 +
 +use std::{cell::Cell, rc::Rc, sync::Arc, time::Instant};
@@ -502,6 +502,11 @@ index 0000000..ce4a1bb
 +};
 +
 +const BASE_WIDTH: f32 = 560.0;
++/// Estimated horizontal space around the cards viewport (`.dropdown-content`
++/// padding plus the `.dropdown` border), slightly overestimated so the
++/// first-open width fallback errs toward a too-tall (gap) rather than a
++/// too-short (scrollbar) measure of wrapped labels.
++const CARDS_H_INSET: f32 = 28.0;
 +/// Cards area is capped at this height; taller content scrolls.
 +///
 +/// The cards viewport is measured and pinned right before each popup because
@@ -587,6 +592,9 @@ index 0000000..ce4a1bb
 +    updated_text: String,
 +    /// Scaled `MAX_CARDS_HEIGHT`, shared with the pre-popup pinning closure.
 +    cards_cap: Rc<Cell<i32>>,
++    /// Scaled cards width used for height-for-width measuring before the
++    /// first allocation, shared with the pre-popup pinning closure.
++    cards_width: Rc<Cell<i32>>,
 +}
 +
 +struct TabUi {
@@ -600,7 +608,12 @@ index 0000000..ce4a1bb
 +    refresh: gtk::Button,
 +    tool: gtk::Label,
 +    meta: gtk::Label,
-+    cards: gtk::Box,
++    stack: gtk::Stack,
++    /// One cards page per `PROVIDERS` entry; the homogeneous stack sizes to
++    /// the tallest page so switching tabs never overflows the pinned height.
++    provider_cards: [gtk::Box; PROVIDERS.len()],
++    /// Stack page shown while no payload exists (loading or fetch error).
++    status_card: gtk::Box,
 +    scroll: gtk::ScrolledWindow,
 +    updated: gtk::Label,
 +    next_poll: gtk::Label,
@@ -694,14 +707,30 @@ index 0000000..ce4a1bb
 +
 +        body.append(&provider_row);
 +
-+        let cards = gtk::Box::new(gtk::Orientation::Vertical, 12);
-+        cards.add_css_class("mb-cards");
++        // Both providers' cards stay built inside a homogeneous stack: its
++        // measured height is the max of all pages, so the height pinned at
++        // popup fits whichever tab the user switches to while it is open.
++        let stack = gtk::Stack::new();
++        stack.set_hhomogeneous(true);
++        stack.set_vhomogeneous(true);
++        stack.set_transition_type(gtk::StackTransitionType::Crossfade);
++        stack.set_transition_duration(120);
++
++        let provider_cards = [(); PROVIDERS.len()].map(|()| {
++            let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
++            page.add_css_class("mb-cards");
++            stack.add_child(&page);
++            page
++        });
++        let status_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
++        status_card.add_css_class("mb-cards");
++        stack.add_child(&status_card);
 +
 +        // The cards viewport is pinned to the content height (capped) right
 +        // before each popup; taller content scrolls.
 +        let scroll = gtk::ScrolledWindow::new();
 +        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-+        scroll.set_child(Some(&cards));
++        scroll.set_child(Some(&stack));
 +        body.append(&scroll);
 +        outer.append(&body);
 +
@@ -731,20 +760,29 @@ index 0000000..ce4a1bb
 +        root.set_child(Some(&outer));
 +
 +        let cards_cap = Rc::new(Cell::new(scaled_dimension(MAX_CARDS_HEIGHT, 1.0)));
++        let cards_width = Rc::new(Cell::new(scaled_dimension(BASE_WIDTH - CARDS_H_INSET, 1.0)));
 +        let visibility_sender = sender.input_sender().clone();
 +        {
-+            let cards = cards.clone();
++            let stack = stack.clone();
 +            let scroll = scroll.clone();
 +            let cards_cap = cards_cap.clone();
++            let cards_width = cards_width.clone();
 +            root.connect_visible_notify(move |popover| {
 +                if popover.is_visible() {
 +                    // Pin the cards viewport to the current content height
 +                    // before the popover maps: this runs synchronously inside
 +                    // popup(), and a mapped layer-shell popover must not
 +                    // change size afterwards (tab switches and data loads
-+                    // re-render inside the pinned viewport instead).
-+                    let for_size = if cards.width() > 0 { cards.width() } else { -1 };
-+                    let (_, natural, _, _) = cards.measure(gtk::Orientation::Vertical, for_size);
++                    // re-render inside the pinned viewport instead). Before
++                    // the first allocation the stack has no width yet, so
++                    // fall back to the expected cards width: measuring at -1
++                    // undersizes wrapped labels and causes a scrollbar.
++                    let for_size = if stack.width() > 0 {
++                        stack.width()
++                    } else {
++                        cards_width.get()
++                    };
++                    let (_, natural, _, _) = stack.measure(gtk::Orientation::Vertical, for_size);
 +                    let height = natural.min(cards_cap.get()).max(1);
 +                    scroll.set_min_content_height(height);
 +                    scroll.set_max_content_height(height);
@@ -788,6 +826,7 @@ index 0000000..ce4a1bb
 +            last_fetch: None,
 +            updated_text: String::from("never"),
 +            cards_cap,
++            cards_width,
 +        };
 +        model.start_refresh(&sender);
 +
@@ -797,7 +836,9 @@ index 0000000..ce4a1bb
 +            refresh,
 +            tool,
 +            meta,
-+            cards,
++            stack,
++            provider_cards,
++            status_card,
 +            scroll,
 +            updated,
 +            next_poll,
@@ -825,7 +866,8 @@ index 0000000..ce4a1bb
 +            ModelUsageDropdownMsg::SelectTab(index) => {
 +                if self.active != index {
 +                    self.active = index;
-+                    self.render(widgets);
++                    // Both tabs' cards are already built; just switch pages.
++                    self.update_active(widgets);
 +                }
 +            }
 +            ModelUsageDropdownMsg::Opened(visible) => {
@@ -950,7 +992,13 @@ index 0000000..ce4a1bb
 +        root.set_height_request(-1);
 +        self.cards_cap
 +            .set(scaled_dimension(MAX_CARDS_HEIGHT, scale));
-+        ui.cards.set_spacing(scaled_dimension(12.0, scale));
++        self.cards_width
++            .set(scaled_dimension(BASE_WIDTH - CARDS_H_INSET, scale));
++        let spacing = scaled_dimension(12.0, scale);
++        for page in &ui.provider_cards {
++            page.set_spacing(spacing);
++        }
++        ui.status_card.set_spacing(spacing);
 +        let dropdown_scale = self
 +            .config
 +            .config()
@@ -997,15 +1045,10 @@ index 0000000..ce4a1bb
 +    fn render(&self, ui: &mut ModelUsageUi) {
 +        let order = self.order();
 +
-+        // Tabs.
++        // Tab percentages.
 +        for (position, tab) in ui.tabs.iter().enumerate() {
 +            let provider_index = order[position.min(order.len() - 1)];
 +            let provider = self.provider(provider_index);
-+            if position == self.active {
-+                tab.button.add_css_class("active");
-+            } else {
-+                tab.button.remove_css_class("active");
-+            }
 +            let (text, class) = match provider {
 +                Some(p) if !p.ok => (String::from("--%"), "danger"),
 +                Some(p) => match p.min_remaining() {
@@ -1021,75 +1064,129 @@ index 0000000..ce4a1bb
 +            tab.pct.set_css_classes(&["mb-tab-pct", class]);
 +        }
 +
-+        // Provider meta row.
-+        let active_index = order[self.active.min(order.len() - 1)];
-+        let spec = &PROVIDERS[active_index];
-+        let provider = self.provider(active_index);
-+        ui.tool.set_label(spec.tool);
-+        let subtitle = provider.map(ProviderData::subtitle).unwrap_or_default();
-+        ui.meta.set_visible(!subtitle.is_empty());
-+        ui.meta.set_label(&subtitle);
-+
-+        // Cards.
++        // Cards. Every page is rebuilt: the homogeneous stack then requests
++        // the height of the tallest page, so the height pinned at popup fits
++        // both tabs. The status page is emptied once a payload exists so it
++        // stops contributing to that height.
 +        ui.countdowns.clear();
-+        while let Some(child) = ui.cards.first_child() {
-+            ui.cards.remove(&child);
++        clear_children(&ui.status_card);
++        for page in &ui.provider_cards {
++            clear_children(page);
 +        }
-+        match provider {
-+            Some(provider) => {
-+                if !provider.ok {
-+                    let (title, body) = unavailable_notice(provider, spec);
-+                    ui.cards.append(&build_notice(&title, &body, "danger"));
-+                }
-+                let windows = provider.windows();
-+                if windows.is_empty() && provider.ok {
-+                    ui.cards.append(&build_notice(
-+                        "No usage windows",
-+                        "The CLI credentials were found, but no live limit windows were returned.",
-+                        "dim",
-+                    ));
-+                }
-+
-+                let scale = self.scale();
-+                let spacing = scaled_dimension(12.0, scale);
-+                let grid = gtk::Grid::new();
-+                grid.set_column_homogeneous(true);
-+                grid.set_column_spacing(spacing as u32);
-+                grid.set_row_spacing(spacing as u32);
-+                let mut cell = 0_i32;
-+                for window in &windows {
-+                    let card = build_window_card(provider, window, spec, scale, &mut ui.countdowns);
-+                    grid.attach(&card, cell % 2, cell / 2, 1, 1);
-+                    cell += 1;
-+                }
-+                if let Some((title, value, detail)) = provider.credit_card() {
-+                    grid.attach(
-+                        &build_credit_card(&title, &value, &detail, scale),
-+                        cell % 2,
-+                        cell / 2,
-+                        1,
-+                        1,
-+                    );
-+                    cell += 1;
-+                }
-+                if cell > 0 {
-+                    ui.cards.append(&grid);
-+                }
++        if self.payload.is_some() {
++            for (provider_index, page) in ui.provider_cards.iter().enumerate() {
++                self.render_provider_page(page, provider_index, &mut ui.countdowns);
 +            }
-+            None if self.busy => ui.cards.append(&build_loading(self.scale())),
-+            None => ui.cards.append(&build_notice(
++        } else if self.busy {
++            ui.status_card.append(&build_loading(self.scale()));
++        } else {
++            ui.status_card.append(&build_notice(
 +                "No usage data",
 +                self.error
 +                    .as_deref()
 +                    .unwrap_or("Usage has not been fetched yet."),
 +                "danger",
-+            )),
++            ));
 +        }
++
++        self.update_active(ui);
 +
 +        // Footer.
 +        ui.updated.set_label(&self.updated_text);
 +        ui.next_poll.set_label(&self.next_poll_value());
 +        ui.refresh.set_sensitive(!self.busy);
++    }
++
++    /// Cards for one provider, rendered into its stack page.
++    fn render_provider_page(
++        &self,
++        page: &gtk::Box,
++        provider_index: usize,
++        countdowns: &mut Vec<(gtk::Label, i64)>,
++    ) {
++        let spec = &PROVIDERS[provider_index];
++        let Some(provider) = self.provider(provider_index) else {
++            page.append(&build_notice(
++                "No usage data",
++                "The bridge returned no data for this provider.",
++                "danger",
++            ));
++            return;
++        };
++
++        if !provider.ok {
++            let (title, body) = unavailable_notice(provider, spec);
++            page.append(&build_notice(&title, &body, "danger"));
++        }
++        let windows = provider.windows();
++        if windows.is_empty() && provider.ok {
++            page.append(&build_notice(
++                "No usage windows",
++                "The CLI credentials were found, but no live limit windows were returned.",
++                "dim",
++            ));
++        }
++
++        let scale = self.scale();
++        let spacing = scaled_dimension(12.0, scale);
++        let grid = gtk::Grid::new();
++        grid.set_column_homogeneous(true);
++        grid.set_column_spacing(spacing as u32);
++        grid.set_row_spacing(spacing as u32);
++        let mut cell = 0_i32;
++        for window in &windows {
++            let card = build_window_card(provider, window, spec, scale, countdowns);
++            grid.attach(&card, cell % 2, cell / 2, 1, 1);
++            cell += 1;
++        }
++        if let Some((title, value, detail)) = provider.credit_card() {
++            grid.attach(
++                &build_credit_card(&title, &value, &detail, scale),
++                cell % 2,
++                cell / 2,
++                1,
++                1,
++            );
++            cell += 1;
++        }
++        if cell > 0 {
++            page.append(&grid);
++        }
++    }
++
++    /// Reflects `self.active` in the tabs, the meta row, and the visible
++    /// stack page. Cheap: no widgets are rebuilt.
++    fn update_active(&self, ui: &ModelUsageUi) {
++        let order = self.order();
++        for (position, tab) in ui.tabs.iter().enumerate() {
++            if position == self.active {
++                tab.button.add_css_class("active");
++            } else {
++                tab.button.remove_css_class("active");
++            }
++        }
++
++        let active_index = order[self.active.min(order.len() - 1)];
++        let spec = &PROVIDERS[active_index];
++        ui.tool.set_label(spec.tool);
++        let subtitle = self
++            .provider(active_index)
++            .map(ProviderData::subtitle)
++            .unwrap_or_default();
++        ui.meta.set_visible(!subtitle.is_empty());
++        ui.meta.set_label(&subtitle);
++
++        if self.payload.is_some() {
++            ui.stack.set_visible_child(&ui.provider_cards[active_index]);
++        } else {
++            ui.stack.set_visible_child(&ui.status_card);
++        }
++    }
++}
++
++fn clear_children(container: &gtk::Box) {
++    while let Some(child) = container.first_child() {
++        container.remove(&child);
 +    }
 +}
 +
@@ -1148,6 +1245,10 @@ index 0000000..ce4a1bb
 +    title.add_css_class("mb-card-title");
 +    title.set_xalign(0.0);
 +    title.set_hexpand(true);
++    // One-line card labels must ellipsize: an unbreakable natural width
++    // raises the card (and homogeneous grid) minimum above the viewport,
++    // which clamps the pre-popup height measure and causes a scrollbar.
++    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
 +    title_row.append(&title);
 +    if let Some(class) = class {
 +        let badge = gtk::Label::new(Some(if level == Level::Danger {
@@ -1199,6 +1300,7 @@ index 0000000..ce4a1bb
 +            countdown.add_css_class("mb-reset");
 +            countdown.set_xalign(0.0);
 +            countdown.set_hexpand(true);
++            countdown.set_ellipsize(gtk::pango::EllipsizeMode::End);
 +            let epoch = resets_at.timestamp();
 +            countdown.set_label(&fmt_countdown(epoch - Utc::now().timestamp()));
 +            reset_row.append(&countdown);
@@ -1206,6 +1308,7 @@ index 0000000..ce4a1bb
 +
 +            let absolute = gtk::Label::new(Some(&fmt_reset_abs(resets_at)));
 +            absolute.set_css_classes(&["mb-reset", "faint"]);
++            absolute.set_ellipsize(gtk::pango::EllipsizeMode::End);
 +            reset_row.append(&absolute);
 +        }
 +        None => {
@@ -1257,11 +1360,25 @@ index 0000000..ce4a1bb
 +    let title_label = gtk::Label::new(Some(&title.to_uppercase()));
 +    title_label.add_css_class("mb-card-title");
 +    title_label.set_xalign(0.0);
++    title_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
 +    card.append(&title_label);
 +
++    // The 21pt mono value ("$3.50 / $20.00") is the widest card content;
++    // without ellipsizing it pushes the grid minimum above the viewport.
++    // Long values get a smaller font instead of being cut off: the card is
++    // half the dropdown wide and both card width and font scale with @FS@,
++    // so character-count tiers hold at any scale (~12 mono chars fit at
++    // 21pt).
 +    let value_label = gtk::Label::new(Some(value));
 +    value_label.add_css_class("mb-credit-value");
++    match value.chars().count() {
++        0..=12 => {}
++        13..=15 => value_label.add_css_class("compact"),
++        16..=18 => value_label.add_css_class("tight"),
++        _ => value_label.add_css_class("mini"),
++    }
 +    value_label.set_xalign(0.0);
++    value_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
 +    card.append(&value_label);
 +
 +    if !detail.is_empty() {
@@ -1495,6 +1612,9 @@ index 0000000..ce4a1bb
 +            font-weight: var(--weight-semibold);
 +            color: var(--fg-default);
 +        }
++        .model-usage-dropdown .mb-credit-value.compact { font-size: calc(17pt * @FS@); }
++        .model-usage-dropdown .mb-credit-value.tight { font-size: calc(14pt * @FS@); }
++        .model-usage-dropdown .mb-credit-value.mini { font-size: calc(12pt * @FS@); }
 +        .model-usage-dropdown .mb-reset {
 +            font-family: var(--font-mono);
 +            font-size: calc(var(--text-sm) * @DS@);
@@ -1538,10 +1658,10 @@ index 5b5cf1c..22681e1 100644
  mod watchers;
 diff --git a/crates/wayle-shell/src/shell/bar/model_usage_data.rs b/crates/wayle-shell/src/shell/bar/model_usage_data.rs
 new file mode 100644
-index 0000000..1cd2dfb
+index 0000000..12973e7
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/model_usage_data.rs
-@@ -0,0 +1,427 @@
+@@ -0,0 +1,435 @@
 +use std::{env, path::PathBuf, process::Stdio, time::Duration};
 +
 +use chrono::{DateTime, Local, Utc};
@@ -1881,8 +2001,8 @@ index 0000000..1cd2dfb
 +    };
 +    match currency.unwrap_or("").to_uppercase().as_str() {
 +        "USD" => format!("${amount}"),
-+        "EUR" => format!("EUR {amount}"),
-+        "GBP" => format!("GBP {amount}"),
++        "EUR" => format!("€{amount}"),
++        "GBP" => format!("£{amount}"),
 +        code if !code.is_empty() => format!("{amount} {code}"),
 +        _ => amount,
 +    }
@@ -1960,6 +2080,14 @@ index 0000000..1cd2dfb
 +    }
 +
 +    #[test]
++    fn credit_card_uses_symbols_for_eur_and_gbp() {
++        assert_eq!(format_money(0.0, Some("EUR")), "€0.00");
++        assert_eq!(format_money(50.0, Some("eur")), "€50.00");
++        assert_eq!(format_money(12.5, Some("GBP")), "£12.50");
++        assert_eq!(format_money(7.0, Some("CHF")), "7.00 CHF");
++    }
++
++    #[test]
 +    fn command_path_uses_configured_command_before_defaults() {
 +        let settings = BridgeSettings {
 +            command: String::from(" /tmp/usage-helper "),
@@ -2029,10 +2157,10 @@ index 0000000..f5a981c
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/model_usage/messages.rs b/crates/wayle-shell/src/shell/bar/modules/model_usage/messages.rs
 new file mode 100644
-index 0000000..a9edef6
+index 0000000..7ff28c7
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/model_usage/messages.rs
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +use std::{rc::Rc, sync::Arc};
 +
 +use wayle_config::ConfigService;
@@ -2058,23 +2186,25 @@ index 0000000..a9edef6
 +#[derive(Debug)]
 +pub(crate) enum ModelUsageCmd {
 +    Refresh,
++    /// Delayed re-fetch scheduled after an offline status.
++    Retry,
 +    StatusLoaded(ModelUsageStatus),
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/modules/model_usage/mod.rs b/crates/wayle-shell/src/shell/bar/modules/model_usage/mod.rs
 new file mode 100644
-index 0000000..46a0089
+index 0000000..89692d8
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/modules/model_usage/mod.rs
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,174 @@
 +mod factory;
 +mod messages;
 +mod watchers;
 +
-+use std::{rc::Rc, sync::Arc};
++use std::{rc::Rc, sync::Arc, time::Duration};
 +
 +use gtk::prelude::*;
 +use relm4::prelude::*;
-+use wayle_config::{ConfigProperty, ConfigService, schemas::styling::CssToken};
++use wayle_config::{ClickAction, ConfigProperty, ConfigService, schemas::styling::CssToken};
 +use wayle_widgets::prelude::{
 +    BarButton, BarButtonBehavior, BarButtonColors, BarButtonInit, BarButtonInput, BarButtonOutput,
 +};
@@ -2088,11 +2218,17 @@ index 0000000..46a0089
 +    model_usage_data::{BridgeSettings, ModelUsageStatus, fetch_status},
 +};
 +
++/// Re-fetch this soon after an offline status instead of waiting out the
++/// full refresh interval; network blips should not pin the label to
++/// "Models offline" for minutes.
++const OFFLINE_RETRY_SECS: u64 = 30;
++
 +pub(crate) struct ModelUsageModule {
 +    bar_button: Controller<BarButton>,
 +    config: Arc<ConfigService>,
 +    dropdowns: Rc<DropdownRegistry>,
 +    dynamic_class: Option<String>,
++    retry_pending: bool,
 +}
 +
 +#[relm4::component(pub(crate))]
@@ -2159,6 +2295,7 @@ index 0000000..46a0089
 +            config: init.config,
 +            dropdowns: init.dropdowns,
 +            dynamic_class: None,
++            retry_pending: false,
 +        };
 +        let bar_button = model.bar_button.widget();
 +        let widgets = view_output!();
@@ -2166,7 +2303,7 @@ index 0000000..46a0089
 +        ComponentParts { model, widgets }
 +    }
 +
-+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
++    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
 +        let model_usage = &self.config.config().modules.model_usage;
 +
 +        let action = match msg {
@@ -2176,6 +2313,12 @@ index 0000000..46a0089
 +            ModelUsageMsg::ScrollUp => model_usage.scroll_up.get(),
 +            ModelUsageMsg::ScrollDown => model_usage.scroll_down.get(),
 +        };
++
++        // Opening the dropdown triggers its own payload fetch; refresh the
++        // bar label too so the two never show contradicting states.
++        if matches!(action, ClickAction::Dropdown(_)) {
++            sender.oneshot_command(async { ModelUsageCmd::Refresh });
++        }
 +
 +        dropdowns::dispatch_click(&action, &self.dropdowns, &self.bar_button);
 +    }
@@ -2187,19 +2330,34 @@ index 0000000..46a0089
 +        root: &Self::Root,
 +    ) {
 +        match msg {
-+            ModelUsageCmd::Refresh => {
-+                let settings =
-+                    BridgeSettings::from_config(&self.config.config().modules.model_usage);
-+                sender.oneshot_command(async move {
-+                    ModelUsageCmd::StatusLoaded(fetch_status(settings).await)
-+                });
++            ModelUsageCmd::Refresh => self.fetch(&sender),
++            ModelUsageCmd::Retry => {
++                self.retry_pending = false;
++                self.fetch(&sender);
 +            }
-+            ModelUsageCmd::StatusLoaded(status) => self.apply_status(status, root),
++            ModelUsageCmd::StatusLoaded(status) => {
++                let offline = status.class == "offline";
++                self.apply_status(status, root);
++                if offline && !self.retry_pending {
++                    self.retry_pending = true;
++                    sender.oneshot_command(async {
++                        tokio::time::sleep(Duration::from_secs(OFFLINE_RETRY_SECS)).await;
++                        ModelUsageCmd::Retry
++                    });
++                }
++            }
 +        }
 +    }
 +}
 +
 +impl ModelUsageModule {
++    fn fetch(&self, sender: &ComponentSender<Self>) {
++        let settings = BridgeSettings::from_config(&self.config.config().modules.model_usage);
++        sender.oneshot_command(
++            async move { ModelUsageCmd::StatusLoaded(fetch_status(settings).await) },
++        );
++    }
++
 +    fn apply_status(&mut self, status: ModelUsageStatus, root: &gtk::Box) {
 +        self.bar_button.emit(BarButtonInput::SetLabel(status.text));
 +
