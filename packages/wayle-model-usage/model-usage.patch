@@ -36,7 +36,7 @@ index b918d6c..90c44d0 100644
      "microphone",
      "netstat",
 diff --git a/crates/wayle-config/src/schemas/modules/mod.rs b/crates/wayle-config/src/schemas/modules/mod.rs
-index 7f7aafb..2bc4006 100644
+index f43c710..4710681 100644
 --- a/crates/wayle-config/src/schemas/modules/mod.rs
 +++ b/crates/wayle-config/src/schemas/modules/mod.rs
 @@ -16,6 +16,7 @@ mod keyboard_input;
@@ -475,13 +475,13 @@ index 0000000..40dd1b6
 +}
 diff --git a/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs
 new file mode 100644
-index 0000000..e8070f3
+index 0000000..ce4a1bb
 --- /dev/null
 +++ b/crates/wayle-shell/src/shell/bar/dropdowns/model_usage/mod.rs
-@@ -0,0 +1,980 @@
+@@ -0,0 +1,1045 @@
 +mod factory;
 +
-+use std::{sync::Arc, time::Instant};
++use std::{cell::Cell, rc::Rc, sync::Arc, time::Instant};
 +
 +use chrono::Utc;
 +use gtk::prelude::*;
@@ -502,8 +502,15 @@ index 0000000..e8070f3
 +};
 +
 +const BASE_WIDTH: f32 = 560.0;
-+/// Cards area grows with its content up to this height, then scrolls.
++/// Cards area is capped at this height; taller content scrolls.
++///
++/// The cards viewport is measured and pinned right before each popup because
++/// layer-shell popovers cannot reliably change size while mapped (the
++/// compositor leaves them at the mapped size or dismisses them).
 +const MAX_CARDS_HEIGHT: f32 = 560.0;
++/// Cards-area height reserved while the first payload is still loading, so
++/// the popover maps at roughly the size of the loaded content.
++const LOADING_HEIGHT: f32 = 300.0;
 +/// Reopening the dropdown within this window keeps the cached data.
 +const REOPEN_FETCH_SECS: u64 = 30;
 +const BAR_SEGMENTS: i32 = 30;
@@ -578,6 +585,8 @@ index 0000000..e8070f3
 +    busy: bool,
 +    last_fetch: Option<Instant>,
 +    updated_text: String,
++    /// Scaled `MAX_CARDS_HEIGHT`, shared with the pre-popup pinning closure.
++    cards_cap: Rc<Cell<i32>>,
 +}
 +
 +struct TabUi {
@@ -688,12 +697,10 @@ index 0000000..e8070f3
 +        let cards = gtk::Box::new(gtk::Orientation::Vertical, 12);
 +        cards.add_css_class("mb-cards");
 +
-+        // Height follows the cards' natural size up to the scaled cap, so the
-+        // dropdown shrinks/grows with the available metrics instead of
-+        // reserving a fixed height.
++        // The cards viewport is pinned to the content height (capped) right
++        // before each popup; taller content scrolls.
 +        let scroll = gtk::ScrolledWindow::new();
 +        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-+        scroll.set_propagate_natural_height(true);
 +        scroll.set_child(Some(&cards));
 +        body.append(&scroll);
 +        outer.append(&body);
@@ -723,10 +730,28 @@ index 0000000..e8070f3
 +
 +        root.set_child(Some(&outer));
 +
++        let cards_cap = Rc::new(Cell::new(scaled_dimension(MAX_CARDS_HEIGHT, 1.0)));
 +        let visibility_sender = sender.input_sender().clone();
-+        root.connect_visible_notify(move |popover| {
-+            visibility_sender.emit(ModelUsageDropdownMsg::Opened(popover.is_visible()));
-+        });
++        {
++            let cards = cards.clone();
++            let scroll = scroll.clone();
++            let cards_cap = cards_cap.clone();
++            root.connect_visible_notify(move |popover| {
++                if popover.is_visible() {
++                    // Pin the cards viewport to the current content height
++                    // before the popover maps: this runs synchronously inside
++                    // popup(), and a mapped layer-shell popover must not
++                    // change size afterwards (tab switches and data loads
++                    // re-render inside the pinned viewport instead).
++                    let for_size = if cards.width() > 0 { cards.width() } else { -1 };
++                    let (_, natural, _, _) = cards.measure(gtk::Orientation::Vertical, for_size);
++                    let height = natural.min(cards_cap.get()).max(1);
++                    scroll.set_min_content_height(height);
++                    scroll.set_max_content_height(height);
++                }
++                visibility_sender.emit(ModelUsageDropdownMsg::Opened(popover.is_visible()));
++            });
++        }
 +
 +        // 1s tick drives countdowns, the next-poll label, and auto-refresh.
 +        sender.command(|out, shutdown| {
@@ -762,6 +787,7 @@ index 0000000..e8070f3
 +            busy: false,
 +            last_fetch: None,
 +            updated_text: String::from("never"),
++            cards_cap,
 +        };
 +        model.start_refresh(&sender);
 +
@@ -918,12 +944,12 @@ index 0000000..e8070f3
 +
 +    fn apply_size(&self, root: &gtk::Popover, ui: &ModelUsageUi) {
 +        let scale = self.scale();
-+        // Width scales with the setting; height follows the content (the
-+        // cards area scrolls past the scaled cap).
++        // Width is fixed; height follows the content, measured and pinned by
++        // the pre-popup closure so the popover never resizes while mapped.
 +        root.set_width_request(scaled_dimension(BASE_WIDTH, scale));
 +        root.set_height_request(-1);
-+        ui.scroll
-+            .set_max_content_height(scaled_dimension(MAX_CARDS_HEIGHT, scale));
++        self.cards_cap
++            .set(scaled_dimension(MAX_CARDS_HEIGHT, scale));
 +        ui.cards.set_spacing(scaled_dimension(12.0, scale));
 +        let dropdown_scale = self
 +            .config
@@ -981,7 +1007,7 @@ index 0000000..e8070f3
 +                tab.button.remove_css_class("active");
 +            }
 +            let (text, class) = match provider {
-+                Some(p) if !p.ok => (String::from("ERR"), "danger"),
++                Some(p) if !p.ok => (String::from("--%"), "danger"),
 +                Some(p) => match p.min_remaining() {
 +                    Some(pct) => (
 +                        format!("{pct:.0}%"),
@@ -1012,7 +1038,7 @@ index 0000000..e8070f3
 +        match provider {
 +            Some(provider) => {
 +                if !provider.ok {
-+                    let (title, body) = unavailable_notice(provider);
++                    let (title, body) = unavailable_notice(provider, spec);
 +                    ui.cards.append(&build_notice(&title, &body, "danger"));
 +                }
 +                let windows = provider.windows();
@@ -1050,11 +1076,7 @@ index 0000000..e8070f3
 +                    ui.cards.append(&grid);
 +                }
 +            }
-+            None if self.busy => ui.cards.append(&build_notice(
-+                "Fetching usage",
-+                "Reading local CLI credentials and requesting live limit windows.",
-+                "ok",
-+            )),
++            None if self.busy => ui.cards.append(&build_loading(self.scale())),
 +            None => ui.cards.append(&build_notice(
 +                "No usage data",
 +                self.error
@@ -1269,28 +1291,71 @@ index 0000000..e8070f3
 +    card
 +}
 +
-+fn unavailable_notice(provider: &ProviderData) -> (String, String) {
++fn unavailable_notice(provider: &ProviderData, spec: &ProviderSpec) -> (String, String) {
 +    let raw_error = provider
 +        .error
 +        .as_deref()
 +        .unwrap_or("The provider did not return usage data.");
 +
 +    let normalized = raw_error.to_lowercase();
-+    let needs_claude_auth = provider.provider == "claude"
-+        && (normalized == "unauthorized"
-+            || normalized.contains("no claude oauth credentials")
-+            || normalized.contains("no claude access token")
-+            || normalized.contains("run `claude` to authenticate"));
-+    if needs_claude_auth {
++    let needs_auth = [
++        "unauthorized",
++        "authenticate",
++        "credentials",
++        "logged out",
++        "login",
++    ]
++    .iter()
++    .any(|needle| normalized.contains(needle));
++    if needs_auth {
++        let command = match provider.provider.as_str() {
++            "claude" => "claude",
++            "codex" => "codex login",
++            _ => spec.id,
++        };
 +        return (
-+            "Claude authorization required".to_owned(),
++            format!("{} sign-in required", spec.name),
 +            format!(
-+                "Run `claude` in a terminal once, finish the Claude login/status prompts, then press Refresh. Details: {raw_error}"
++                "Run `{command}` in a terminal, complete the sign-in, then press Refresh. Details: {raw_error}"
 +            ),
 +        );
 +    }
 +
 +    ("Usage unavailable".to_owned(), raw_error.to_owned())
++}
++
++/// Centered spinner shown while the first payload is being fetched. The card
++/// reserves `LOADING_HEIGHT` so the popover maps near its loaded size.
++fn build_loading(scale: f32) -> gtk::Box {
++    let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
++    card.set_css_classes(&["mb-card", "mb-notice"]);
++    card.set_size_request(-1, scaled_dimension(LOADING_HEIGHT, scale));
++
++    let inner = gtk::Box::new(gtk::Orientation::Vertical, 8);
++    inner.set_vexpand(true);
++    inner.set_valign(gtk::Align::Center);
++
++    let spinner = gtk::Spinner::new();
++    spinner.set_halign(gtk::Align::Center);
++    spinner.start();
++    inner.append(&spinner);
++
++    let title = gtk::Label::new(Some("Fetching usage"));
++    title.set_css_classes(&["mb-notice-title", "ok"]);
++    title.set_halign(gtk::Align::Center);
++    inner.append(&title);
++
++    let body = gtk::Label::new(Some(
++        "Reading local CLI credentials and requesting live limit windows.",
++    ));
++    body.add_css_class("mb-notice-body");
++    body.set_wrap(true);
++    body.set_justify(gtk::Justification::Center);
++    body.set_halign(gtk::Align::Center);
++    inner.append(&body);
++
++    card.append(&inner);
++    card
 +}
 +
 +/// ModelUsage-specific styles. Token values (`--text-*`, `--space-*`) already
