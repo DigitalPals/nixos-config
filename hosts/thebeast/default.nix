@@ -7,6 +7,7 @@
     ../../modules/boot/limine-plymouth.nix
     ../../modules/hardware/amd.nix
     ../../modules/hardware/mediatek-wifi.nix
+    ../../modules/virtualisation/qemu.nix
   ];
 
   networking.hostName = "thebeast";
