@@ -1,10 +1,10 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl, homeDirectory, launcherCommand, lockCommand, portalDevLauncher }:
+{ brightnessControl, homeDirectory, launcherCommand, lockCommand, portalDevLauncher, terminalCommand }:
 
 ''
   local mainMod = "SUPER"
-  local terminal = "kitty"
+  local terminal = "${terminalCommand}"
   local browser = "google-chrome-stable"
 
   local previousBinds = rawget(_G, "__forge_hypr_binds") or {}

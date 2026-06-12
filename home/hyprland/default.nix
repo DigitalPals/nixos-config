@@ -5,6 +5,7 @@ let
   isExternalDisplayLaptop = lib.hasPrefix "G1a" hostname || lib.hasPrefix "xps" hostname;
   lockCommand = "${pkgs.hyprlock}/bin/hyprlock --config ${config.xdg.configHome}/hypr/hyprlock.conf --immediate-render --no-fade-in";
   launcherCommand = "walker --width 640 --maxheight 460";
+  terminalCommand = "${pkgs.kitty}/bin/kitty";
 
   # Import config generators
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
@@ -29,7 +30,7 @@ let
     exec ./run.sh dev >> "$log_file" 2>&1
   '';
   bindingsConfig = import ./bindings.nix {
-    inherit brightnessControl launcherCommand lockCommand portalDevLauncher;
+    inherit brightnessControl launcherCommand lockCommand portalDevLauncher terminalCommand;
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''
