@@ -168,6 +168,11 @@
         hostname = "kraken";
       };
 
+      # Threadripper workstation with AMD Radeon RX 7700 XT / 7800 XT
+      thebeast = mkNixosSystem {
+        hostname = "thebeast";
+      };
+
       # HP ZBook Ultra G1a (AMD Strix Halo)
       G1a = mkNixosSystem {
         hostname = "G1a";

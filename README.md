@@ -16,6 +16,7 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 | Host | Description | GPU |
 |------|-------------|-----|
 | `kraken` | Desktop PC | AMD Radeon RX 7700 XT / 7800 XT |
+| `thebeast` | Threadripper workstation | AMD Radeon RX 7700 XT / 7800 XT |
 | `G1a` | HP ZBook Ultra G1a | AMD Strix Halo (RDNA 3.5) |
 | `z2-mini-g1a` | HP Z2 Mini G1a Workstation | AMD Strix Halo (RDNA 3.5) |
 | `proart` | ASUS ProArt P16 OLED | AMD + NVIDIA RTX 5090 |
@@ -86,7 +87,7 @@ nix --extra-experimental-features "nix-command flakes" run github:DigitalPals/ni
 ```
 
 The interactive TUI will guide you through:
-1. Select your host (`kraken`, `G1a`, `z2-mini-g1a`, `proart`, or `xps`)
+1. Select your host (`kraken`, `thebeast`, `G1a`, `z2-mini-g1a`, `proart`, or `xps`)
 2. Select the target disk
 3. Choose your user account and swap mode
 4. Choose whether to keep the checked-in hardware profile or generate a live hardware layer
@@ -185,13 +186,19 @@ nixos-config/
 │   ├── kraken/               # Desktop configuration (AMD)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
+│   ├── thebeast/             # Threadripper workstation (AMD)
+│   │   ├── default.nix
+│   │   └── hardware-configuration.nix
 │   ├── G1a/                  # HP ZBook Ultra G1a (AMD)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
 │   ├── z2-mini-g1a/          # HP Z2 Mini G1a (AMD)
 │   │   ├── default.nix
 │   │   └── hardware-configuration.nix
-│   └── proart/               # ASUS ProArt P16 OLED
+│   ├── proart/               # ASUS ProArt P16 OLED
+│   │   ├── default.nix
+│   │   └── hardware-configuration.nix
+│   └── xps/                  # Dell XPS 14
 │       ├── default.nix
 │       └── hardware-configuration.nix
 ├── modules/
@@ -200,9 +207,11 @@ nixos-config/
 │   ├── disko/                # Disk partitioning
 │   │   ├── default.nix       # Common disko config
 │   │   ├── kraken.nix        # Kraken disk device
+│   │   ├── thebeast.nix      # Thebeast disk device
 │   │   ├── G1a.nix           # G1a disk device
 │   │   ├── z2-mini-g1a.nix   # HP Z2 Mini G1a disk device
-│   │   └── proart.nix        # ProArt disk device (LVM for hibernate)
+│   │   ├── proart.nix        # ProArt disk device (LVM for hibernate)
+│   │   └── xps.nix           # XPS disk device
 │   ├── boot/
 │   │   └── limine-plymouth.nix
 │   └── hardware/

@@ -1,0 +1,25 @@
+# thebeast - Threadripper workstation with AMD Radeon RX 7700 XT / 7800 XT
+{ config, pkgs, lib, ... }:
+
+{
+  imports = [
+    ./hardware-configuration.nix
+    ../../modules/boot/limine-plymouth.nix
+    ../../modules/hardware/amd.nix
+    ../../modules/hardware/mediatek-wifi.nix
+  ];
+
+  networking.hostName = "thebeast";
+
+  # Enable official amdgpu initrd support for early KMS and Plymouth.
+  hardware.amdgpu.initrd.enable = true;
+
+  # Early boot kernel modules:
+  # - amdgpu: enables early KMS for high-res Plymouth/console
+  # - HID modules: ensures keyboard works for LUKS passphrase entry
+  boot.initrd.kernelModules = lib.mkForce [
+    "amdgpu"
+    "hid-generic"
+    "usbhid"
+  ];
+}

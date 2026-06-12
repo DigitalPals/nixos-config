@@ -1,0 +1,13 @@
+{
+  "cpu": {
+    "vendor": "AMD",
+    "model": "AMD Ryzen Threadripper 9970X"
+  },
+  "gpu": {
+    "vendor": "AMD",
+    "model": "Radeon RX 7700 XT / 7800 XT"
+  },
+  "form_factor": "Desktop",
+  "ram": "192 GB DDR5-6000 ECC RDIMM",
+  "product": "ASUS Pro WS TRX50-SAGE WIFI A"
+}
