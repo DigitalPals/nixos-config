@@ -4,7 +4,7 @@
 
 ''
   local mainMod = "SUPER"
-  local terminal = "foot"
+  local terminal = "kitty"
   local browser = "google-chrome-stable"
 
   local previousBinds = rawget(_G, "__forge_hypr_binds") or {}
