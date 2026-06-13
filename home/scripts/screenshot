@@ -12,22 +12,44 @@ MODE="${1:-region}"
 TS="$(date +'%Y-%m-%d_%H-%M-%S')"
 RAW_FILE="$OUTPUT_DIR/screenshot-${TS}-raw.png"
 OUTPUT_FILE="$OUTPUT_DIR/screenshot-${TS}.png"
+FREEZE_PID=""
+CAPTURED_RAW=0
+
+cleanup_freeze() {
+  if [ -n "${FREEZE_PID:-}" ]; then
+    kill "$FREEZE_PID" 2>/dev/null || true
+    wait "$FREEZE_PID" 2>/dev/null || true
+    FREEZE_PID=""
+  fi
+}
+
+trap cleanup_freeze EXIT
 
 case "$MODE" in
   fullscreen)
     SELECTION=$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | "\(.x),\(.y) \((.width / .scale) | floor)x\((.height / .scale) | floor)"')
     ;;
   region|*)
-    wayfreeze & PID=$!
+    wayfreeze & FREEZE_PID=$!
     sleep 0.1
-    SELECTION=$(slurp 2>/dev/null)
-    kill $PID 2>/dev/null
+    SELECTION=$(slurp 2>/dev/null || true)
+    if [ -n "$SELECTION" ]; then
+      if grim -g "$SELECTION" "$RAW_FILE"; then
+        CAPTURED_RAW=1
+      else
+        cleanup_freeze
+        exit 1
+      fi
+    fi
+    cleanup_freeze
     ;;
 esac
 
 [ -z "$SELECTION" ] && exit 0
 
-grim -g "$SELECTION" "$RAW_FILE"
+if [ "$CAPTURED_RAW" -eq 0 ]; then
+  grim -g "$SELECTION" "$RAW_FILE"
+fi
 
 satty --filename "$RAW_FILE" \
   --output-filename "$OUTPUT_FILE" \
