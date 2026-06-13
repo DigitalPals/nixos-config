@@ -102,11 +102,11 @@
     },
     "nixpkgs-master": {
       "locked": {
-        "lastModified": 1781325801,
-        "narHash": "sha256-iCs7JVZAftUV7bCbQaNxzVx/UMbScO9DQRycW2ol+D4=",
+        "lastModified": 1781327165,
+        "narHash": "sha256-U3X19I4Yh0Yh6pF29Cg3w7vw37Cwe1GbP+AH3X8u7us=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "00c8ae55b8a9b96c9134f00fee4d9234cff0af3c",
+        "rev": "bd8e152b60a129b76de18397f59c6848e8202534",
         "type": "github"
       },
       "original": {
@@ -303,10 +303,10 @@
     "wayle-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781286671,
-        "narHash": "sha256-Zxy+rt4oUWEfMKcgryjimRmQn8/cwsQgL48OgwXEW94=",
+        "lastModified": 1781331426,
+        "narHash": "sha256-D5t91FwL7vBA/KtrqvynmL2nUxaNIZ24uS3XNCmOarM=",
         "ref": "model-usage-nix",
-        "rev": "5b95f2ec3dda4fbb3ca0988fde9cd6ce30feab54",
+        "rev": "69d200aae80c408741f86c967a07eefe3c38e49b",
         "revCount": 540,
         "type": "git",
         "url": "file:///home/john/Code/model-usage/wayle"
