@@ -15,13 +15,16 @@ mod tools;
 
 use anyhow::Result;
 use regex::Regex;
+use std::io::{self, IsTerminal, Write};
+use std::process::Stdio;
 use std::sync::LazyLock;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::{
-    state::CommitInfo, LocalChange, StashInfo, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
+    state::{CommitInfo, FirmwareUpdateInfo},
+    LocalChange, StashInfo, UpdateCoreStatus, UpdateDryRunStatus, UpdateOptions,
     UpdatePreflightReport, UpdateRemoteStatus, UpdateSummary,
 };
 use crate::commands::errors::{ErrorContext, ParsedError};
@@ -1163,7 +1166,7 @@ async fn run_update(
         update_claude_code(tx, &mut summary).await?;
         update_codex_cli(tx, &mut summary).await?;
         check_app_profiles(tx, &mut summary).await?;
-        check_firmware_updates(tx, &mut summary).await?;
+        check_firmware_updates(tx, &mut summary, options).await?;
     }
 
     finalize_update(tx, &summary).await?;
@@ -1364,6 +1367,7 @@ async fn check_app_profiles(
 async fn check_firmware_updates(
     tx: &mpsc::Sender<CommandMessage>,
     summary: &mut UpdateSummary,
+    options: &UpdateOptions,
 ) -> Result<()> {
     // Check if fwupdmgr exists
     if !command_exists("fwupdmgr").await {
@@ -1389,7 +1393,7 @@ async fn check_firmware_updates(
 
     // Check for available updates (exit code 2 = no updates)
     let output = Command::new("fwupdmgr")
-        .args(["get-updates"])
+        .args(["get-updates", "--json"])
         .output()
         .await?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -1400,10 +1404,52 @@ async fn check_firmware_updates(
         out(tx, "  ✓ Firmware is up to date").await;
         summary.firmware_status = "up to date".to_string();
     } else if output.status.success() {
-        let count = count_firmware_updates(&stdout);
+        summary.firmware_updates = parse_firmware_updates_json(&stdout);
+        let count = summary
+            .firmware_updates
+            .len()
+            .max(count_firmware_updates(&stdout));
         out(tx, &format!("  ! {} firmware update(s) available", count)).await;
-        out(tx, "    Run 'fwupdmgr update' to apply").await;
         summary.firmware_status = format!("{} update(s) available", count);
+
+        if options.is_modern()
+            && io::stdin().is_terminal()
+            && io::stdout().is_terminal()
+            && prompt_apply_firmware_updates(&summary.firmware_updates).await?
+        {
+            out(tx, "  Applying firmware updates...").await;
+            let success = Command::new("fwupdmgr")
+                .args(["update", "--assume-yes"])
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status()
+                .await?
+                .success();
+
+            if success {
+                summary.firmware_status = format!("{} update(s) applied", count);
+                out(tx, "  ✓ Firmware updates applied").await;
+                tx.send(CommandMessage::StepComplete {
+                    step: STEP_FIRMWARE.to_string(),
+                })
+                .await?;
+                return Ok(());
+            }
+
+            let warning = "Firmware update failed".to_string();
+            summary.firmware_status = "update failed".to_string();
+            summary.follow_up_warnings.push(warning.clone());
+            out(tx, "  ! Firmware update failed").await;
+            tx.send(CommandMessage::StepWarning {
+                step: STEP_FIRMWARE.to_string(),
+                detail: warning,
+            })
+            .await?;
+            return Ok(());
+        }
+
+        out(tx, "    Run 'fwupdmgr update' to apply").await;
         summary
             .follow_up_warnings
             .push(format!("{} firmware update(s) available", count));
@@ -1435,6 +1481,83 @@ async fn check_firmware_updates(
     })
     .await?;
     Ok(())
+}
+
+async fn prompt_apply_firmware_updates(updates: &[FirmwareUpdateInfo]) -> Result<bool> {
+    let updates = updates.to_vec();
+    tokio::task::spawn_blocking(move || -> Result<bool> {
+        println!();
+        println!("❯ Firmware updates");
+        if updates.is_empty() {
+            println!("  ├ ! firmware updates are available");
+        } else {
+            for update in &updates {
+                println!("  ├ ! {}", firmware_update_label(update));
+            }
+        }
+        print!("  └ ? Apply firmware updates now? [y/N] ");
+        io::stdout().flush()?;
+
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        println!();
+
+        Ok(matches!(
+            answer.trim().to_ascii_lowercase().as_str(),
+            "y" | "yes"
+        ))
+    })
+    .await?
+}
+
+fn firmware_update_label(update: &FirmwareUpdateInfo) -> String {
+    let version = match (
+        update.current_version.as_deref(),
+        update.new_version.as_deref(),
+    ) {
+        (Some(current), Some(new)) if current != new => format!("{current} → {new}"),
+        (_, Some(new)) => new.to_string(),
+        _ => "version unknown".to_string(),
+    };
+
+    match update.release.as_deref() {
+        Some(release) if release != update.device => {
+            format!("{} — {} ({})", update.device, release, version)
+        }
+        _ => format!("{} ({})", update.device, version),
+    }
+}
+
+fn parse_firmware_updates_json(output: &str) -> Vec<FirmwareUpdateInfo> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(output) else {
+        return Vec::new();
+    };
+    let Some(devices) = value.get("Devices").and_then(|devices| devices.as_array()) else {
+        return Vec::new();
+    };
+
+    devices
+        .iter()
+        .filter_map(|device| {
+            let releases = device.get("Releases")?.as_array()?;
+            let release = releases.first()?;
+            Some(FirmwareUpdateInfo {
+                device: json_string(device, "Name").unwrap_or_else(|| "Unknown device".to_string()),
+                current_version: json_string(device, "Version"),
+                new_version: json_string(release, "Version"),
+                release: json_string(release, "Name"),
+            })
+        })
+        .collect()
+}
+
+fn json_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn count_firmware_updates(output: &str) -> usize {

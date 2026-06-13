@@ -917,13 +917,14 @@ pub struct UpdateSummary {
     pub package_changes: Vec<(String, String, String)>, // (pkg, old_ver, new_ver)
     pub packages_added: Vec<(String, String)>, // (pkg, version)
     pub packages_removed: Vec<(String, String)>, // (pkg, version)
-    pub closure_summary: Option<String>,      // nvd closure size summary
+    pub closure_summary: Option<String>, // nvd closure size summary
     pub claude_old: Option<String>,
     pub claude_new: Option<String>,
     pub codex_old: Option<String>,
     pub codex_new: Option<String>,
     pub browser_status: String,
     pub firmware_status: String,
+    pub firmware_updates: Vec<FirmwareUpdateInfo>,
     pub rebuild_skipped: bool,
     pub rebuild_failed: bool,
     pub reboot_reasons: Vec<String>,
@@ -932,6 +933,15 @@ pub struct UpdateSummary {
     pub follow_up_warnings: Vec<String>,
     pub system_before: Option<String>,
     pub system_after: Option<String>,
+}
+
+/// One firmware update reported by fwupd.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FirmwareUpdateInfo {
+    pub device: String,
+    pub current_version: Option<String>,
+    pub new_version: Option<String>,
+    pub release: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

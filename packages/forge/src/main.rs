@@ -314,7 +314,7 @@ async fn run_cli_update(options: app::UpdateOptions, verbose: bool) -> Result<()
                 renderer.finish_progress_line();
                 if verbose {
                     println!("  {} {}: {}", warn("!"), step, detail);
-                } else {
+                } else if step != "update.firmware" {
                     renderer.note(format!("{}: {}", step, detail));
                 }
             }
@@ -893,7 +893,11 @@ impl CliUpdateRenderer {
                 .unwrap_or_else(|| "current".to_string());
             self.section_block(
                 "Rebuilding system",
-                vec![format!("{} activated generation {}", success("✓"), generation)],
+                vec![format!(
+                    "{} activated generation {}",
+                    success("✓"),
+                    generation
+                )],
             );
         }
     }
@@ -910,8 +914,12 @@ impl CliUpdateRenderer {
             &summary.codex_old,
             &summary.codex_new,
         ));
-        items.extend(status_line_item("browser profiles", &summary.browser_status));
+        items.extend(status_line_item(
+            "browser profiles",
+            &summary.browser_status,
+        ));
         items.extend(status_line_item("firmware", &summary.firmware_status));
+        items.extend(summary.firmware_updates.iter().map(firmware_update_item));
         self.section_block("Post-update", items);
     }
 
@@ -1051,6 +1059,35 @@ fn status_line_item(label: &str, status: &str) -> Option<String> {
     } else {
         Some(format!("{} {:32} {}", skipped("◦"), label, status))
     }
+}
+
+fn firmware_update_item(update: &app::state::FirmwareUpdateInfo) -> String {
+    let version = match (
+        update.current_version.as_deref(),
+        update.new_version.as_deref(),
+    ) {
+        (Some(current), Some(new)) if current != new => format!("{} {} {}", current, dim("→"), new),
+        (_, Some(new)) => new.to_string(),
+        _ => "version unknown".to_string(),
+    };
+    let detail = match update.release.as_deref() {
+        Some(release) if release != update.device => format!("{} {}", dim(release), version),
+        _ => version,
+    };
+    format!(
+        "{} {:32} {}",
+        skipped("◦"),
+        compact_label(&update.device, 32),
+        detail
+    )
+}
+
+fn compact_label(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    format!("{}…", value.chars().take(keep).collect::<String>())
 }
 
 fn summary_row(label: &str, value: &str) {
