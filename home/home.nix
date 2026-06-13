@@ -103,6 +103,11 @@ in
       source = ./scripts/clipboard-image-to-file;
       executable = true;
     };
+    # Smart paste: image screenshots become file paths in Kitty, text still pastes normally
+    ".local/bin/clipboard-smart-paste" = {
+      source = ./scripts/clipboard-smart-paste;
+      executable = true;
+    };
     # Spotify inherits the session's GDK_SCALE=2 on some 1x external outputs.
     ".local/bin/spotify" = {
       executable = true;

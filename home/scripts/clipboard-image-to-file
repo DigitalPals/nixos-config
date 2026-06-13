@@ -31,8 +31,16 @@ wl-paste --type "$mime" --no-newline > "$outfile"
 echo "$outfile" > "${cache_dir}/latest"
 
 # Copy plain file path to clipboard (for terminal apps like Claude Code)
-printf '%s' "$outfile" | wl-copy
+printf '%s' "$outfile" | wl-copy --type text/plain
+
+# Wait until the compositor clipboard advertises the text path before pasting.
+for _ in {1..20}; do
+  if [[ "$(wl-paste --type text/plain --no-newline 2>/dev/null || true)" == "$outfile" ]]; then
+    break
+  fi
+  sleep 0.02
+done
 
 # Auto-paste into the focused window
 sleep 0.05
-hyprctl dispatch sendshortcut "SHIFT, Insert,"
+wtype -M shift -k Insert -m shift
