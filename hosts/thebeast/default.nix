@@ -6,7 +6,6 @@
     ./hardware-configuration.nix
     ../../modules/boot/limine-plymouth.nix
     ../../modules/hardware/amd.nix
-    ../../modules/hardware/mediatek-wifi.nix
     ../../modules/virtualisation/qemu.nix
   ];
 
@@ -23,4 +22,22 @@
     "hid-generic"
     "usbhid"
   ];
+
+  # Realtek RTL8922AE Wi-Fi 7.
+  boot.kernelModules = [ "rtw89_8922ae" ];
+
+  networking.wireless.iwd = {
+    enable = true;
+    settings = {
+      General = {
+        EnableNetworkConfiguration = false;
+      };
+      Settings = {
+        AutoConnect = true;
+      };
+    };
+  };
+
+  networking.networkmanager.wifi.backend = "iwd";
+  networking.networkmanager.wifi.scanRandMacAddress = false;
 }

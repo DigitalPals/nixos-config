@@ -247,7 +247,8 @@
         "hermes-agent": "hermes-agent",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs_2",
-        "nixpkgs-master": "nixpkgs-master"
+        "nixpkgs-master": "nixpkgs-master",
+        "wayle-src": "wayle-src"
       }
     },
     "uv2nix": {
@@ -297,6 +298,23 @@
         "owner": "pyproject-nix",
         "repo": "uv2nix",
         "type": "github"
+      }
+    },
+    "wayle-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781286671,
+        "narHash": "sha256-Zxy+rt4oUWEfMKcgryjimRmQn8/cwsQgL48OgwXEW94=",
+        "ref": "model-usage-nix",
+        "rev": "5b95f2ec3dda4fbb3ca0988fde9cd6ce30feab54",
+        "revCount": 540,
+        "type": "git",
+        "url": "file:///home/john/Code/model-usage/wayle"
+      },
+      "original": {
+        "ref": "model-usage-nix",
+        "type": "git",
+        "url": "file:///home/john/Code/model-usage/wayle"
       }
     }
   },

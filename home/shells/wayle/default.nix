@@ -98,8 +98,7 @@ in
         color: #e2604f;
       }
 
-      .model-usage.offline menubutton.bar-button,
-      .model-usage.error menubutton.bar-button {
+      .model-usage.offline menubutton.bar-button {
         opacity: 0.65;
       }
     '';
@@ -445,7 +444,6 @@ in
         ExecStart = "${pkgs.wayle}/bin/wayle shell";
         Environment = [
           "PATH=${config.home.homeDirectory}/.local/bin:${config.home.homeDirectory}/.npm-global/bin:/etc/profiles/per-user/${config.home.username}/bin:/run/current-system/sw/bin:${lib.makeBinPath [ pkgs.awww pkgs.bash pkgs.coreutils pkgs.hyprlock pkgs.matugen pkgs.python3 pkgs.wayle ]}"
-          "WAYLE_MODEL_USAGE_BIN=${config.home.homeDirectory}/.config/wayle/bin/wayle-model-usage"
         ];
         Restart = "on-failure";
         RestartSec = 2;

@@ -23,6 +23,16 @@
     # Hermes Desktop only; the NixOS agent service module is intentionally not used.
     hermes-agent.url = "github:NousResearch/hermes-agent";
 
+    # Wayle with the model-usage module, built from the local PR branches
+    # until they land upstream (see ~/Code/model-usage). The model-usage-nix
+    # branch vendors the wayle-model-usage service crate so the build needs
+    # no unpublished crates.io dependency. Switch to the GitHub fork URL once
+    # the forks are pushed; drop entirely when upstream + nixpkgs catch up.
+    wayle-src = {
+      url = "git+file:///home/john/Code/model-usage/wayle?ref=model-usage-nix";
+      flake = false;
+    };
+
   };
 
   outputs = { self, nixpkgs, home-manager, disko, ... }@inputs:
@@ -48,9 +58,12 @@
         ipu7CameraHal = final.ipu7CameraHal;
       };
       wayle = prev.wayle.overrideAttrs (old: {
-        patches = (old.patches or []) ++ [
-          ./packages/wayle-model-usage/model-usage.patch
-        ];
+        version = "0.6.0-model-usage";
+        src = inputs.wayle-src;
+        cargoDeps = final.rustPlatform.fetchCargoVendor {
+          src = inputs.wayle-src;
+          hash = "sha256-USNnucLuLPo5e54DjnjWPAhfQA+y10qwxutsc1CLEMI=";
+        };
       });
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.

@@ -8,13 +8,13 @@
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
 
-  boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "thunderbolt" "usbhid" "uas" "sd_mod" "btrfs" ];
+  boot.initrd.availableKernelModules = [ "xhci_pci" "thunderbolt" "nvme" "ahci" "usbhid" "usb_storage" "uas" "sd_mod" "btrfs" ];
   boot.initrd.kernelModules = [ ];
   boot.kernelModules = [ "kvm-amd" ];
   boot.extraModulePackages = [ ];
 
-  # Filesystem declarations removed - handled by disko (modules/disko/thebeast.nix)
-  # Swap removed - using zram only (modules/common.nix)
+  # Filesystems are handled by disko and host-local install settings.
+  # Hibernate swapfile settings live in hosts/thebeast/local.nix.
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
 }
