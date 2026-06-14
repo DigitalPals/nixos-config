@@ -103,11 +103,6 @@ in
       source = ./scripts/clipboard-image-to-file;
       executable = true;
     };
-    # Smart paste: image screenshots become file paths in Kitty, text still pastes normally
-    ".local/bin/clipboard-smart-paste" = {
-      source = ./scripts/clipboard-smart-paste;
-      executable = true;
-    };
     # Spotify inherits the session's GDK_SCALE=2 on some 1x external outputs.
     ".local/bin/spotify" = {
       executable = true;
@@ -382,6 +377,18 @@ in
     ];
   };
 
+  xdg.desktopEntries.glow = {
+    name = "Glow";
+    exec = "kitty --class glow --title Glow -e glow --pager %f";
+    icon = "utilities-terminal";
+    comment = "Read Markdown files in Glow";
+    categories = [ "Utility" "Viewer" ];
+    mimeType = [
+      "text/markdown"
+      "text/x-markdown"
+    ];
+  };
+
   xdg.desktopEntries."dev-fedora" = {
     name = "Dev Fedora";
     exec = "kitty -e ${config.home.homeDirectory}/.local/bin/dev-fedora-shell";
@@ -500,6 +507,7 @@ in
     btop
     gnome-calculator
     gnome-text-editor
+    glow
     fastfetch
     jq
     nodejs
@@ -624,12 +632,13 @@ in
       "video/x-msvideo" = "mpv.desktop";
       "video/quicktime" = "mpv.desktop";
 
-      # Text files (Neovim in Kitty)
+      # Text files
       "text/plain" = "nvim-kitty.desktop";
       "application/json" = "nvim-kitty.desktop";
       "application/x-yaml" = "nvim-kitty.desktop";
       "application/xml" = "nvim-kitty.desktop";
-      "text/markdown" = "nvim-kitty.desktop";
+      "text/markdown" = "glow.desktop";
+      "text/x-markdown" = "glow.desktop";
       "text/x-python" = "nvim-kitty.desktop";
       "text/x-shellscript" = "nvim-kitty.desktop";
     };

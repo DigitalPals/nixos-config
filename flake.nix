@@ -212,7 +212,7 @@
       # Build: nix build .#nixosConfigurations.iso.config.system.build.isoImage
       iso = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit inputs plymouth-cybex; };
+        specialArgs = { inherit inputs plymouth-cybex forge; };
         modules = [
           ./modules/iso
         ];

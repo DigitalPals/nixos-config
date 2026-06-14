@@ -1,33 +1,34 @@
 # Desktop environment configuration shared across machines
-{ config, pkgs, lib, username, ... }:
+{ config, pkgs, username, ... }:
 
 let
   # Import Hyprland session packages
   hyprlandSessions = pkgs.callPackage ../packages/hyprland-sessions { };
   hyprlandWayle = "${hyprlandSessions.script}/bin/hyprland-wayle";
   isG1a = config.networking.hostName == "G1a";
+  greetdSessionSettings = command:
+    if isG1a then
+      {
+        initial_session = {
+          inherit command;
+          user = username;
+        };
+        default_session.command = "${pkgs.greetd}/bin/agreety --cmd ${command}";
+      }
+    else
+      {
+        default_session = {
+          inherit command;
+          user = username;
+        };
+      };
 in
 {
   # Auto-login directly to Hyprland with Wayle shell (no session selector)
   services.greetd = {
     enable = true;
     useTextGreeter = isG1a;
-    settings =
-      if isG1a then
-        {
-          initial_session = {
-            command = hyprlandWayle;
-            user = username;
-          };
-          default_session.command = "${pkgs.greetd}/bin/agreety --cmd ${hyprlandWayle}";
-        }
-      else
-        {
-          default_session = {
-            command = hyprlandWayle;
-            user = username;
-          };
-        };
+    settings = greetdSessionSettings hyprlandWayle;
   };
 
   systemd.services.greetd = {
@@ -53,7 +54,7 @@ in
   };
 
   # XDG Portal for Hyprland (screen sharing, file dialogs, dark mode)
-  # GTK portal is patched via overlay to include Hyprland in UseIn
+  # GTK portal is patched via overlay to include Hyprland in UseIn.
   xdg.portal = {
     enable = true;
     extraPortals = [
@@ -63,10 +64,14 @@ in
     config.common.default = [ "hyprland" "gtk" ];
   };
 
-  # Register Hyprland session with display manager (for fallback/GNOME login)
-  services.displayManager.sessionPackages = [ hyprlandSessions.wayle ];
+  # Register sessions with display manager (for fallback/GNOME login)
+  services.displayManager.sessionPackages = [
+    hyprlandSessions.wayle
+  ];
 
   # Hyprland wrapper script in PATH
-  environment.systemPackages = [ hyprlandSessions.script ];
+  environment.systemPackages = [
+    hyprlandSessions.script
+  ];
 
 }

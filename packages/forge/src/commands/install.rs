@@ -41,6 +41,9 @@ const REPO_URL: &str = "https://github.com/DigitalPals/nixos-config.git";
 /// Nix config used during install (enable flakes + disable sandbox for disk ops)
 const NIX_CONFIG_VALUE: &str = "experimental-features = nix-command flakes\nsandbox = false";
 
+/// Writable root git config used by sudo-run Nix/libgit2 commands in the live ISO
+const ROOT_GIT_CONFIG: &str = "/root/.gitconfig";
+
 /// Generated local install overrides persisted onto the installed system
 const LOCAL_OVERRIDE_FILE: &str = "local.nix";
 
@@ -1822,6 +1825,18 @@ async fn step_install_nixos(
 
     runner.out("  Configuration ready.").await;
 
+    if !mark_config_repo_safe_for_root(runner, &config_dir).await? {
+        runner
+            .step_failed(
+                "NixOS",
+                "Failed to mark installed configuration repository safe for root",
+                "NixOS configuration evaluation",
+            )
+            .await?;
+        runner.done(false).await?;
+        return Ok(false);
+    }
+
     // Verify the selected host evaluates before starting the long install build.
     runner.out("Checking NixOS configuration...").await;
     let flake_ref = format!("{}#{}", config_dir, hostname);
@@ -1834,6 +1849,8 @@ async fn step_install_nixos(
             "sudo",
             &[
                 "env",
+                "HOME=/root",
+                &format!("GIT_CONFIG_GLOBAL={}", ROOT_GIT_CONFIG),
                 &format!("NIX_CONFIG={}", NIX_CONFIG_VALUE),
                 "nix",
                 "eval",
@@ -1876,6 +1893,8 @@ async fn step_install_nixos(
             "sudo",
             &[
                 "env",
+                "HOME=/root",
+                &format!("GIT_CONFIG_GLOBAL={}", ROOT_GIT_CONFIG),
                 &format!("NIX_CONFIG={}", NIX_CONFIG_VALUE),
                 "nixos-install",
                 "--flake",
@@ -2088,6 +2107,43 @@ async fn setup_config_symlink_sudo(
     }
 
     Ok(true)
+}
+
+async fn mark_config_repo_safe_for_root(
+    runner: &CommandRunner<'_>,
+    config_dir: &str,
+) -> Result<bool> {
+    runner
+        .out("  Marking installed config repository safe for root Nix commands...")
+        .await;
+
+    let success = runner
+        .run(
+            "sudo",
+            &[
+                "env",
+                "HOME=/root",
+                &format!("GIT_CONFIG_GLOBAL={}", ROOT_GIT_CONFIG),
+                "git",
+                "config",
+                "--global",
+                "--replace-all",
+                "safe.directory",
+                config_dir,
+            ],
+        )
+        .await?;
+
+    if !success {
+        runner
+            .err(&format!(
+                "Failed to configure git safe.directory for {}",
+                config_dir
+            ))
+            .await;
+    }
+
+    Ok(success)
 }
 
 /// Initialize git repository in the config directory

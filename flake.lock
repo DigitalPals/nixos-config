@@ -303,11 +303,11 @@
     "wayle-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781331426,
-        "narHash": "sha256-D5t91FwL7vBA/KtrqvynmL2nUxaNIZ24uS3XNCmOarM=",
+        "lastModified": 1781336261,
+        "narHash": "sha256-ja0riQgBx/fIg6HOdGXk3UYSc/RNz9Kg/WVy2Kc4y10=",
         "ref": "model-usage-nix",
-        "rev": "69d200aae80c408741f86c967a07eefe3c38e49b",
-        "revCount": 540,
+        "rev": "1b6fb950b86bc7a9425034d0a59dfa83fbe55166",
+        "revCount": 541,
         "type": "git",
         "url": "file:///home/john/Code/model-usage/wayle"
       },

@@ -55,7 +55,7 @@
 
   -- Clipboard.
   bind(mainMod .. " + C", function() send_shortcut_once("CTRL", "Insert") end)
-  bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.local/bin/clipboard-smart-paste"))
+  bind(mainMod .. " + V", function() send_shortcut_once("SHIFT", "Insert") end)
   bind(mainMod .. " + X", function() send_shortcut_once("CTRL", "X") end)
   bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/clipboard-image-to-file"))
 

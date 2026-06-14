@@ -1,6 +1,6 @@
 # Forge Installer ISO
 # Boots directly into Forge TUI with automatic network setup
-{ config, lib, pkgs, modulesPath, plymouth-cybex, ... }:
+{ config, lib, pkgs, modulesPath, plymouth-cybex, forge, ... }:
 
 let
   # Startup script that checks connectivity and launches Forge
@@ -51,7 +51,7 @@ let
 
     # Run Forge with error recovery
     while true; do
-      sudo nix run github:DigitalPals/nixos-config
+      sudo ${forge}/bin/forge
       exit_code=$?
       if [ $exit_code -eq 0 ]; then
         break
@@ -88,7 +88,7 @@ in
   # Auto-login to nixos user
   services.getty.autologinUser = "nixos";
 
-  # Enable flakes (required for nix run)
+  # Enable flakes for Forge's Nix commands
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   # NetworkManager for WiFi
@@ -108,6 +108,7 @@ in
   # Debugging and utility packages
   environment.systemPackages = with pkgs; [
     # Startup script
+    forge
     forgeStartup
 
     # Networking
@@ -136,7 +137,7 @@ in
     tree
     unzip
 
-    # Git (for nix run)
+    # Git for installer repository operations
     git
   ];
 
