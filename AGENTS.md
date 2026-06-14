@@ -1,5 +1,17 @@
 # Repo Memory
 
+## Hyprland Lua reload behavior
+
+Current approach:
+- Hyprland is started through `start-hyprland` without an explicit `--config` path, so it uses `$XDG_CONFIG_HOME/hypr/hyprland.lua`.
+- `home/hyprland/default.nix` materializes `~/.config/hypr/hyprland.lua` as a regular file after Home Manager link generation and reloads Hyprland after that. This avoids Hyprland keeping an old resolved `/nix/store/.../hyprland.lua` path after rebuilds.
+- The Lua entry point loads split modules from stable `~/.config/hypr/*.lua` paths and clears `package.loaded` for those modules before `require(...)`.
+
+Policy:
+- After changing Hyprland Lua config or keybindings, `sudo nixos-rebuild switch --flake .#$(hostname)` should be enough for the running session to pick it up. A reboot should not be required.
+- If a keybinding change does not apply after switch, first check `hyprctl configerrors`, `~/.local/state/hyprland/session.log`, and whether the log says `Regular config at /home/john/.config/hypr/hyprland.lua` rather than a `User-specified config location` in `/nix/store`.
+- Keep `~/.config/hypr/hyprland.lua` as a regular file, not a Home Manager symlink, unless Hyprland reload behavior changes upstream.
+
 ## HP Z2 Mini G1a Bluetooth support
 
 Current host baseline:
