@@ -30,6 +30,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    mdview = {
+      url = "github:DigitalPals/mdview";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
   };
 
   outputs = { self, nixpkgs, home-manager, disko, ... }@inputs:
@@ -55,6 +60,7 @@
         ipu7CameraHal = final.ipu7CameraHal;
       };
       lumen = inputs.lumen.packages.${system}.lumen;
+      mdview = inputs.mdview.packages.${system}.mdview;
       wayle = final.lumen;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
@@ -219,6 +225,7 @@
       ipu7CameraHal = pkgs.ipu7CameraHal;
       icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
       lumen = pkgs.lumen;
+      mdview = pkgs.mdview;
       default = forge;
     };
 

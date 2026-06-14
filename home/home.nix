@@ -508,6 +508,7 @@ in
     gnome-calculator
     gnome-text-editor
     glow
+    mdview
     fastfetch
     jq
     nodejs
@@ -637,8 +638,8 @@ in
       "application/json" = "nvim-kitty.desktop";
       "application/x-yaml" = "nvim-kitty.desktop";
       "application/xml" = "nvim-kitty.desktop";
-      "text/markdown" = "glow.desktop";
-      "text/x-markdown" = "glow.desktop";
+      "text/markdown" = "dev.codex.mdview.desktop";
+      "text/x-markdown" = "dev.codex.mdview.desktop";
       "text/x-python" = "nvim-kitty.desktop";
       "text/x-shellscript" = "nvim-kitty.desktop";
     };

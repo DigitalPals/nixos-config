@@ -105,6 +105,26 @@
         "type": "github"
       }
     },
+    "mdview": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1781430241,
+        "narHash": "sha256-2EKLIdmnmkWUBQBYKLZmwYCBkLyMrgEIG+aALuVkw0M=",
+        "owner": "DigitalPals",
+        "repo": "mdview",
+        "rev": "6b50e5ce3e7aa8384e058ea019955b2c6dfee63f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "DigitalPals",
+        "repo": "mdview",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1775036866,
@@ -268,6 +288,7 @@
         "hermes-agent": "hermes-agent",
         "home-manager": "home-manager",
         "lumen": "lumen",
+        "mdview": "mdview",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-master": "nixpkgs-master"
       }
