@@ -1,5 +1,5 @@
 # thebeast - Threadripper workstation with AMD Radeon RX 7700 XT / 7800 XT
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, username, ... }:
 
 {
   imports = [
@@ -10,6 +10,37 @@
   ];
 
   networking.hostName = "thebeast";
+
+  # Remote access for this always-on workstation. Only public-key auth is
+  # accepted; the authorized key is derived from ~/.ssh/id_ed25519.
+  services.openssh = {
+    enable = true;
+    openFirewall = true;
+    settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "no";
+    };
+  };
+
+  users.users.${username}.openssh.authorizedKeys.keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAsuJT0cHYYQxy46HB21Ja/jEJwKwrBL3DBSzb1CgvWu john@cybex.net"
+  ];
+
+  # Keep SSH reachable: the display may sleep via Hypridle DPMS, but the system
+  # itself should not enter a sleep state.
+  systemd.sleep.settings.Sleep = {
+    AllowSuspend = "no";
+    AllowHibernation = "no";
+    AllowHybridSleep = "no";
+    AllowSuspendThenHibernate = "no";
+  };
+
+  services.logind.settings.Login = {
+    HandleSuspendKey = "ignore";
+    HandleHibernateKey = "ignore";
+    IdleAction = "ignore";
+  };
 
   # Enable official amdgpu initrd support for early KMS and Plymouth.
   hardware.amdgpu.initrd.enable = true;
