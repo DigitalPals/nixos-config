@@ -19,7 +19,7 @@ let
     # Launch Hyprland via start-hyprland (required since Hyprland 0.53)
     # start-hyprland provides crash recovery and safe mode
     # Redirect output to log file to prevent TTY clutter during boot
-    exec start-hyprland -- --config "$HOME/.config/hypr/hyprland.lua" "$@" > "$HYPRLAND_LOG" 2>&1
+    exec start-hyprland -- "$@" > "$HYPRLAND_LOG" 2>&1
   '';
 
   hyprland-wayle-session = pkgs.stdenvNoCC.mkDerivation {

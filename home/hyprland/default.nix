@@ -166,29 +166,11 @@ let
     preShellCommand = if isExternalDisplayLaptop then externalMonitorApply else null;
   };
 
-  hyprLuaModules = pkgs.symlinkJoin {
-    name = "hyprland-lua-modules";
-    paths = [
-      (pkgs.writeTextDir "monitors.lua" monitorsConfig)
-      (pkgs.writeTextDir "input.lua" inputConfig)
-      (pkgs.writeTextDir "bindings.lua" bindingsConfig)
-      (pkgs.writeTextDir "looknfeel.lua" looknfeelConfig)
-      (pkgs.writeTextDir "autostart.lua" autostartConfig)
-      (pkgs.writeTextDir "external-monitor-toggle.lua" (
-        if isExternalDisplayLaptop then ''
-          hl.on("hyprland.start", function()
-            hl.exec_cmd([[${externalMonitorToggle}]])
-          end)
-        '' else ""
-      ))
-    ];
-  };
-
   # Hyprland Lua entry point.
   hyprlandExtraConfig = ''
-    local hyprConfigDir = os.getenv("HOME") .. "/.config/hypr"
-    local hyprStoreConfigDir = "${hyprLuaModules}"
-    package.path = hyprStoreConfigDir .. "/?.lua;" .. hyprStoreConfigDir .. "/?/init.lua;" .. hyprConfigDir .. "/?.lua;" .. hyprConfigDir .. "/?/init.lua;" .. package.path
+    local xdgConfigHome = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
+    local hyprConfigDir = xdgConfigHome .. "/hypr"
+    package.path = hyprConfigDir .. "/?.lua;" .. hyprConfigDir .. "/?/init.lua;" .. package.path
 
     for _, module in ipairs({ "monitors", "input", "bindings", "looknfeel", "autostart", "external-monitor-toggle" }) do
       package.loaded[module] = nil
@@ -228,6 +210,35 @@ in {
   xdg.configFile."hypr/bindings.lua".text = bindingsConfig;
   xdg.configFile."hypr/looknfeel.lua".text = looknfeelConfig;
   xdg.configFile."hypr/autostart.lua".text = autostartConfig;
+  xdg.configFile."hypr/hyprland.lua" = {
+    force = true;
+    onChange = lib.mkForce "";
+  };
+
+  # Hyprland resolves Home Manager's symlinked hyprland.lua into /nix/store at
+  # startup. Keep the entry point as a regular file at the stable XDG path so
+  # reloads after a rebuild read the new config instead of the old store path.
+  home.activation.materializeHyprlandLuaEntrypoint = lib.hm.dag.entryAfter [ "onFilesChange" ] ''
+    config_file="${config.xdg.configHome}/hypr/hyprland.lua"
+
+    if [ -L "$config_file" ]; then
+      target="$(${pkgs.coreutils}/bin/readlink -f "$config_file")"
+      tmp="$config_file.tmp"
+
+      ${pkgs.coreutils}/bin/install -m 0644 "$target" "$tmp"
+      ${pkgs.coreutils}/bin/mv -f "$tmp" "$config_file"
+    fi
+
+    runtime_dir="''${XDG_RUNTIME_DIR:-/run/user/$(${pkgs.coreutils}/bin/id -u)}"
+    if [ -d "$runtime_dir/hypr" ]; then
+      ${pkgs.hyprland}/bin/hyprctl instances -j 2>/dev/null \
+        | ${pkgs.jq}/bin/jq -r '.[].instance' 2>/dev/null \
+        | while read -r instance; do
+            [ -n "$instance" ] || continue
+            ${pkgs.hyprland}/bin/hyprctl -i "$instance" reload >/dev/null 2>&1 || true
+          done
+    fi
+  '';
 
   home.activation.removeLegacyHyprlandFiles = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     conf="$HOME/.config/hypr/hyprland.conf"
