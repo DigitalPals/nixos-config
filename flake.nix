@@ -31,7 +31,7 @@
     };
 
     mdview = {
-      url = "github:DigitalPals/mdview";
+      url = "github:DigitalPals/mdview/0.0.1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
