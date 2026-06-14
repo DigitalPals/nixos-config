@@ -37,7 +37,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   │   └── ...
 │   └── shells/
 │       ├── common/                 # Shared shell, prompt, and theme config
-│       └── wayle/                  # Lumen Desktop Shell config
+│       └── lumen/                  # Lumen Desktop Shell config
 └── packages/
     ├── forge/                      # Rust TUI configuration tool
     ├── plymouth-cybex/             # Custom Plymouth theme
@@ -683,7 +683,7 @@ NVIDIA hosts use `lib.mkForce` where needed to ensure all modules load together.
 Lumen is the configured desktop shell.
 
 Implementation:
-- `home/shells/wayle/default.nix` installs Lumen, awww, Hyprlock, and fuzzel
+- `home/shells/lumen/default.nix` installs Lumen, awww, Hyprlock, and fuzzel
 - Hyprland starts Home Manager's configured graphical session target; the
   `lumen.service` user unit is wanted by that target
 - Hyprlock handles lock screen authentication

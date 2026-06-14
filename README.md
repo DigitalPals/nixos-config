@@ -225,7 +225,7 @@ nixos-config/
 │   │   └── bindings.nix
 │   └── shells/
 │       ├── common/           # Shared shell, prompt, and theme config
-│       └── wayle/            # Lumen Desktop Shell config
+│       └── lumen/            # Lumen Desktop Shell config
 └── packages/
     ├── forge/                # TUI installer and system management tool
     ├── plymouth-cybex/       # Custom Plymouth theme

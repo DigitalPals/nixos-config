@@ -116,29 +116,12 @@ in
         fi
       }
 
-      migrate_legacy_config() {
-        legacy_file="$1"
-        target_file="$2"
-
-        if [ ! -e "$target_file" ] && [ -e "$legacy_file" ] && [ ! -L "$legacy_file" ]; then
-          mkdir -p "$(dirname "$target_file")"
-          cp "$legacy_file" "$target_file"
-          chmod u+w "$target_file"
-        fi
-      }
-
-      migrate_legacy_config "${config.xdg.configHome}/wayle/config.toml" "${config.xdg.configHome}/lumen/config.toml"
-      migrate_legacy_config "${config.xdg.configHome}/wayle/runtime.toml" "${config.xdg.configHome}/lumen/runtime.toml"
       seed_mutable_config ${configFile} "${config.xdg.configHome}/lumen/config.toml"
       seed_mutable_config ${runtimeConfig} "${config.xdg.configHome}/lumen/runtime.toml"
     '';
 
-    home.activation.stopLegacyWayleService = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
-      ${pkgs.systemd}/bin/systemctl --user stop wayle.service >/dev/null 2>&1 || true
-    '';
-
     xdg.configFile."walker/config.toml".text = ''
-      theme = "wayle"
+      theme = "lumen"
       close_when_open = true
       click_to_close = true
       single_click_activation = true
@@ -199,7 +182,7 @@ in
       provider = "windows"
     '';
 
-    xdg.configFile."walker/themes/wayle/style.css".text = ''
+    xdg.configFile."walker/themes/lumen/style.css".text = ''
       @define-color window_bg_color rgba(14, 18, 24, 0.86);
       @define-color panel_bg_color rgba(21, 27, 36, 0.78);
       @define-color field_bg_color rgba(245, 247, 250, 0.08);

@@ -24,7 +24,7 @@ in
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers)
     ./shells/common
-    ./shells/wayle
+    ./shells/lumen
   ];
 
   home.username = username;

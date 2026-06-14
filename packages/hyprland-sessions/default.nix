@@ -50,7 +50,6 @@ let
 in {
   # Session package for display manager registration
   lumen = hyprland-lumen-session;
-  wayle = hyprland-lumen-session;
 
   # All session packages as a list
   sessions = [ hyprland-lumen-session ];

@@ -61,7 +61,6 @@
       };
       lumen = inputs.lumen.packages.${system}.lumen;
       mdview = inputs.mdview.packages.${system}.mdview;
-      wayle = final.lumen;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
       _1password-gui =
