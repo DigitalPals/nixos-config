@@ -11,6 +11,7 @@ pub mod flake;
 pub mod history;
 mod nvidia;
 mod packages;
+mod release;
 mod tools;
 
 use anyhow::Result;
@@ -797,6 +798,8 @@ async fn run_update(
         }
     }
 
+    let flake_nix_path = flake_dir.join("flake.nix");
+    let flake_nix_before = tokio::fs::read_to_string(&flake_nix_path).await.ok();
     let lock_before = get_flake_lock_hash(&flake_dir).await;
     let lock_backup = save_flake_lock_backup(&flake_dir).await;
 
@@ -806,6 +809,48 @@ async fn run_update(
         out(tx, "  Updating Flake Inputs").await;
         out(tx, "══════════════════════════════════════════════").await;
         out(tx, "").await;
+
+        let release_result =
+            release::update_release_tracked_inputs(&flake_dir, &options.inputs).await;
+        let release_updates = match release_result {
+            Ok(updates) => updates,
+            Err(error) => {
+                out(tx, "  ✗ Release input check failed").await;
+                summary.core_status = UpdateCoreStatus::Partial;
+                summary.partial_state = Some(
+                    "Release-tracked flake input check failed before the system switch completed."
+                        .to_string(),
+                );
+                let parsed_error = ParsedError::from_stderr(
+                    &error.to_string(),
+                    ErrorContext {
+                        operation: "Release input update".to_string(),
+                    },
+                );
+                tx.send(CommandMessage::StepFailed {
+                    step: STEP_FLAKE.to_string(),
+                    error: parsed_error,
+                })
+                .await?;
+                if let Some(backup_path) = lock_backup.as_ref() {
+                    let _ = tokio::fs::remove_file(backup_path).await;
+                }
+                finalize_update(tx, &summary).await?;
+                tx.send(CommandMessage::Done { success: false }).await?;
+                return Ok(());
+            }
+        };
+
+        for update in &release_updates {
+            out(
+                tx,
+                &format!(
+                    "  ✓ {} release tag {} → {}",
+                    update.name, update.old_tag, update.new_tag
+                ),
+            )
+            .await;
+        }
 
         // Build flake update args
         let mut flake_args: Vec<String> = vec!["flake".into(), "update".into()];
@@ -821,6 +866,12 @@ async fn run_update(
         match result {
             CommandResult::Cancelled => {
                 out(tx, "  ⊘ Flake update cancelled").await;
+                restore_flake_nix_if_needed(
+                    &flake_nix_path,
+                    flake_nix_before.as_deref(),
+                    !release_updates.is_empty(),
+                )
+                .await;
                 summary.core_status = UpdateCoreStatus::Cancelled;
                 summary.partial_state = Some(
                     "Flake inputs may have changed before the update was cancelled.".to_string(),
@@ -834,6 +885,12 @@ async fn run_update(
             }
             CommandResult::Completed(false) => {
                 out(tx, "  ✗ Flake update failed").await;
+                restore_flake_nix_if_needed(
+                    &flake_nix_path,
+                    flake_nix_before.as_deref(),
+                    !release_updates.is_empty(),
+                )
+                .await;
                 summary.core_status = UpdateCoreStatus::Partial;
                 summary.partial_state = Some(
                     "Flake input mutation failed before the system switch completed.".to_string(),
@@ -898,6 +955,12 @@ async fn run_update(
                         }
                         None => false,
                     };
+                    restore_flake_nix_if_needed(
+                        &flake_nix_path,
+                        flake_nix_before.as_deref(),
+                        !release_updates.is_empty(),
+                    )
+                    .await;
                     if restored {
                         out(tx, "  ↩ Restored flake.lock to the previous inputs").await;
                     } else {
@@ -1623,6 +1686,28 @@ async fn finalize_update(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumm
     .await?;
 
     Ok(())
+}
+
+async fn restore_flake_nix_if_needed(
+    flake_nix_path: &std::path::Path,
+    backup_content: Option<&str>,
+    should_restore: bool,
+) {
+    if !should_restore {
+        return;
+    }
+
+    let Some(content) = backup_content else {
+        tracing::warn!(
+            "Could not restore {} because no backup content was captured",
+            flake_nix_path.display()
+        );
+        return;
+    };
+
+    if let Err(error) = tokio::fs::write(flake_nix_path, content).await {
+        tracing::warn!("Failed to restore {}: {}", flake_nix_path.display(), error);
+    }
 }
 
 async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSummary) -> Result<()> {
