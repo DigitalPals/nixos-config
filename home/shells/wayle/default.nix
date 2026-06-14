@@ -1,10 +1,10 @@
-# Wayle desktop shell configuration.
+# Lumen desktop shell configuration.
 { config, lib, pkgs, ... }:
 
 let
   lockCommand = "hyprlock --config ${config.xdg.configHome}/hypr/hyprlock.conf --immediate-render --no-fade-in";
-  configFile = pkgs.writeText "wayle-config.toml" ''
-    # Wayle configuration file
+  configFile = pkgs.writeText "lumen-config.toml" ''
+    # Lumen configuration file
 
     [styling]
     scale = 0.90
@@ -21,7 +21,7 @@ let
     button-gap = 0.45
     button-group-module-gap = 0.15
   '';
-  runtimeConfig = pkgs.writeText "wayle-runtime.toml" ''
+  runtimeConfig = pkgs.writeText "lumen-runtime.toml" ''
     [bar]
     inset-edge = 0.5
     inset-ends = 0.5
@@ -76,14 +76,14 @@ in
     hyprlock
     matugen
     walker
-    wayle
+    lumen
   ];
 
-    xdg.configFile."wayle/config.toml.default".source = configFile;
-    xdg.configFile."wayle/runtime.toml.default".source = runtimeConfig;
+    xdg.configFile."lumen/config.toml.default".source = configFile;
+    xdg.configFile."lumen/runtime.toml.default".source = runtimeConfig;
 
-    xdg.configFile."wayle/styles/index.scss".text = ''
-      // Custom Wayle styles. Anything here overrides the built-in styling.
+    xdg.configFile."lumen/styles/index.scss".text = ''
+      // Custom Lumen styles. Anything here overrides the built-in styling.
       // Use @import "name" to bring in _name.scss from this folder.
 
       .model-usage.ok menubutton.bar-button {
@@ -103,7 +103,7 @@ in
       }
     '';
 
-    home.activation.seedWayleConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    home.activation.seedLumenConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       seed_mutable_config() {
         source_file="$1"
         target_file="$2"
@@ -116,8 +116,25 @@ in
         fi
       }
 
-      seed_mutable_config ${configFile} "${config.xdg.configHome}/wayle/config.toml"
-      seed_mutable_config ${runtimeConfig} "${config.xdg.configHome}/wayle/runtime.toml"
+      migrate_legacy_config() {
+        legacy_file="$1"
+        target_file="$2"
+
+        if [ ! -e "$target_file" ] && [ -e "$legacy_file" ] && [ ! -L "$legacy_file" ]; then
+          mkdir -p "$(dirname "$target_file")"
+          cp "$legacy_file" "$target_file"
+          chmod u+w "$target_file"
+        fi
+      }
+
+      migrate_legacy_config "${config.xdg.configHome}/wayle/config.toml" "${config.xdg.configHome}/lumen/config.toml"
+      migrate_legacy_config "${config.xdg.configHome}/wayle/runtime.toml" "${config.xdg.configHome}/lumen/runtime.toml"
+      seed_mutable_config ${configFile} "${config.xdg.configHome}/lumen/config.toml"
+      seed_mutable_config ${runtimeConfig} "${config.xdg.configHome}/lumen/runtime.toml"
+    '';
+
+    home.activation.stopLegacyWayleService = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
+      ${pkgs.systemd}/bin/systemctl --user stop wayle.service >/dev/null 2>&1 || true
     '';
 
     xdg.configFile."walker/config.toml".text = ''
@@ -434,16 +451,16 @@ in
       }
     '';
 
-    systemd.user.services.wayle = {
+    systemd.user.services.lumen = {
       Unit = {
-        Description = "Wayle desktop shell";
+        Description = "Lumen desktop shell";
         PartOf = [ config.wayland.systemd.target ];
       };
       Service = {
         Type = "simple";
-        ExecStart = "${pkgs.wayle}/bin/wayle shell";
+        ExecStart = "${pkgs.lumen}/bin/lumen shell";
         Environment = [
-          "PATH=${config.home.homeDirectory}/.local/bin:${config.home.homeDirectory}/.npm-global/bin:/etc/profiles/per-user/${config.home.username}/bin:/run/current-system/sw/bin:${lib.makeBinPath [ pkgs.awww pkgs.bash pkgs.coreutils pkgs.hyprlock pkgs.matugen pkgs.python3 pkgs.wayle ]}"
+          "PATH=${config.home.homeDirectory}/.local/bin:${config.home.homeDirectory}/.npm-global/bin:/etc/profiles/per-user/${config.home.username}/bin:/run/current-system/sw/bin:${lib.makeBinPath [ pkgs.awww pkgs.bash pkgs.coreutils pkgs.hyprlock pkgs.matugen pkgs.python3 pkgs.lumen ]}"
         ];
         Restart = "on-failure";
         RestartSec = 2;

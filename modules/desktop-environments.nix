@@ -4,7 +4,7 @@
 let
   # Import Hyprland session packages
   hyprlandSessions = pkgs.callPackage ../packages/hyprland-sessions { };
-  hyprlandWayle = "${hyprlandSessions.script}/bin/hyprland-wayle";
+  hyprlandLumen = "${hyprlandSessions.script}/bin/hyprland-lumen";
   isG1a = config.networking.hostName == "G1a";
   greetdSessionSettings = command:
     if isG1a then
@@ -24,11 +24,11 @@ let
       };
 in
 {
-  # Auto-login directly to Hyprland with Wayle shell (no session selector)
+  # Auto-login directly to Hyprland with Lumen shell (no session selector)
   services.greetd = {
     enable = true;
     useTextGreeter = isG1a;
-    settings = greetdSessionSettings hyprlandWayle;
+    settings = greetdSessionSettings hyprlandLumen;
   };
 
   systemd.services.greetd = {
@@ -66,7 +66,7 @@ in
 
   # Register sessions with display manager (for fallback/GNOME login)
   services.displayManager.sessionPackages = [
-    hyprlandSessions.wayle
+    hyprlandSessions.lumen
   ];
 
   # Hyprland wrapper script in PATH

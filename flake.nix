@@ -1,5 +1,5 @@
 {
-  description = "NixOS configuration with Home Manager, Hyprland, and Wayle Desktop Shell";
+  description = "NixOS configuration with Home Manager, Hyprland, and Lumen Desktop Shell";
 
   inputs = {
     # Use nixos-unstable so updates stay close to Hydra cache availability.
@@ -23,14 +23,11 @@
     # Hermes Desktop only; the NixOS agent service module is intentionally not used.
     hermes-agent.url = "github:NousResearch/hermes-agent";
 
-    # Wayle with the model-usage module, built from the local PR branches
-    # until they land upstream (see ~/Code/model-usage). The model-usage-nix
-    # branch vendors the wayle-model-usage service crate so the build needs
-    # no unpublished crates.io dependency. Switch to the GitHub fork URL once
-    # the forks are pushed; drop entirely when upstream + nixpkgs catch up.
-    wayle-src = {
-      url = "git+file:///home/john/Code/model-usage/wayle?ref=model-usage-nix";
-      flake = false;
+    # Lumen desktop shell fork. This is pinned to the release tag whose source
+    # includes the Nix package and local packaging workflow.
+    lumen = {
+      url = "github:DigitalPals/Lumen/v0.6.0";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
 
   };
@@ -57,14 +54,8 @@
       icamerasrcIpu75xa = final.callPackage ./packages/icamerasrc-ipu75xa {
         ipu7CameraHal = final.ipu7CameraHal;
       };
-      wayle = prev.wayle.overrideAttrs (old: {
-        version = "0.6.0-model-usage";
-        src = inputs.wayle-src;
-        cargoDeps = final.rustPlatform.fetchCargoVendor {
-          src = inputs.wayle-src;
-          hash = "sha256-USNnucLuLPo5e54DjnjWPAhfQA+y10qwxutsc1CLEMI=";
-        };
-      });
+      lumen = inputs.lumen.packages.${system}.lumen;
+      wayle = final.lumen;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
       _1password-gui =
@@ -227,6 +218,7 @@
       ipu7CameraBins = pkgs.ipu7CameraBins;
       ipu7CameraHal = pkgs.ipu7CameraHal;
       icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
+      lumen = pkgs.lumen;
       default = forge;
     };
 

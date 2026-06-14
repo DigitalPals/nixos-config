@@ -292,7 +292,7 @@ pub fn detect_current_shell() -> String {
         return shell.trim().to_string();
     }
 
-    "wayle".to_string()
+    "lumen".to_string()
 }
 
 /// Parse the bindings.nix file and extract keybindings

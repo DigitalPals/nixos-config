@@ -1,16 +1,16 @@
 { pkgs }:
 
 let
-  hyprland-wayle-bin = pkgs.writeShellScriptBin "hyprland-wayle" ''
+  hyprland-lumen-bin = pkgs.writeShellScriptBin "hyprland-lumen" ''
     # Required environment variables for Wayland session
     # XDG_SESSION_TYPE must be set early (Hyprland 0.47+ regression fix)
     export XDG_SESSION_TYPE=wayland
     export XDG_CURRENT_DESKTOP=Hyprland
-    export DESKTOP_SHELL=wayle
+    export DESKTOP_SHELL=lumen
 
     # Create runtime directory and mark desktop shell
     mkdir -p "$XDG_RUNTIME_DIR"
-    echo "wayle" > "$XDG_RUNTIME_DIR/desktop-shell"
+    echo "lumen" > "$XDG_RUNTIME_DIR/desktop-shell"
 
     # Set up log directory
     mkdir -p "''${XDG_STATE_HOME:-$HOME/.local/state}/hyprland"
@@ -22,26 +22,26 @@ let
     exec start-hyprland -- "$@" > "$HYPRLAND_LOG" 2>&1
   '';
 
-  hyprland-wayle-session = pkgs.stdenvNoCC.mkDerivation {
-    pname = "hyprland-wayle-session";
+  hyprland-lumen-session = pkgs.stdenvNoCC.mkDerivation {
+    pname = "hyprland-lumen-session";
     version = "1.0.0";
     dontUnpack = true;
 
-    passthru.providedSessions = [ "hyprland-wayle" ];
+    passthru.providedSessions = [ "hyprland-lumen" ];
 
     installPhase = ''
       mkdir -p $out/share/wayland-sessions
       mkdir -p $out/bin
 
       # Symlink the wrapper script
-      ln -s ${hyprland-wayle-bin}/bin/hyprland-wayle $out/bin/hyprland-wayle
+      ln -s ${hyprland-lumen-bin}/bin/hyprland-lumen $out/bin/hyprland-lumen
 
       # Create .desktop file
-      cat > $out/share/wayland-sessions/hyprland-wayle.desktop << EOF
+      cat > $out/share/wayland-sessions/hyprland-lumen.desktop << EOF
       [Desktop Entry]
-      Name=Hyprland (Wayle)
-      Comment=Hyprland with Wayle Desktop Shell
-      Exec=$out/bin/hyprland-wayle
+      Name=Hyprland (Lumen)
+      Comment=Hyprland with Lumen Desktop Shell
+      Exec=$out/bin/hyprland-lumen
       Type=Application
       DesktopNames=Hyprland
       EOF
@@ -49,11 +49,12 @@ let
   };
 in {
   # Session package for display manager registration
-  wayle = hyprland-wayle-session;
+  lumen = hyprland-lumen-session;
+  wayle = hyprland-lumen-session;
 
   # All session packages as a list
-  sessions = [ hyprland-wayle-session ];
+  sessions = [ hyprland-lumen-session ];
 
   # Wrapper script for PATH
-  script = hyprland-wayle-bin;
+  script = hyprland-lumen-bin;
 }

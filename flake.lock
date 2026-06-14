@@ -84,6 +84,27 @@
         "type": "github"
       }
     },
+    "lumen": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1781428576,
+        "narHash": "sha256-KgJunCt15xfOYf/5ZNbttaLqPrH+eTxmKRRn8hZn3ak=",
+        "owner": "DigitalPals",
+        "repo": "Lumen",
+        "rev": "641462fe9d3d53fde4a2cc022d556dbcb7a898b8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "DigitalPals",
+        "ref": "v0.6.0",
+        "repo": "Lumen",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1775036866,
@@ -246,9 +267,9 @@
         "disko": "disko",
         "hermes-agent": "hermes-agent",
         "home-manager": "home-manager",
+        "lumen": "lumen",
         "nixpkgs": "nixpkgs_2",
-        "nixpkgs-master": "nixpkgs-master",
-        "wayle-src": "wayle-src"
+        "nixpkgs-master": "nixpkgs-master"
       }
     },
     "uv2nix": {
@@ -298,23 +319,6 @@
         "owner": "pyproject-nix",
         "repo": "uv2nix",
         "type": "github"
-      }
-    },
-    "wayle-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1781336261,
-        "narHash": "sha256-ja0riQgBx/fIg6HOdGXk3UYSc/RNz9Kg/WVy2Kc4y10=",
-        "ref": "model-usage-nix",
-        "rev": "1b6fb950b86bc7a9425034d0a59dfa83fbe55166",
-        "revCount": 541,
-        "type": "git",
-        "url": "file:///home/john/Code/model-usage/wayle"
-      },
-      "original": {
-        "ref": "model-usage-nix",
-        "type": "git",
-        "url": "file:///home/john/Code/model-usage/wayle"
       }
     }
   },
