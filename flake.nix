@@ -20,9 +20,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Hermes Desktop only; the NixOS agent service module is intentionally not used.
-    hermes-agent.url = "github:NousResearch/hermes-agent";
-
     # Lumen desktop shell fork. This is pinned to the release tag whose source
     # includes the Nix package and local packaging workflow.
     lumen = {

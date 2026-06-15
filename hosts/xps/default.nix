@@ -151,9 +151,6 @@ in
   ];
 
   networking.hostName = "xps";
-  environment.systemPackages = [
-    inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop
-  ];
 
   # Use Linux 7.0.11 from Nixpkgs master while nixos-unstable still carries 7.0.10.
   boot.kernelPackages = lib.mkForce pkgsMaster.linuxPackages_latest;
