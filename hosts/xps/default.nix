@@ -153,7 +153,7 @@ in
 
   networking.hostName = "xps";
 
-  # Use Linux 7.0.11 from Nixpkgs master while nixos-unstable still carries 7.0.10.
+  # Track the newest packaged kernel for Panther Lake hardware support.
   boot.kernelPackages = lib.mkForce pkgsMaster.linuxPackages_latest;
 
   # Keep the Limine menu available for rollbacks, but avoid spending multiple

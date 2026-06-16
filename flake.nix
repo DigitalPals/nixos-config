@@ -5,7 +5,7 @@
     # Use nixos-unstable so updates stay close to Hydra cache availability.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Temporary escape hatch for kernel releases before they reach nixos-unstable.
+    # Track newest kernels for hardware that needs support before nixos-unstable catches up.
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
 
     # Home Manager following nixpkgs-unstable
