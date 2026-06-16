@@ -158,6 +158,37 @@ Or use the included alias:
 nrs  # nixos-rebuild switch
 ```
 
+### Rust build offload with `sccache-dist`
+
+All normal workstation profiles include Rust `sccache` defaults. Without a token,
+this behaves as a local compiler cache. To enable distributed Rust compilation via
+the Beast `rust-builder` LXC (`10.10.0.233`), install the shared client token on
+each NixOS machine and rebuild:
+
+```bash
+sudo install -d -m 0750 -o root /etc/sccache
+ssh root@10.10.0.233 "awk -F ' = ' '/^token = / { gsub(/\"/, \"\", \$2); print \$2; exit }' /etc/sccache/client.conf" \
+  | sudo install -m 0600 -o root /dev/stdin /etc/sccache/client-token
+sudo nixos-rebuild switch --flake ~/nixos-config#$(hostname)
+```
+
+After rebuilding, new shells use:
+
+```bash
+RUSTC_WRAPPER=sccache
+SCCACHE_CONF=/etc/sccache/client.conf
+CARGO_INCREMENTAL=0
+```
+
+Verify from a project with:
+
+```bash
+sccache --dist-status
+sccache --zero-stats
+cargo clean && cargo build
+sccache --show-stats | grep -A2 "Successful distributed compiles"
+```
+
 ### Updating the System
 
 Run Forge to update flake inputs, rebuild, and update CLI tools:
