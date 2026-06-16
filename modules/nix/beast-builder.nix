@@ -43,6 +43,7 @@
       {
         hostName = "beast-nix-builder";
         sshUser = "nixremote";
+        sshKey = "/root/.ssh/nix-builder_ed25519";
         protocol = "ssh-ng";
         system = "x86_64-linux";
 
