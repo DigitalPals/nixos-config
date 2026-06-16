@@ -147,6 +147,7 @@ in
   imports = [
     ./hardware-configuration.nix
     ../../modules/boot/limine-plymouth.nix
+    ../../modules/nix/beast-builder.nix
     # Intel GPU (intel.nix) is imported via extraModules in flake.nix
   ];
 
