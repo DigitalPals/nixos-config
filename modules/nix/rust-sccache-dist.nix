@@ -99,6 +99,23 @@ EOF
     };
 
     home-manager.users.${username} = {
+      home.sessionVariables = {
+        RUSTC_WRAPPER = sccacheBin;
+        SCCACHE_CONF = "/etc/sccache/client.conf";
+        SCCACHE_DIR = cacheDir;
+        CARGO_INCREMENTAL = "0";
+      };
+
+      # The custom fish config in this repo does not rely on the default login
+      # environment being imported into every terminal emulator. Export these
+      # explicitly so a new fish terminal sees the Rust/sccache defaults.
+      programs.fish.interactiveShellInit = ''
+        set -gx RUSTC_WRAPPER ${sccacheBin}
+        set -gx SCCACHE_CONF /etc/sccache/client.conf
+        set -gx SCCACHE_DIR ${cacheDir}
+        set -gx CARGO_INCREMENTAL 0
+      '';
+
       home.file.".cargo/config.toml".text = ''
         [build]
         rustc-wrapper = "${sccacheBin}"
