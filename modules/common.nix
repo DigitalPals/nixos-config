@@ -16,6 +16,7 @@ in
 {
   imports = [
     ./gaming.nix      # Steam and gaming tools
+    ./nix/rust-sccache-dist.nix
   ];
 
   # Enable flakes
