@@ -1,6 +1,6 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl, homeDirectory, launcherCommand, lockCommand, portalDevLauncher, terminalCommand }:
+{ brightnessControl, homeDirectory, launcherCommand, lockCommand, portalLauncher, terminalCommand }:
 
 ''
   local mainMod = "SUPER"
@@ -39,7 +39,7 @@
   bind(mainMod .. " + B", hl.dsp.exec_cmd(browser))
   bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd(browser .. " --incognito"))
   bind(mainMod .. " + M", hl.dsp.exec_cmd(browser .. " --app=https://mail.google.com/mail/u/1/#inbox"))
-  bind(mainMod .. " + P", hl.dsp.exec_cmd("${portalDevLauncher}"))
+  bind(mainMod .. " + P", hl.dsp.exec_cmd("${portalLauncher}"))
   bind(mainMod .. " + S", hl.dsp.exec_cmd("spotify"))
   bind(mainMod .. " + SHIFT + SLASH", hl.dsp.exec_cmd("1password"))
   bind(mainMod .. " + D", hl.dsp.exec_cmd(terminal .. " -e lazydocker"))

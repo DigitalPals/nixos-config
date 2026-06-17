@@ -12,25 +12,29 @@ let
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
   brightnessControl = import ./brightness.nix { inherit pkgs; };
-  portalDevLauncher = pkgs.writeShellScript "portal-dev" ''
+  portalLauncher = pkgs.writeShellScript "portal-launcher" ''
     set -euo pipefail
 
-    repo="${config.home.homeDirectory}/Code/portal"
-    log_dir="''${XDG_STATE_HOME:-$HOME/.local/state}/portal"
-    log_file="$log_dir/dev-launch.log"
+    portal_binary="${config.home.homeDirectory}/Code/portal/target/release/portal"
 
-    mkdir -p "$log_dir"
-
-    if [ ! -x "$repo/run.sh" ]; then
-      ${pkgs.libnotify}/bin/notify-send "Portal dev launcher" "Missing executable: $repo/run.sh" || true
+    if [ ! -x "$portal_binary" ]; then
+      ${pkgs.libnotify}/bin/notify-send "Portal" "Missing executable: $portal_binary" || true
       exit 1
     fi
 
-    cd "$repo"
-    exec ./run.sh dev >> "$log_file" 2>&1
+    export WGPU_BACKEND="''${WGPU_BACKEND:-vulkan,gl}"
+    export LD_LIBRARY_PATH="${lib.makeLibraryPath [
+      pkgs.wayland
+      pkgs.libxkbcommon
+      pkgs.vulkan-loader
+      pkgs.glib
+      pkgs.dbus
+    ]}:''${LD_LIBRARY_PATH:-}"
+
+    exec "$portal_binary" "$@"
   '';
   bindingsConfig = import ./bindings.nix {
-    inherit brightnessControl launcherCommand lockCommand portalDevLauncher terminalCommand;
+    inherit brightnessControl launcherCommand lockCommand portalLauncher terminalCommand;
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''
