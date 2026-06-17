@@ -2,8 +2,6 @@
 # Used in: xps (Dell XPS 14 DA14260, Intel Core Ultra X7 358H)
 #
 # Panther Lake uses the xe kernel module, not i915.
-# Display fix kernel params sourced from Omarchy Linux:
-# https://github.com/basecamp/omarchy/blob/main/install/config/hardware/fix-intel-panther-lake-display.sh
 { config, pkgs, lib, ... }:
 
 {
@@ -26,12 +24,6 @@
       intel-media-driver
     ];
   };
-
-  # Disable Panel Replay on the Dell XPS OLED panel until the DA14260 driver
-  # quirk is available in the kernel used by this host.
-  boot.kernelParams = [
-    "xe.enable_panel_replay=0"
-  ];
 
   # Environment variables for Intel Wayland
   environment.sessionVariables = {

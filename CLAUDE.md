@@ -627,7 +627,7 @@ cat /proc/acpi/wakeup | grep enabled                 # Wakeup sources
 
 **Problem:** The Dell XPS OLED panel can drop to 10Hz and window dragging becomes laggy after suspend/resume on Panther Lake systems using the `xe` kernel module. Root cause is Panel Replay.
 
-**Status:** `xe.enable_panel_replay=0` remains enabled in `modules/hardware/intel.nix` for the DA14260 OLED panel. The broader `xe.enable_psr=0` workaround was removed after Omarchy dropped it from their RC branch. Re-test after kernel or BIOS changes before changing display power-saving overrides.
+**Status:** The old `xe.enable_panel_replay=0` workaround was removed after this host moved to kernel 7.1, which includes the DA14260 Panel Replay quirk. The broader `xe.enable_psr=0` workaround had already been removed after Omarchy dropped it from their RC branch. Re-test after kernel or BIOS changes before reintroducing display power-saving overrides.
 
 ### Dell XPS Haptic Touchpad
 

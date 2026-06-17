@@ -23,7 +23,7 @@
     # Lumen desktop shell fork. This is pinned to the release tag whose source
     # includes the Nix package and local packaging workflow.
     lumen = {
-      url = "github:DigitalPals/Lumen/v0.6.0";
+      url = "github:DigitalPals/Lumen/v0.7.1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
