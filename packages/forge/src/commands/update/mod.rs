@@ -47,6 +47,7 @@ const STEP_PULL: &str = "update.pull";
 const STEP_FLAKE: &str = "update.flake";
 const STEP_REBUILD: &str = "update.rebuild";
 const STEP_PACKAGES: &str = "update.packages";
+const STEP_DESKTOP_SHELL: &str = "update.desktop-shell";
 const STEP_PREFLIGHT_HEALTH: &str = "update.preflight.health";
 const STEP_PREFLIGHT_REMOTE: &str = "update.preflight.remote";
 const STEP_PREFLIGHT_DRYRUN: &str = "update.preflight.dryrun";
@@ -980,6 +981,13 @@ async fn run_update(
                     .await;
                 }
             }
+
+            if nvidia_revert.is_none() && !summary.flake_changes.is_empty() {
+                tx.send(CommandMessage::UpdateFlakePreview {
+                    changes: summary.flake_changes.clone(),
+                })
+                .await?;
+            }
         }
         if let Some(backup_path) = lock_backup.as_ref() {
             let _ = tokio::fs::remove_file(backup_path).await;
@@ -1189,6 +1197,8 @@ async fn run_update(
             step: STEP_PACKAGES.to_string(),
         })
         .await?;
+
+        check_desktop_shell_launchers(tx, &mut summary).await?;
     }
 
     if summary.core_status == UpdateCoreStatus::Pending {
@@ -1308,6 +1318,258 @@ async fn update_claude_code(
     }
 
     Ok(())
+}
+
+async fn check_desktop_shell_launchers(
+    tx: &mpsc::Sender<CommandMessage>,
+    summary: &mut UpdateSummary,
+) -> Result<()> {
+    out(tx, "  Checking desktop shell launchers...").await;
+
+    let mut actions = Vec::new();
+    let mut warnings = Vec::new();
+    let timestamp = timestamp_suffix();
+
+    if let Some(home) = home_dir() {
+        cleanup_stale_local_bin(&home, "lumen", &timestamp, &mut actions, &mut warnings).await;
+        cleanup_stale_local_bin(
+            &home,
+            "lumen-settings",
+            &timestamp,
+            &mut actions,
+            &mut warnings,
+        )
+        .await;
+
+        if cleanup_stale_lumen_systemd_override(&home, &timestamp, &mut actions, &mut warnings)
+            .await
+        {
+            if let Err(error) = run_capture("systemctl", &["--user", "daemon-reload"]).await {
+                warnings.push(format!("systemd user daemon-reload failed: {error}"));
+            }
+
+            match run_capture("systemctl", &["--user", "restart", "lumen.service"]).await {
+                Ok((true, _, _)) => actions.push("restarted lumen.service".to_string()),
+                Ok((false, _, stderr)) => warnings.push(format!(
+                    "could not restart lumen.service after cleanup: {}",
+                    stderr.trim()
+                )),
+                Err(error) => warnings.push(format!(
+                    "could not restart lumen.service after cleanup: {error}"
+                )),
+            }
+        }
+
+        cleanup_direct_profile_entry(&home, "wayle", &mut actions, &mut warnings).await;
+        cleanup_direct_profile_entry(&home, "lumen", &mut actions, &mut warnings).await;
+    } else {
+        warnings.push("HOME is not set; could not check user launch shadows".to_string());
+    }
+
+    if warnings.is_empty() {
+        if actions.is_empty() {
+            out(tx, "  ✓ Desktop shell launchers clean").await;
+            summary.desktop_shell_status = "clean".to_string();
+        } else {
+            out(
+                tx,
+                &format!(
+                    "  ✓ Removed {} stale desktop shell shadow(s)",
+                    actions.len()
+                ),
+            )
+            .await;
+            summary.desktop_shell_status = format!("{} stale shadow(s) removed", actions.len());
+            for action in &actions {
+                out(tx, &format!("    {}", action)).await;
+            }
+        }
+        tx.send(CommandMessage::StepComplete {
+            step: STEP_DESKTOP_SHELL.to_string(),
+        })
+        .await?;
+    } else {
+        out(tx, "  ! Desktop shell launcher cleanup needs attention").await;
+        summary.desktop_shell_status = "needs attention".to_string();
+        for warning in &warnings {
+            out(tx, &format!("    {}", warning)).await;
+            summary.follow_up_warnings.push(warning.clone());
+        }
+        tx.send(CommandMessage::StepWarning {
+            step: STEP_DESKTOP_SHELL.to_string(),
+            detail: warnings.join("; "),
+        })
+        .await?;
+    }
+
+    Ok(())
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+}
+
+fn timestamp_suffix() -> String {
+    chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
+}
+
+fn is_stale_lumen_target(target: &std::path::Path) -> bool {
+    let target = target.to_string_lossy();
+    target.contains("/Code/Lumen/target/release/")
+        || target.contains("/Code/Wayle/target/release/")
+        || target.ends_with("/target/release/lumen")
+        || target.ends_with("/target/release/lumen-settings")
+        || target.ends_with("/target/release/wayle")
+        || target.ends_with("/target/release/wayle-settings")
+}
+
+async fn cleanup_stale_local_bin(
+    home: &std::path::Path,
+    name: &str,
+    timestamp: &str,
+    actions: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let path = home.join(".local/bin").join(name);
+    let Ok(metadata) = tokio::fs::symlink_metadata(&path).await else {
+        return;
+    };
+    if !metadata.file_type().is_symlink() {
+        return;
+    }
+
+    let target = match tokio::fs::read_link(&path).await {
+        Ok(target) => target,
+        Err(error) => {
+            warnings.push(format!("could not inspect {}: {error}", path.display()));
+            return;
+        }
+    };
+    if !is_stale_lumen_target(&target) {
+        return;
+    }
+
+    let backup_dir = home
+        .join(".local")
+        .join(format!("bin.disabled-{timestamp}"));
+    if let Err(error) = tokio::fs::create_dir_all(&backup_dir).await {
+        warnings.push(format!(
+            "could not create backup directory {}: {error}",
+            backup_dir.display()
+        ));
+        return;
+    }
+    let backup_path = backup_dir.join(name);
+    match tokio::fs::rename(&path, &backup_path).await {
+        Ok(()) => actions.push(format!(
+            "moved {} -> {}",
+            path.display(),
+            backup_path.display()
+        )),
+        Err(error) => warnings.push(format!(
+            "could not move stale {} to {}: {error}",
+            path.display(),
+            backup_path.display()
+        )),
+    }
+}
+
+async fn cleanup_stale_lumen_systemd_override(
+    home: &std::path::Path,
+    timestamp: &str,
+    actions: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> bool {
+    let dropin_dir = home.join(".config/systemd/user/lumen.service.d");
+    let override_path = dropin_dir.join("override.conf");
+    let content = match tokio::fs::read_to_string(&override_path).await {
+        Ok(content) => content,
+        Err(_) => return false,
+    };
+    if !content.contains("/Code/Lumen/target/release/")
+        && !content.contains("/Code/Wayle/target/release/")
+        && !content.contains("target/release/lumen")
+        && !content.contains("target/release/wayle")
+    {
+        return false;
+    }
+
+    let disabled_dir = home
+        .join(".config/systemd/user")
+        .join(format!("lumen.service.d.disabled-{timestamp}"));
+    if let Err(error) = tokio::fs::create_dir_all(&disabled_dir).await {
+        warnings.push(format!(
+            "could not create systemd override backup {}: {error}",
+            disabled_dir.display()
+        ));
+        return false;
+    }
+    let backup_path = disabled_dir.join("override.conf");
+    match tokio::fs::rename(&override_path, &backup_path).await {
+        Ok(()) => {
+            let _ = tokio::fs::remove_dir(&dropin_dir).await;
+            actions.push(format!(
+                "disabled stale lumen.service override at {}",
+                backup_path.display()
+            ));
+            true
+        }
+        Err(error) => {
+            warnings.push(format!(
+                "could not disable stale lumen.service override {}: {error}",
+                override_path.display()
+            ));
+            false
+        }
+    }
+}
+
+async fn cleanup_direct_profile_entry(
+    home: &std::path::Path,
+    name: &str,
+    actions: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let profile = home.join(".local/state/nix/profiles/profile");
+    if !profile.exists() {
+        return;
+    }
+    let profile_arg = profile.to_string_lossy().to_string();
+    let Ok((true, stdout, _)) = run_capture(
+        "nix",
+        &["profile", "list", "--json", "--profile", &profile_arg],
+    )
+    .await
+    else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&stdout) else {
+        return;
+    };
+    let Some(elements) = value.get("elements").and_then(serde_json::Value::as_object) else {
+        return;
+    };
+    if !elements.contains_key(name) {
+        return;
+    }
+
+    match run_capture(
+        "nix",
+        &["profile", "remove", name, "--profile", &profile_arg],
+    )
+    .await
+    {
+        Ok((true, _, _)) => actions.push(format!("removed direct nix profile entry {name}")),
+        Ok((false, _, stderr)) => warnings.push(format!(
+            "could not remove direct nix profile entry {name}: {}",
+            stderr.trim()
+        )),
+        Err(error) => warnings.push(format!(
+            "could not remove direct nix profile entry {name}: {error}"
+        )),
+    }
 }
 
 async fn update_codex_cli(
@@ -1907,6 +2169,15 @@ async fn output_summary(tx: &mpsc::Sender<CommandMessage>, summary: &UpdateSumma
     // Browser status
     if !summary.browser_status.is_empty() {
         out(tx, &format!("  Browser:     {}", summary.browser_status)).await;
+    }
+
+    // Desktop shell launcher status
+    if !summary.desktop_shell_status.is_empty() {
+        out(
+            tx,
+            &format!("  Desktop:     {}", summary.desktop_shell_status),
+        )
+        .await;
     }
 
     // Firmware status

@@ -53,6 +53,9 @@ pub struct UpdateSummaryPersist {
     pub rebuild_skipped: bool,
     /// Browser profile status
     pub browser_status: String,
+    /// Desktop shell launcher cleanup status
+    #[serde(default)]
+    pub desktop_shell_status: String,
     /// Firmware status
     pub firmware_status: String,
 }
@@ -104,6 +107,7 @@ impl From<&UpdateSummary> for UpdateSummaryPersist {
             rebuild_failed: summary.rebuild_failed,
             rebuild_skipped: summary.rebuild_skipped,
             browser_status: summary.browser_status.clone(),
+            desktop_shell_status: summary.desktop_shell_status.clone(),
             firmware_status: summary.firmware_status.clone(),
         }
     }

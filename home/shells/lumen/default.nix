@@ -50,6 +50,7 @@ let
 
     [modules.clock]
     format = "%e %b %Y %H:%M"
+    time-format = "24h"
     icon-show = false
     button-bg-color = "transparent"
 

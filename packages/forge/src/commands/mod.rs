@@ -47,6 +47,7 @@ pub mod steps {
 }
 
 use crate::app::{NixProgressEvent, UpdatePreflightReport, UpdateSummary};
+use crate::commands::update::flake::FlakeInputChange;
 
 /// Messages sent from command execution to UI
 #[derive(Debug, Clone)]
@@ -70,6 +71,8 @@ pub enum CommandMessage {
     StepDetail { step: String, detail: String },
     /// Structured Nix build/download progress for the modern update screen
     NixProgress(NixProgressEvent),
+    /// Flake input changes discovered after mutation and before rebuild starts
+    UpdateFlakePreview { changes: Vec<FlakeInputChange> },
     /// Command fully completed
     Done { success: bool },
     /// Operation was cancelled by user

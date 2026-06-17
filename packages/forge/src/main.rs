@@ -326,6 +326,9 @@ async fn run_cli_update(options: app::UpdateOptions, verbose: bool) -> Result<()
             }
             CommandMessage::StepComplete { .. } => {}
             CommandMessage::NixProgress(event) => renderer.nix_progress(event),
+            CommandMessage::UpdateFlakePreview { changes } => {
+                renderer.render_flake_preview(&changes);
+            }
             CommandMessage::Done { success: done } => {
                 renderer.finish_progress_line();
                 success = done;
@@ -831,15 +834,26 @@ impl CliUpdateRenderer {
     }
 
     fn render_flake_summary(&mut self, summary: &app::UpdateSummary) {
-        let name_w = summary
-            .flake_changes
+        self.render_flake_changes(&summary.flake_changes, false);
+    }
+
+    fn render_flake_preview(&mut self, changes: &[commands::update::flake::FlakeInputChange]) {
+        self.render_flake_changes(changes, true);
+    }
+
+    fn render_flake_changes(
+        &mut self,
+        changes: &[commands::update::flake::FlakeInputChange],
+        preview: bool,
+    ) {
+        let name_w = changes
             .iter()
             .map(|change| change.name.chars().count())
             .max()
             .unwrap_or(0)
             .max(8);
         let mut items = Vec::new();
-        for change in &summary.flake_changes {
+        for change in changes {
             let old = short_hash(&change.old_rev);
             let new = short_hash(&change.new_rev);
             let commits = if change.total_commits == 0 {
@@ -875,7 +889,9 @@ impl CliUpdateRenderer {
                 }
             }
         }
-        if let Some(note) = self.flake_note.take() {
+        if preview && !items.is_empty() {
+            items.push(dim("rebuild will start next").to_string());
+        } else if let Some(note) = self.flake_note.take() {
             items.push(note);
         }
         self.section_block("Flake inputs", items);
@@ -917,6 +933,10 @@ impl CliUpdateRenderer {
         items.extend(status_line_item(
             "browser profiles",
             &summary.browser_status,
+        ));
+        items.extend(status_line_item(
+            "desktop shell",
+            &summary.desktop_shell_status,
         ));
         items.extend(status_line_item("firmware", &summary.firmware_status));
         items.extend(summary.firmware_updates.iter().map(firmware_update_item));

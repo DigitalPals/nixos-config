@@ -654,6 +654,10 @@ impl UpdateState {
                 "update.packages",
                 "Comparing packages",
             ));
+            steps.push(StepStatus::new_with_id(
+                "update.desktop-shell",
+                "Checking desktop shell launchers",
+            ));
         }
 
         if !options.rebuild_only && !options.flake_only {
@@ -923,6 +927,7 @@ pub struct UpdateSummary {
     pub codex_old: Option<String>,
     pub codex_new: Option<String>,
     pub browser_status: String,
+    pub desktop_shell_status: String,
     pub firmware_status: String,
     pub firmware_updates: Vec<FirmwareUpdateInfo>,
     pub rebuild_skipped: bool,

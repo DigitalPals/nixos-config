@@ -1072,6 +1072,13 @@ fn draw_summary_modal(frame: &mut Frame, summary: &UpdateSummary, summary_scroll
         )));
     }
 
+    if !summary.desktop_shell_status.is_empty() {
+        all_lines.push(Line::from(Span::styled(
+            format!("  Desktop shell: {}", summary.desktop_shell_status),
+            theme::info(),
+        )));
+    }
+
     // Reboot warning
     if !summary.reboot_reasons.is_empty() {
         all_lines.push(Line::from(""));

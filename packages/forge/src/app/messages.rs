@@ -32,6 +32,10 @@ fn upsert_progress_row(rows: &mut Vec<NixProgressRow>, row: NixProgressRow) {
     }
 }
 
+fn short_rev(rev: &str) -> &str {
+    &rev[..7.min(rev.len())]
+}
+
 impl App {
     /// Handle messages from running commands
     pub async fn handle_command_message(&mut self, msg: CommandMessage) -> Result<()> {
@@ -56,6 +60,34 @@ impl App {
             }
             CommandMessage::NixProgress(event) => {
                 self.apply_nix_progress(event);
+            }
+            CommandMessage::UpdateFlakePreview { changes } => {
+                if !changes.is_empty() {
+                    self.append_output("");
+                    self.append_output("Flake inputs selected for this rebuild:");
+                    for change in changes {
+                        let old = short_rev(&change.old_rev);
+                        let new = short_rev(&change.new_rev);
+                        let commits = if change.total_commits == 0 {
+                            "unknown commits".to_string()
+                        } else {
+                            format!(
+                                "{} commit{}",
+                                change.total_commits,
+                                if change.total_commits == 1 { "" } else { "s" }
+                            )
+                        };
+                        self.append_output(&format!(
+                            "  {}: {} -> {} ({})",
+                            change.name, old, new, commits
+                        ));
+                        for commit in change.commits.iter().take(3) {
+                            self.append_output(&format!("    {} {}", commit.hash, commit.message));
+                        }
+                    }
+                    self.append_output("Rebuild will start next.");
+                    self.append_output("");
+                }
             }
             CommandMessage::Done { success } => {
                 self.handle_command_done(success).await;
