@@ -32,6 +32,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    codex-desktop-linux = {
+      url = "github:ilysenko/codex-desktop-linux";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
   };
 
   outputs = { self, nixpkgs, home-manager, disko, ... }@inputs:
@@ -58,6 +63,7 @@
       };
       lumen = inputs.lumen.packages.${system}.lumen;
       mdview = inputs.mdview.packages.${system}.mdview;
+      codex-desktop = inputs.codex-desktop-linux.packages.${system}.default;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
       _1password-gui =
@@ -222,6 +228,7 @@
       icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
       lumen = pkgs.lumen;
       mdview = pkgs.mdview;
+      codex-desktop = pkgs.codex-desktop;
       default = forge;
     };
 

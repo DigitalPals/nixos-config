@@ -55,6 +55,7 @@ const STEP_CLAUDE: &str = "update.claude";
 const STEP_CODEX: &str = "update.codex";
 const STEP_BROWSER: &str = "update.browser";
 const STEP_FIRMWARE: &str = "update.firmware";
+const ALWAYS_UPDATE_FLAKE_INPUTS: &[&str] = &["codex-desktop-linux"];
 /// Get the current NixOS system generation number
 pub async fn get_current_generation() -> Option<u32> {
     let output = get_output("readlink", &["/nix/var/nix/profiles/system"])
@@ -126,6 +127,20 @@ pub fn can_regenerate_dirty_flake_lock(options: &UpdateOptions, changes: &[Local
         && changes.len() == 1
         && changes[0].tracked
         && changes[0].path == "flake.lock"
+}
+
+fn flake_update_inputs(requested_inputs: &[String]) -> Vec<String> {
+    if requested_inputs.is_empty() {
+        return Vec::new();
+    }
+
+    let mut inputs = requested_inputs.to_vec();
+    for input in ALWAYS_UPDATE_FLAKE_INPUTS {
+        if !inputs.iter().any(|requested| requested == input) {
+            inputs.push((*input).to_string());
+        }
+    }
+    inputs
 }
 
 /// Resolve the current branch upstream, if configured.
@@ -855,7 +870,8 @@ async fn run_update(
 
         // Build flake update args
         let mut flake_args: Vec<String> = vec!["flake".into(), "update".into()];
-        for input in &options.inputs {
+        let update_inputs = flake_update_inputs(&options.inputs);
+        for input in &update_inputs {
             flake_args.push(input.clone());
         }
         flake_args.push("--flake".into());
@@ -2577,6 +2593,24 @@ fn display_name_from_store_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_flake_update_keeps_unfiltered_inputs() {
+        assert!(flake_update_inputs(&[]).is_empty());
+    }
+
+    #[test]
+    fn targeted_flake_update_always_includes_codex_desktop() {
+        let inputs = flake_update_inputs(&["nixpkgs".to_string()]);
+        assert_eq!(inputs, vec!["nixpkgs", "codex-desktop-linux"]);
+    }
+
+    #[test]
+    fn targeted_flake_update_does_not_duplicate_codex_desktop() {
+        let inputs =
+            flake_update_inputs(&["codex-desktop-linux".to_string(), "nixpkgs".to_string()]);
+        assert_eq!(inputs, vec!["codex-desktop-linux", "nixpkgs"]);
+    }
 
     #[test]
     fn parses_download_progress_with_total() {

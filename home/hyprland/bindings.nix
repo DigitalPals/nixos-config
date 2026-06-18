@@ -38,7 +38,7 @@
   bind(mainMod .. " + E", hl.dsp.exec_cmd("nautilus --new-window"))
   bind(mainMod .. " + B", hl.dsp.exec_cmd(browser))
   bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd(browser .. " --incognito"))
-  bind(mainMod .. " + M", hl.dsp.exec_cmd(browser .. " --app=https://mail.google.com/mail/u/1/#inbox"))
+  bind(mainMod .. " + M", hl.dsp.exec_cmd("element-desktop"))
   bind(mainMod .. " + P", hl.dsp.exec_cmd("${portalLauncher}"))
   bind(mainMod .. " + S", hl.dsp.exec_cmd("spotify"))
   bind(mainMod .. " + SHIFT + SLASH", hl.dsp.exec_cmd("1password"))

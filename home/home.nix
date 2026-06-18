@@ -491,6 +491,8 @@ in
     playerctl
 
     # Applications
+    codex-desktop
+    element-desktop
     spotify
     lazydocker
     btop
