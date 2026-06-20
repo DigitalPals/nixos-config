@@ -263,6 +263,58 @@ in
         exec ${pkgs.nodejs}/bin/npx --yes --prefer-online --package @kitlangton/ghui -- ghui "$@"
       '';
     };
+    # Hermes Desktop launcher for a private remote backend. The URL and token
+    # live outside the Nix store so host details and credentials stay local.
+    ".local/bin/hermes-desktop-remote" = {
+      executable = true;
+      text = ''
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        config_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/hermes-desktop"
+        token_file="$config_dir/remote-token"
+        url_file="$config_dir/remote-url"
+
+        if [ -n "''${HERMES_DESKTOP_REMOTE_URL:-}" ]; then
+          remote_url="''${HERMES_DESKTOP_REMOTE_URL}"
+        elif [ -r "$url_file" ]; then
+          remote_url="$(${pkgs.gnused}/bin/sed -e 's/[[:space:]]//g' "$url_file")"
+        else
+          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Missing remote URL: $url_file" || true
+          exit 1
+        fi
+
+        if [ -z "$remote_url" ]; then
+          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Remote URL file is empty: $url_file" || true
+          exit 1
+        fi
+
+        case "$remote_url" in
+          http://*|https://*) ;;
+          *)
+            ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Remote URL must start with http:// or https://: $url_file" || true
+            exit 1
+            ;;
+        esac
+
+        if [ ! -r "$token_file" ]; then
+          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Missing remote token: $token_file" || true
+          exit 1
+        fi
+
+        token="$(${pkgs.gnused}/bin/sed -e 's/[[:space:]]//g' "$token_file")"
+
+        if [ -z "$token" ]; then
+          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Remote token file is empty: $token_file" || true
+          exit 1
+        fi
+
+        export HERMES_DESKTOP_REMOTE_URL="$remote_url"
+        export HERMES_DESKTOP_REMOTE_TOKEN="$token"
+
+        exec ${pkgs.hermes-desktop}/bin/hermes-desktop "$@"
+      '';
+    };
     # TUI desktop launcher wrappers
     ".local/bin/tui-btop" = {
       executable = true;
@@ -333,6 +385,24 @@ in
     '';
 
   xdg.dataFile."nautilus-python/extensions/localsend.py".source = ./nautilus-localsend.py;
+
+  home.activation.ensureHermesDesktopRemoteFiles = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    token_dir="$HOME/.config/hermes-desktop"
+    token_file="$token_dir/remote-token"
+    url_file="$token_dir/remote-url"
+
+    if [ ! -s "$token_file" ]; then
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$token_dir"
+      $DRY_RUN_CMD ${pkgs.openssl}/bin/openssl rand -base64 32 \
+        | $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 /dev/stdin "$token_file"
+    else
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 0600 "$token_file"
+    fi
+
+    if [ -e "$url_file" ]; then
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 0600 "$url_file"
+    fi
+  '';
 
   # Desktop entry overrides for Wayland
   xdg.desktopEntries."1password" = {
@@ -434,6 +504,14 @@ in
     categories = [ "Development" "System" ];
   };
 
+  xdg.desktopEntries."hermes-desktop" = {
+    name = "Hermes Desktop";
+    exec = "${config.home.homeDirectory}/.local/bin/hermes-desktop-remote";
+    icon = "${pkgs.hermes-desktop}/share/hermes-desktop/dist/hermes.png";
+    comment = "Open Hermes Desktop connected to the remote LXC agent";
+    categories = [ "Development" "Utility" ];
+  };
+
   xdg.desktopEntries."localsend-share-clipboard" = {
     name = "Share Clipboard";
     exec = "${config.home.homeDirectory}/.local/bin/localsend-share clipboard";
@@ -492,6 +570,7 @@ in
 
     # Applications
     codex-desktop
+    hermes-desktop
     spotify
     lazydocker
     btop

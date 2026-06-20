@@ -1,6 +1,6 @@
 # Key bindings configuration
 # All keyboard shortcuts
-{ brightnessControl, homeDirectory, launcherCommand, lockCommand, portalLauncher, terminalCommand }:
+{ brightnessControl, hermesDesktopCommand, homeDirectory, launcherCommand, lockCommand, portalLauncher, terminalCommand }:
 
 ''
   local mainMod = "SUPER"
@@ -38,6 +38,7 @@
   bind(mainMod .. " + E", hl.dsp.exec_cmd("nautilus --new-window"))
   bind(mainMod .. " + B", hl.dsp.exec_cmd(browser))
   bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd(browser .. " --incognito"))
+  bind(mainMod .. " + H", hl.dsp.exec_cmd("${hermesDesktopCommand}"))
   bind(mainMod .. " + M", hl.dsp.exec_cmd(browser .. " --app=https://app.slack.com/client/T0AF1HJGFAP/C0AF4GFJY4V"))
   bind(mainMod .. " + P", hl.dsp.exec_cmd("${portalLauncher}"))
   bind(mainMod .. " + S", hl.dsp.exec_cmd("spotify"))

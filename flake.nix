@@ -37,6 +37,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    hermes-agent = {
+      url = "github:NousResearch/hermes-agent";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
   };
 
   outputs = { self, nixpkgs, home-manager, disko, ... }@inputs:
@@ -64,6 +69,7 @@
       lumen = inputs.lumen.packages.${system}.lumen;
       mdview = inputs.mdview.packages.${system}.mdview;
       codex-desktop = inputs.codex-desktop-linux.packages.${system}.default;
+      hermes-desktop = inputs.hermes-agent.packages.${system}.desktop;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
       _1password-gui =
@@ -229,6 +235,7 @@
       lumen = pkgs.lumen;
       mdview = pkgs.mdview;
       codex-desktop = pkgs.codex-desktop;
+      hermes-desktop = pkgs.hermes-desktop;
       default = forge;
     };
 
