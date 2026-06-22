@@ -59,6 +59,7 @@ let
 
     [modules.media]
     icon-type = "default"
+    hide-when-nothing-playing = true
 
     [wallpaper]
     cycling-directory = "${config.home.homeDirectory}/Pictures/Wallpapers"

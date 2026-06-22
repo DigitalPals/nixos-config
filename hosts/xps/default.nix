@@ -6,6 +6,7 @@
 # WiFi: Intel Wi-Fi 7 BE211
 { pkgs, pkgsMaster, lib, inputs, ... }:
 let
+  xpsBiosFanControl = "${pkgs.dell-bios-fan-control}/bin/dell-bios-fan-control";
   xpsHapticTouchpad = pkgs.writeTextFile {
     name = "xps-haptic-touchpad";
     executable = true;
@@ -178,6 +179,27 @@ in
 
   # Intel thermald for thermal management (Dell DPTF integration)
   services.thermald.enable = true;
+
+  # Keep fan control in Dell BIOS/firmware automatic mode.
+  #
+  # On this XPS 14 DA14260, the dell_smm hwmon standard auto request
+  # (pwm*_enable=2) is rejected by firmware, but Dell's SMM BIOS-control
+  # command works and allows the embedded controller to ramp fans on load.
+  systemd.services.xps-bios-fan-control = {
+    description = "Enable Dell BIOS automatic fan control";
+    after = [ "systemd-modules-load.service" ];
+    wantedBy = [ "multi-user.target" ];
+
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${xpsBiosFanControl} 1";
+      RemainAfterExit = true;
+    };
+  };
+
+  powerManagement.resumeCommands = ''
+    ${xpsBiosFanControl} 1 || true
+  '';
 
   environment.etc = {
     "intel_lpmd".source = "${pkgs.intelLpmd}/etc/intel_lpmd";
