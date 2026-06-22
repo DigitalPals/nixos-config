@@ -263,8 +263,9 @@ in
         exec ${pkgs.nodejs}/bin/npx --yes --prefer-online --package @kitlangton/ghui -- ghui "$@"
       '';
     };
-    # Hermes Desktop launcher for a private remote backend. The URL and token
-    # live outside the Nix store so host details and credentials stay local.
+    # Hermes Desktop launcher for a private remote backend. The hosted gateway
+    # uses the desktop's OAuth/basic cookie session, so keep the URL in the
+    # native connection config instead of forcing token auth via env vars.
     ".local/bin/hermes-desktop-remote" = {
       executable = true;
       text = ''
@@ -272,8 +273,8 @@ in
         set -euo pipefail
 
         config_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/hermes-desktop"
-        token_file="$config_dir/remote-token"
         url_file="$config_dir/remote-url"
+        connection_config="''${XDG_CONFIG_HOME:-$HOME/.config}/Hermes/connection.json"
 
         if [ -n "''${HERMES_DESKTOP_REMOTE_URL:-}" ]; then
           remote_url="''${HERMES_DESKTOP_REMOTE_URL}"
@@ -297,20 +298,27 @@ in
             ;;
         esac
 
-        if [ ! -r "$token_file" ]; then
-          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Missing remote token: $token_file" || true
-          exit 1
+        ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$connection_config")"
+        tmp="$(${pkgs.coreutils}/bin/mktemp)"
+        cleanup() {
+          ${pkgs.coreutils}/bin/rm -f "$tmp"
+        }
+        trap cleanup EXIT
+
+        if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq --arg url "$remote_url" '
+          if type == "object" then . else {} end
+          | .mode = "remote"
+          | .remote = ((.remote // {}) | .url = $url | .authMode = "oauth" | del(.token))
+          | .profiles = (.profiles // {})
+        ' "$connection_config" > "$tmp"; then
+          :
+        else
+          ${pkgs.jq}/bin/jq -n --arg url "$remote_url" \
+            '{mode: "remote", remote: {url: $url, authMode: "oauth"}, profiles: {}}' > "$tmp"
         fi
 
-        token="$(${pkgs.gnused}/bin/sed -e 's/[[:space:]]//g' "$token_file")"
-
-        if [ -z "$token" ]; then
-          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Remote token file is empty: $token_file" || true
-          exit 1
-        fi
-
-        export HERMES_DESKTOP_REMOTE_URL="$remote_url"
-        export HERMES_DESKTOP_REMOTE_TOKEN="$token"
+        ${pkgs.coreutils}/bin/install -m 0600 "$tmp" "$connection_config"
+        unset HERMES_DESKTOP_REMOTE_URL HERMES_DESKTOP_REMOTE_TOKEN
 
         exec ${pkgs.hermes-desktop}/bin/hermes-desktop "$@"
       '';
@@ -387,21 +395,40 @@ in
   xdg.dataFile."nautilus-python/extensions/localsend.py".source = ./nautilus-localsend.py;
 
   home.activation.ensureHermesDesktopRemoteFiles = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    token_dir="$HOME/.config/hermes-desktop"
-    token_file="$token_dir/remote-token"
-    url_file="$token_dir/remote-url"
+    config_dir="$HOME/.config/hermes-desktop"
+    url_file="$config_dir/remote-url"
+    connection_config="$HOME/.config/Hermes/connection.json"
+    remote_url="https://hermes-next.risk-bull.ts.net"
 
-    if [ ! -s "$token_file" ]; then
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$token_dir"
-      $DRY_RUN_CMD ${pkgs.openssl}/bin/openssl rand -base64 32 \
-        | $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 /dev/stdin "$token_file"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$config_dir"
+
+    if [ ! -e "$url_file" ] || [ "$(${pkgs.gnused}/bin/sed -e 's/[[:space:]]//g' "$url_file")" != "$remote_url" ]; then
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/printf '%s\n' "$remote_url" \
+        | $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 /dev/stdin "$url_file"
     else
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 0600 "$token_file"
-    fi
-
-    if [ -e "$url_file" ]; then
       $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 0600 "$url_file"
     fi
+
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$connection_config")"
+    tmp="$(${pkgs.coreutils}/bin/mktemp)"
+    cleanup() {
+      ${pkgs.coreutils}/bin/rm -f "$tmp"
+    }
+    trap cleanup EXIT
+
+    if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq --arg url "$remote_url" '
+      if type == "object" then . else {} end
+      | .mode = "remote"
+      | .remote = ((.remote // {}) | .url = $url | .authMode = "oauth" | del(.token))
+      | .profiles = (.profiles // {})
+    ' "$connection_config" > "$tmp"; then
+      :
+    else
+      ${pkgs.jq}/bin/jq -n --arg url "$remote_url" \
+        '{mode: "remote", remote: {url: $url, authMode: "oauth"}, profiles: {}}' > "$tmp"
+    fi
+
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 "$tmp" "$connection_config"
   '';
 
   # Desktop entry overrides for Wayland

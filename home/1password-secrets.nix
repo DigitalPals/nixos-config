@@ -15,6 +15,8 @@
     extraConfig = "";
   };
 
+  home.file.".ssh/config".force = true;
+
   # OpenSSH inside Distrobox rejects ~/.ssh/config when it is a Home Manager
   # symlink because the symlink itself appears as mode 0777. Keep a real file.
   home.activation.sshConfigRegularFile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
