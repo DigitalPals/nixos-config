@@ -258,7 +258,8 @@ in
     gh
     gcc
     cmake
-    rustup
+    (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default))
+    (lib.lowPrio rustup)
     bun
     balena-cli
     android-tools

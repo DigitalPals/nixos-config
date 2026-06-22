@@ -42,6 +42,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
   };
 
   outputs = { self, nixpkgs, home-manager, disko, ... }@inputs:
@@ -87,7 +92,7 @@
     pkgs = import nixpkgs {
       inherit system;
       config.allowUnfree = true;
-      overlays = [ gtkPortalOverlay localPackagesOverlay ];
+      overlays = [ inputs.rust-overlay.overlays.default gtkPortalOverlay localPackagesOverlay ];
     };
     pkgsMaster = import inputs.nixpkgs-master {
       inherit system;
@@ -140,7 +145,7 @@
         specialArgs = { inherit inputs plymouth-cybex forge pkgsMaster; };
         modules = [
           # Apply overlays to NixOS (for patched xdg-desktop-portal-gtk)
-          { nixpkgs.overlays = [ gtkPortalOverlay localPackagesOverlay ]; }
+          { nixpkgs.overlays = [ inputs.rust-overlay.overlays.default gtkPortalOverlay localPackagesOverlay ]; }
           mkInstallerProfileModule
         ]
         # Disko for declarative disk partitioning (optional)
@@ -241,10 +246,7 @@
 
     devShells.${system}.default = pkgs.mkShell {
       packages = with pkgs; [
-        cargo
-        rustc
-        rustfmt
-        clippy
+        (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default))
         pkg-config
         dbus
       ];
