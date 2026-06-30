@@ -73,35 +73,7 @@
       };
       lumen = inputs.lumen.packages.${system}.lumen;
       mdview = inputs.mdview.packages.${system}.mdview;
-      codex-desktop =
-        let
-          upstream = inputs.codex-desktop-linux.packages.${system}.default;
-          # Temporary override for upstream Codex.dmg drift in
-          # ilysenko/codex-desktop-linux 0abd25f2e21fd017b601b55da429a52b225d17bf.
-          # Remove this once upstream main refreshes the fixed-output hash.
-          staleDmg = "/nix/store/8pvmym7zd66612hp4w6ma5mpwm0spl13-Codex.dmg";
-          currentDmg = final.fetchurl {
-            url = "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg";
-            hash = "sha256-7Y96h6vLU1CNKimpebn/EsKvm0NXYR6GKnUWvVfqHy0=";
-          };
-          patchedPayload = upstream.src.overrideAttrs (old: {
-            installPhase =
-              let
-                phaseText = builtins.unsafeDiscardStringContext old.installPhase;
-                staleContextKeys = final.lib.filter
-                  (path: final.lib.hasSuffix "-Codex.dmg.drv" path && path != currentDmg.drvPath)
-                  (builtins.attrNames (builtins.getContext old.installPhase));
-                retainedContext = builtins.removeAttrs (builtins.getContext old.installPhase) staleContextKeys;
-              in
-              assert final.lib.hasInfix staleDmg phaseText;
-              builtins.appendContext
-                (builtins.replaceStrings [ staleDmg ] [ "${currentDmg}" ] phaseText)
-                retainedContext;
-          });
-        in
-        upstream.overrideAttrs (_old: {
-          src = patchedPayload;
-        });
+      codex-desktop = inputs.codex-desktop-linux.packages.${system}.default;
       hermes-desktop = inputs.hermes-agent.packages.${system}.desktop;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
