@@ -179,6 +179,10 @@ in
 
   # Intel thermald for thermal management (Dell DPTF integration)
   services.thermald.enable = true;
+  # Adaptive DPTF mode currently exits on this Panther Lake firmware because it
+  # cannot create PSVT-backed zones. Pointing at thermald's default config keeps
+  # thermald in non-adaptive mode so the service can actually stay running.
+  services.thermald.configFile = "${pkgs.thermald}/etc/thermald/thermal-conf.xml";
 
   # Keep fan control in Dell BIOS/firmware automatic mode.
   #
