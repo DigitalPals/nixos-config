@@ -1746,60 +1746,65 @@ async fn check_firmware_updates(
         summary.firmware_status = "up to date".to_string();
     } else if output.status.success() {
         summary.firmware_updates = parse_firmware_updates_json(&stdout);
-        let count = summary
-            .firmware_updates
-            .len()
-            .max(count_firmware_updates(&stdout));
-        out(tx, &format!("  ! {} firmware update(s) available", count)).await;
-        summary.firmware_status = format!("{} update(s) available", count);
+        let count = count_firmware_updates_json(&stdout)
+            .unwrap_or_else(|| count_firmware_updates(&stdout))
+            .max(summary.firmware_updates.len());
 
-        if options.is_modern()
-            && io::stdin().is_terminal()
-            && io::stdout().is_terminal()
-            && prompt_apply_firmware_updates(&summary.firmware_updates).await?
-        {
-            out(tx, "  Applying firmware updates...").await;
-            let success = Command::new("fwupdmgr")
-                .args(["update", "--assume-yes"])
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status()
-                .await?
-                .success();
+        if count == 0 {
+            out(tx, "  ✓ Firmware is up to date").await;
+            summary.firmware_status = "up to date".to_string();
+        } else {
+            out(tx, &format!("  ! {} firmware update(s) available", count)).await;
+            summary.firmware_status = format!("{} update(s) available", count);
 
-            if success {
-                summary.firmware_status = format!("{} update(s) applied", count);
-                out(tx, "  ✓ Firmware updates applied").await;
-                tx.send(CommandMessage::StepComplete {
+            if options.is_modern()
+                && io::stdin().is_terminal()
+                && io::stdout().is_terminal()
+                && prompt_apply_firmware_updates(&summary.firmware_updates).await?
+            {
+                out(tx, "  Applying firmware updates...").await;
+                let success = Command::new("fwupdmgr")
+                    .args(["update", "--assume-yes"])
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .status()
+                    .await?
+                    .success();
+
+                if success {
+                    summary.firmware_status = format!("{} update(s) applied", count);
+                    out(tx, "  ✓ Firmware updates applied").await;
+                    tx.send(CommandMessage::StepComplete {
+                        step: STEP_FIRMWARE.to_string(),
+                    })
+                    .await?;
+                    return Ok(());
+                }
+
+                let warning = "Firmware update failed".to_string();
+                summary.firmware_status = "update failed".to_string();
+                summary.follow_up_warnings.push(warning.clone());
+                out(tx, "  ! Firmware update failed").await;
+                tx.send(CommandMessage::StepWarning {
                     step: STEP_FIRMWARE.to_string(),
+                    detail: warning,
                 })
                 .await?;
                 return Ok(());
             }
 
-            let warning = "Firmware update failed".to_string();
-            summary.firmware_status = "update failed".to_string();
-            summary.follow_up_warnings.push(warning.clone());
-            out(tx, "  ! Firmware update failed").await;
+            out(tx, "    Run 'fwupdmgr update' to apply").await;
+            summary
+                .follow_up_warnings
+                .push(format!("{} firmware update(s) available", count));
             tx.send(CommandMessage::StepWarning {
                 step: STEP_FIRMWARE.to_string(),
-                detail: warning,
+                detail: summary.firmware_status.clone(),
             })
             .await?;
             return Ok(());
         }
-
-        out(tx, "    Run 'fwupdmgr update' to apply").await;
-        summary
-            .follow_up_warnings
-            .push(format!("{} firmware update(s) available", count));
-        tx.send(CommandMessage::StepWarning {
-            step: STEP_FIRMWARE.to_string(),
-            detail: summary.firmware_status.clone(),
-        })
-        .await?;
-        return Ok(());
     } else {
         let warning = if stderr.trim().is_empty() {
             "Firmware check failed".to_string()
@@ -1901,13 +1906,20 @@ fn json_string(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn count_firmware_updates_json(output: &str) -> Option<usize> {
+    let value = serde_json::from_str::<serde_json::Value>(output).ok()?;
+    value
+        .get("Devices")
+        .and_then(|devices| devices.as_array())
+        .map(Vec::len)
+}
+
 fn count_firmware_updates(output: &str) -> usize {
     // Count device headers (lines ending with ":" that aren't indented)
     output
         .lines()
         .filter(|l| !l.starts_with(' ') && l.trim().ends_with(':'))
         .count()
-        .max(1) // At least 1 if we got here
 }
 
 async fn detect_reboot_reasons(package_changes: &[(String, String, String)]) -> Vec<String> {
@@ -2663,6 +2675,48 @@ mod tests {
             }
             _ => panic!("expected building event"),
         }
+    }
+
+    #[test]
+    fn counts_empty_fwupd_json_as_no_updates() {
+        let output = r#"{"Devices":[]}"#;
+
+        assert_eq!(count_firmware_updates_json(output), Some(0));
+        assert!(parse_firmware_updates_json(output).is_empty());
+    }
+
+    #[test]
+    fn counts_fwupd_json_devices_without_release_details() {
+        let output = r#"{"Devices":[{"Name":"System Firmware","Version":"1.8.2"}]}"#;
+
+        assert_eq!(count_firmware_updates_json(output), Some(1));
+        assert!(parse_firmware_updates_json(output).is_empty());
+    }
+
+    #[test]
+    fn parses_fwupd_json_release_details() {
+        let output = r#"{
+            "Devices": [{
+                "Name": "System Firmware",
+                "Version": "1.8.2",
+                "Releases": [{
+                    "Name": "XPS 14 DA14260 System Update",
+                    "Version": "1.9.0"
+                }]
+            }]
+        }"#;
+
+        let updates = parse_firmware_updates_json(output);
+
+        assert_eq!(count_firmware_updates_json(output), Some(1));
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].device, "System Firmware");
+        assert_eq!(updates[0].current_version.as_deref(), Some("1.8.2"));
+        assert_eq!(updates[0].new_version.as_deref(), Some("1.9.0"));
+        assert_eq!(
+            updates[0].release.as_deref(),
+            Some("XPS 14 DA14260 System Update")
+        );
     }
 
     #[test]
