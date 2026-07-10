@@ -39,6 +39,7 @@ let
     center = ["clock"]
     right = [
         "idle-inhibit",
+        "breaking-news",
         "battery",
         "network",
         "model-usage",
