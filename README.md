@@ -1,6 +1,6 @@
 # NixOS Configuration
 
-A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring Hyprland with Lumen Desktop Shell.
+A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring Hyprland with Noctalia Desktop Shell.
 
 ## Features
 
@@ -8,7 +8,7 @@ A declarative NixOS configuration for single-user workstations using Flakes and 
 - **Full disk encryption** with LUKS2 (interactive passphrase at boot)
 - **Btrfs filesystem** with subvolumes and zstd compression
 - **Passwordless auto-login** via greetd (password set after first boot)
-- **Hyprland** window manager with [Lumen Desktop Shell](https://github.com/DigitalPals/Lumen)
+- **Hyprland** window manager with [Noctalia Desktop Shell](https://github.com/noctalia-dev/noctalia)
 - **Home Manager** integration for user configuration
 
 ## Hosts
@@ -256,7 +256,7 @@ nixos-config/
 │   │   └── bindings.nix
 │   └── shells/
 │       ├── common/           # Shared shell, prompt, and theme config
-│       └── lumen/            # Lumen Desktop Shell config
+│       └── noctalia/         # Noctalia Desktop Shell config
 └── packages/
     ├── forge/                # TUI installer and system management tool
     ├── plymouth-cybex/       # Custom Plymouth theme

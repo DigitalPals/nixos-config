@@ -4,7 +4,7 @@
 let
   # Import Hyprland session packages
   hyprlandSessions = pkgs.callPackage ../packages/hyprland-sessions { };
-  hyprlandLumen = "${hyprlandSessions.script}/bin/hyprland-lumen";
+  hyprlandNoctalia = "${hyprlandSessions.script}/bin/hyprland-noctalia";
   isG1a = config.networking.hostName == "G1a";
   greetdSessionSettings = command:
     if isG1a then
@@ -24,11 +24,11 @@ let
       };
 in
 {
-  # Auto-login directly to Hyprland with Lumen shell (no session selector)
+  # Auto-login directly to Hyprland with Noctalia shell (no session selector)
   services.greetd = {
     enable = true;
     useTextGreeter = isG1a;
-    settings = greetdSessionSettings hyprlandLumen;
+    settings = greetdSessionSettings hyprlandNoctalia;
   };
 
   systemd.services.greetd = {
@@ -66,7 +66,7 @@ in
 
   # Register sessions with display manager (for fallback/GNOME login)
   services.displayManager.sessionPackages = [
-    hyprlandSessions.lumen
+    hyprlandSessions.noctalia
   ];
 
   # Hyprland wrapper script in PATH

@@ -16,6 +16,7 @@ let
 in
 {
   imports = [
+    inputs.noctalia.homeModules.default
     ./hyprland        # Modular Hyprland config (includes hypridle)
     ./voxtype.nix     # Push-to-talk dictation daemon + config
     ./kitty.nix
@@ -23,7 +24,7 @@ in
     ./1password-secrets.nix  # 1Password SSH agent integration
     ./app-backup  # App profile backup/restore (browsers)
     ./shells/common
-    ./shells/lumen
+    ./shells/noctalia
   ];
 
   home.username = username;

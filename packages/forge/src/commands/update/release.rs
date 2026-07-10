@@ -33,16 +33,16 @@ struct GitHubTag {
 }
 
 const RELEASE_TRACKED_INPUTS: &[ReleaseTrackedInput] = &[ReleaseTrackedInput {
-    name: "lumen",
-    owner: "DigitalPals",
-    repo: "Lumen",
+    name: "noctalia",
+    owner: "noctalia-dev",
+    repo: "noctalia",
 }];
 
-static LUMEN_URL_RE: LazyLock<Regex> = LazyLock::new(|| {
+static NOCTALIA_URL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?s)(?P<input>\blumen\s*=\s*\{.*?url\s*=\s*")(?P<url>github:DigitalPals/Lumen/(?P<tag>v[0-9][^"]*))(?P<suffix>";)"#,
+        r#"(?s)(?P<input>\bnoctalia\s*=\s*\{.*?url\s*=\s*")(?P<url>github:noctalia-dev/noctalia/(?P<tag>v[0-9][^"]*))(?P<suffix>";)"#,
     )
-    .expect("valid Lumen input URL regex")
+    .expect("valid Noctalia input URL regex")
 });
 
 pub async fn update_release_tracked_inputs(
@@ -127,7 +127,7 @@ fn update_input_tag(
     latest_tag: &str,
 ) -> Result<Option<ReleaseInputUpdate>> {
     let captures = match input.name {
-        "lumen" => LUMEN_URL_RE
+        "noctalia" => NOCTALIA_URL_RE
             .captures(content)
             .ok_or_else(|| anyhow!("could not find {} GitHub URL in flake.nix", input.name))?,
         _ => return Err(anyhow!("unsupported release-tracked input {}", input.name)),
@@ -162,9 +162,20 @@ fn compare_tags(left: &str, right: &str) -> Option<Ordering> {
     Some(compare_version_keys(&left, &right))
 }
 
-fn version_key(tag: &str) -> Option<Vec<u64>> {
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct VersionKey {
+    parts: Vec<u64>,
+    prerelease: Option<(String, u64)>,
+}
+
+fn version_key(tag: &str) -> Option<VersionKey> {
     let version = tag.strip_prefix('v').unwrap_or(tag);
-    let parts = version
+    let (numeric, prerelease) = version
+        .split_once('-')
+        .map_or((version, None), |(numeric, prerelease)| {
+            (numeric, Some(prerelease))
+        });
+    let parts = numeric
         .split('.')
         .map(str::parse::<u64>)
         .collect::<Result<Vec<_>, _>>()
@@ -172,69 +183,88 @@ fn version_key(tag: &str) -> Option<Vec<u64>> {
     if parts.is_empty() {
         return None;
     }
-    Some(parts)
+    let prerelease = prerelease.map(|value| {
+        let digit_index = value.find(|character: char| character.is_ascii_digit());
+        match digit_index {
+            Some(index) => {
+                let (label, number) = value.split_at(index);
+                (
+                    label.to_ascii_lowercase(),
+                    number.parse::<u64>().unwrap_or(0),
+                )
+            }
+            None => (value.to_ascii_lowercase(), 0),
+        }
+    });
+
+    Some(VersionKey { parts, prerelease })
 }
 
-fn compare_version_keys(left: &[u64], right: &[u64]) -> Ordering {
-    let max_len = left.len().max(right.len());
+fn compare_version_keys(left: &VersionKey, right: &VersionKey) -> Ordering {
+    let max_len = left.parts.len().max(right.parts.len());
     for index in 0..max_len {
-        let left_part = left.get(index).copied().unwrap_or(0);
-        let right_part = right.get(index).copied().unwrap_or(0);
+        let left_part = left.parts.get(index).copied().unwrap_or(0);
+        let right_part = right.parts.get(index).copied().unwrap_or(0);
         match left_part.cmp(&right_part) {
             Ordering::Equal => {}
             ordering => return ordering,
         }
     }
-    Ordering::Equal
+
+    match (&left.prerelease, &right.prerelease) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(left), Some(right)) => left.cmp(right),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const LUMEN: ReleaseTrackedInput = ReleaseTrackedInput {
-        name: "lumen",
-        owner: "DigitalPals",
-        repo: "Lumen",
+    const NOCTALIA: ReleaseTrackedInput = ReleaseTrackedInput {
+        name: "noctalia",
+        owner: "noctalia-dev",
+        repo: "noctalia",
     };
 
     #[test]
-    fn updates_lumen_tag_when_latest_is_newer() {
+    fn updates_noctalia_prerelease_tag_when_latest_is_newer() {
         let mut content = r#"
 {
   inputs = {
-    lumen = {
-      url = "github:DigitalPals/Lumen/v0.6.0";
-      inputs.nixpkgs.follows = "nixpkgs";
+    noctalia = {
+      url = "github:noctalia-dev/noctalia/v5.0.0-beta1";
     };
   };
 }
 "#
         .to_string();
 
-        let update = update_input_tag(&mut content, LUMEN, "v0.6.1")
+        let update = update_input_tag(&mut content, NOCTALIA, "v5.0.0-beta2")
             .unwrap()
             .unwrap();
 
-        assert_eq!(update.name, "lumen");
-        assert_eq!(update.old_tag, "v0.6.0");
-        assert_eq!(update.new_tag, "v0.6.1");
-        assert!(content.contains(r#"url = "github:DigitalPals/Lumen/v0.6.1";"#));
+        assert_eq!(update.name, "noctalia");
+        assert_eq!(update.old_tag, "v5.0.0-beta1");
+        assert_eq!(update.new_tag, "v5.0.0-beta2");
+        assert!(content.contains(r#"url = "github:noctalia-dev/noctalia/v5.0.0-beta2";"#));
     }
 
     #[test]
-    fn keeps_lumen_tag_when_latest_is_not_newer() {
+    fn keeps_noctalia_tag_when_latest_is_not_newer() {
         let mut content = r#"
-lumen = {
-  url = "github:DigitalPals/Lumen/v0.6.1";
+noctalia = {
+  url = "github:noctalia-dev/noctalia/v5.0.0-beta2";
 };
 "#
         .to_string();
 
-        let update = update_input_tag(&mut content, LUMEN, "v0.6.0").unwrap();
+        let update = update_input_tag(&mut content, NOCTALIA, "v5.0.0-beta1").unwrap();
 
         assert!(update.is_none());
-        assert!(content.contains("v0.6.1"));
+        assert!(content.contains("v5.0.0-beta2"));
     }
 
     #[test]
@@ -242,12 +272,20 @@ lumen = {
         assert_eq!(compare_tags("v0.10.0", "v0.9.9"), Some(Ordering::Greater));
         assert_eq!(compare_tags("v1.0.0", "v1.0"), Some(Ordering::Equal));
         assert_eq!(compare_tags("v0.6.0", "v0.6.1"), Some(Ordering::Less));
+        assert_eq!(
+            compare_tags("v5.0.0-beta2", "v5.0.0-beta1"),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_tags("v5.0.0", "v5.0.0-beta2"),
+            Some(Ordering::Greater)
+        );
     }
 
     #[test]
     fn respects_selected_inputs() {
-        assert!(should_update_input("lumen", &[]));
-        assert!(should_update_input("lumen", &["lumen".to_string()]));
-        assert!(!should_update_input("lumen", &["nixpkgs".to_string()]));
+        assert!(should_update_input("noctalia", &[]));
+        assert!(should_update_input("noctalia", &["noctalia".to_string()]));
+        assert!(!should_update_input("noctalia", &["nixpkgs".to_string()]));
     }
 }

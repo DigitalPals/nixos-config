@@ -37,7 +37,7 @@ Configuration details and solutions to issues in this NixOS setup.
 │   │   └── ...
 │   └── shells/
 │       ├── common/                 # Shared shell, prompt, and theme config
-│       └── lumen/                  # Lumen Desktop Shell config
+│       └── noctalia/               # Noctalia Desktop Shell config
 └── packages/
     ├── forge/                      # Rust TUI configuration tool
     ├── plymouth-cybex/             # Custom Plymouth theme
@@ -678,21 +678,23 @@ The LVM swap configuration is retained for potential future driver support.
 
 NVIDIA hosts use `lib.mkForce` where needed to ensure all modules load together.
 
-## Lumen
+## Noctalia
 
-Lumen is the configured desktop shell.
+Noctalia v5 is the configured desktop shell.
 
 Implementation:
-- `home/shells/lumen/default.nix` installs Lumen, awww, Hyprlock, and fuzzel
+- `home/shells/noctalia/default.nix` configures the Noctalia Home Manager module
 - Hyprland starts Home Manager's configured graphical session target; the
-  `lumen.service` user unit is wanted by that target
-- Hyprlock handles lock screen authentication
+  `noctalia.service` user unit is wanted by that target
+- Noctalia provides the launcher, wallpaper, notifications, and lock screen
+- `SUPER+SPACE` and `SUPER+L` keep their existing roles through Noctalia IPC
 
 Useful commands:
 ```bash
-systemctl --user restart lumen.service
-lumen panel settings
-hyprlock --config ~/.config/hypr/hyprlock.conf --immediate-render --no-fade-in
+systemctl --user restart noctalia.service
+noctalia msg settings-toggle
+noctalia msg session lock
+noctalia config validate
 ```
 
 ## 1Password SSH Agent

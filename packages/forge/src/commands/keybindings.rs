@@ -139,7 +139,10 @@ pub fn generate_description(action: &str, argument: &str) -> String {
             }
 
             // Lock screen
-            if arg_lower.contains("hyprlock") || arg_lower.contains("lockscreen") {
+            if arg_lower.contains("hyprlock")
+                || arg_lower.contains("lockscreen")
+                || (arg_lower.contains("noctalia") && arg_lower.contains("session lock"))
+            {
                 return "Lock Screen".to_string();
             }
 
@@ -292,7 +295,7 @@ pub fn detect_current_shell() -> String {
         return shell.trim().to_string();
     }
 
-    "lumen".to_string()
+    "noctalia".to_string()
 }
 
 /// Parse the bindings.nix file and extract keybindings

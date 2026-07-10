@@ -1,5 +1,5 @@
 {
-  description = "NixOS configuration with Home Manager, Hyprland, and Lumen Desktop Shell";
+  description = "NixOS configuration with Home Manager, Hyprland, and Noctalia Desktop Shell";
 
   inputs = {
     # Use nixos-unstable so updates stay close to Hydra cache availability.
@@ -20,11 +20,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Lumen desktop shell fork. This is pinned to the release tag whose source
-    # includes the Nix package and local packaging workflow.
-    lumen = {
-      url = "github:DigitalPals/Lumen/v0.7.3";
-      inputs.nixpkgs.follows = "nixpkgs";
+    # Noctalia v5 desktop shell. Pin the current beta release rather than main;
+    # Forge advances this URL when a newer v5 release is published.
+    noctalia = {
+      url = "github:noctalia-dev/noctalia/v5.0.0-beta2";
     };
 
     mdview = {
@@ -71,7 +70,6 @@
       icamerasrcIpu75xa = final.callPackage ./packages/icamerasrc-ipu75xa {
         ipu7CameraHal = final.ipu7CameraHal;
       };
-      lumen = inputs.lumen.packages.${system}.lumen;
       mdview = inputs.mdview.packages.${system}.mdview;
       codex-desktop = inputs.codex-desktop-linux.packages.${system}.default;
       hermes-desktop = inputs.hermes-agent.packages.${system}.desktop;
@@ -237,7 +235,7 @@
       ipu7CameraBins = pkgs.ipu7CameraBins;
       ipu7CameraHal = pkgs.ipu7CameraHal;
       icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
-      lumen = pkgs.lumen;
+      noctalia = inputs.noctalia.packages.${system}.default;
       mdview = pkgs.mdview;
       codex-desktop = pkgs.codex-desktop;
       hermes-desktop = pkgs.hermes-desktop;
