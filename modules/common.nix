@@ -214,6 +214,7 @@ in
 
   fonts.packages = [
     pkgs.conthrax
+    pkgs.inter
   ];
 
   # Enable dconf (required for GTK apps to read dark mode preference)
