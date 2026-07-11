@@ -125,6 +125,27 @@
         "type": "github"
       }
     },
+    "lumen": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783683191,
+        "narHash": "sha256-P9tTBImD5rjcAlYrHb+aHbEcKCZ7rAx/5cD4X6FI7xk=",
+        "owner": "DigitalPals",
+        "repo": "Lumen",
+        "rev": "5ad8ca4028dbc5240cd032ae2d0ad5dc9c7766eb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "DigitalPals",
+        "ref": "v0.7.3",
+        "repo": "Lumen",
+        "type": "github"
+      }
+    },
     "mdview": {
       "inputs": {
         "nixpkgs": [
@@ -175,38 +196,6 @@
         "owner": "NixOS",
         "ref": "master",
         "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1783224372,
-        "narHash": "sha256-FGQ8TfSm9WviNE/fQAWsKs+y4GkX8fU4EScewpw54Y8=",
-        "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-        "type": "tarball",
-        "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1027867.d407951447dc/nixexprs.tar.xz"
-      },
-      "original": {
-        "type": "tarball",
-        "url": "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz"
-      }
-    },
-    "noctalia": {
-      "inputs": {
-        "nixpkgs": "nixpkgs_2"
-      },
-      "locked": {
-        "lastModified": 1783601264,
-        "narHash": "sha256-yqkHIypClzlztMmt4HVytCdU8Kqy3EqHJotHtbyFulI=",
-        "owner": "noctalia-dev",
-        "repo": "noctalia",
-        "rev": "32bcfb9c9783874c5c0f9709e3f741b07e54ca65",
-        "type": "github"
-      },
-      "original": {
-        "owner": "noctalia-dev",
-        "ref": "v5.0.0-beta2",
-        "repo": "noctalia",
         "type": "github"
       }
     },
@@ -287,10 +276,10 @@
         "disko": "disko",
         "hermes-agent": "hermes-agent",
         "home-manager": "home-manager",
+        "lumen": "lumen",
         "mdview": "mdview",
         "nixpkgs": "nixpkgs",
         "nixpkgs-master": "nixpkgs-master",
-        "noctalia": "noctalia",
         "rust-overlay": "rust-overlay"
       }
     },

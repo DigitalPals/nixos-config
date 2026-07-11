@@ -1363,19 +1363,21 @@ async fn check_desktop_shell_launchers(
             if let Err(error) = run_capture("systemctl", &["--user", "daemon-reload"]).await {
                 warnings.push(format!("systemd user daemon-reload failed: {error}"));
             }
+
+            match run_capture("systemctl", &["--user", "restart", "lumen.service"]).await {
+                Ok((true, _, _)) => actions.push("restarted lumen.service".to_string()),
+                Ok((false, _, stderr)) => warnings.push(format!(
+                    "could not restart lumen.service after cleanup: {}",
+                    stderr.trim()
+                )),
+                Err(error) => warnings.push(format!(
+                    "could not restart lumen.service after cleanup: {error}"
+                )),
+            }
         }
 
         cleanup_direct_profile_entry(&home, "wayle", &mut actions, &mut warnings).await;
         cleanup_direct_profile_entry(&home, "lumen", &mut actions, &mut warnings).await;
-        for legacy_shell_dependency in ["awww", "elephant", "hyprlock", "matugen", "walker"] {
-            cleanup_direct_profile_entry(
-                &home,
-                legacy_shell_dependency,
-                &mut actions,
-                &mut warnings,
-            )
-            .await;
-        }
     } else {
         warnings.push("HOME is not set; could not check user launch shadows".to_string());
     }

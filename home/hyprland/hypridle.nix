@@ -12,7 +12,7 @@ let
     "proart"
   ];
 
-  lockCmd = "${lib.getExe config.programs.noctalia.package} msg session lock";
+  lockCmd = "${pkgs.hyprlock}/bin/hyprlock --config ${config.xdg.configHome}/hypr/hyprlock.conf --immediate-render --no-fade-in";
   # In Lua-mode Hyprland, hl.dsp.dpms builds a dispatcher; hl.dispatch runs it.
   dpmsOnCmd = "hyprctl eval 'hl.dispatch(hl.dsp.dpms({ action = \"on\" }))'";
   dpmsOffCmd = "hyprctl eval 'hl.dispatch(hl.dsp.dpms({ action = \"off\" }))'";

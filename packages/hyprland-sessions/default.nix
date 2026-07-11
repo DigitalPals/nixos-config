@@ -1,16 +1,16 @@
 { pkgs }:
 
 let
-  hyprland-noctalia-bin = pkgs.writeShellScriptBin "hyprland-noctalia" ''
+  hyprland-lumen-bin = pkgs.writeShellScriptBin "hyprland-lumen" ''
     # Required environment variables for Wayland session
     # XDG_SESSION_TYPE must be set early (Hyprland 0.47+ regression fix)
     export XDG_SESSION_TYPE=wayland
     export XDG_CURRENT_DESKTOP=Hyprland
-    export DESKTOP_SHELL=noctalia
+    export DESKTOP_SHELL=lumen
 
     # Create runtime directory and mark desktop shell
     mkdir -p "$XDG_RUNTIME_DIR"
-    echo "noctalia" > "$XDG_RUNTIME_DIR/desktop-shell"
+    echo "lumen" > "$XDG_RUNTIME_DIR/desktop-shell"
 
     # Set up log directory
     mkdir -p "''${XDG_STATE_HOME:-$HOME/.local/state}/hyprland"
@@ -22,26 +22,26 @@ let
     exec start-hyprland -- "$@" > "$HYPRLAND_LOG" 2>&1
   '';
 
-  hyprland-noctalia-session = pkgs.stdenvNoCC.mkDerivation {
-    pname = "hyprland-noctalia-session";
+  hyprland-lumen-session = pkgs.stdenvNoCC.mkDerivation {
+    pname = "hyprland-lumen-session";
     version = "1.0.0";
     dontUnpack = true;
 
-    passthru.providedSessions = [ "hyprland-noctalia" ];
+    passthru.providedSessions = [ "hyprland-lumen" ];
 
     installPhase = ''
       mkdir -p $out/share/wayland-sessions
       mkdir -p $out/bin
 
       # Symlink the wrapper script
-      ln -s ${hyprland-noctalia-bin}/bin/hyprland-noctalia $out/bin/hyprland-noctalia
+      ln -s ${hyprland-lumen-bin}/bin/hyprland-lumen $out/bin/hyprland-lumen
 
       # Create .desktop file
-      cat > $out/share/wayland-sessions/hyprland-noctalia.desktop << EOF
+      cat > $out/share/wayland-sessions/hyprland-lumen.desktop << EOF
       [Desktop Entry]
-      Name=Hyprland (Noctalia)
-      Comment=Hyprland with Noctalia Desktop Shell
-      Exec=$out/bin/hyprland-noctalia
+      Name=Hyprland (Lumen)
+      Comment=Hyprland with Lumen Desktop Shell
+      Exec=$out/bin/hyprland-lumen
       Type=Application
       DesktopNames=Hyprland
       EOF
@@ -49,11 +49,11 @@ let
   };
 in {
   # Session package for display manager registration
-  noctalia = hyprland-noctalia-session;
+  lumen = hyprland-lumen-session;
 
   # All session packages as a list
-  sessions = [ hyprland-noctalia-session ];
+  sessions = [ hyprland-lumen-session ];
 
   # Wrapper script for PATH
-  script = hyprland-noctalia-bin;
+  script = hyprland-lumen-bin;
 }

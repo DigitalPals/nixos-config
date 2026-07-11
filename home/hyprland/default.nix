@@ -3,9 +3,8 @@
 
 let
   isExternalDisplayLaptop = lib.hasPrefix "G1a" hostname || lib.hasPrefix "xps" hostname;
-  noctaliaCommand = lib.getExe config.programs.noctalia.package;
-  lockCommand = "${noctaliaCommand} msg session lock";
-  launcherCommand = "${noctaliaCommand} msg panel-toggle launcher";
+  lockCommand = "${pkgs.hyprlock}/bin/hyprlock --config ${config.xdg.configHome}/hypr/hyprlock.conf --immediate-render --no-fade-in";
+  launcherCommand = "walker --width 640 --maxheight 460";
   terminalCommand = "${pkgs.kitty}/bin/kitty";
   hermesDesktopCommand = "${config.home.homeDirectory}/.local/bin/hermes-desktop-remote";
 
@@ -13,13 +12,6 @@ let
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
   inputConfig = import ./input.nix {};
   looknfeelConfig = import ./looknfeel.nix { inherit hostname lib; };
-  noctaliaIntegrationConfig = import ./noctalia-integration.nix {};
-  noctaliaThemeFallback = ''
-    -- Noctalia replaces this regular file when its Hyprland color template is enabled.
-    return {
-      apply_theme = function() end,
-    }
-  '';
   brightnessControl = import ./brightness.nix { inherit pkgs; };
   portalLauncher = pkgs.writeShellScript "portal-launcher" ''
     set -euo pipefail
@@ -185,7 +177,7 @@ let
     local hyprConfigDir = xdgConfigHome .. "/hypr"
     package.path = hyprConfigDir .. "/?.lua;" .. hyprConfigDir .. "/?/init.lua;" .. package.path
 
-    for _, module in ipairs({ "monitors", "input", "bindings", "looknfeel", "noctalia", "noctalia-integration", "autostart", "external-monitor-toggle" }) do
+    for _, module in ipairs({ "monitors", "input", "bindings", "looknfeel", "autostart", "external-monitor-toggle" }) do
       package.loaded[module] = nil
     end
 
@@ -193,8 +185,6 @@ let
     require("input")
     require("bindings")
     require("looknfeel")
-    require("noctalia").apply_theme()
-    require("noctalia-integration")
     require("autostart")
     require("external-monitor-toggle")
   '';
@@ -224,12 +214,6 @@ in {
   xdg.configFile."hypr/input.lua".text = inputConfig;
   xdg.configFile."hypr/bindings.lua".text = bindingsConfig;
   xdg.configFile."hypr/looknfeel.lua".text = looknfeelConfig;
-  xdg.configFile."hypr/noctalia-integration.lua".text = noctaliaIntegrationConfig;
-  xdg.configFile."hypr/noctalia.lua" = {
-    text = noctaliaThemeFallback;
-    force = true;
-    onChange = lib.mkForce "";
-  };
   xdg.configFile."hypr/autostart.lua".text = autostartConfig;
   xdg.configFile."hypr/hyprland.lua" = {
     force = true;
@@ -258,19 +242,6 @@ in {
             [ -n "$instance" ] || continue
             ${pkgs.hyprland}/bin/hyprctl -i "$instance" reload >/dev/null 2>&1 || true
           done
-    fi
-  '';
-
-  # Noctalia's color template renderer updates this module at runtime. Keep it
-  # at a stable writable path for the same reason as the main Lua entrypoint.
-  home.activation.materializeNoctaliaHyprTheme = lib.hm.dag.entryAfter [ "onFilesChange" ] ''
-    theme_file="${config.xdg.configHome}/hypr/noctalia.lua"
-
-    if [ -L "$theme_file" ]; then
-      target="$(${pkgs.coreutils}/bin/readlink -f "$theme_file")"
-      tmp="$theme_file.tmp"
-      ${pkgs.coreutils}/bin/install -m 0644 "$target" "$tmp"
-      ${pkgs.coreutils}/bin/mv -f "$tmp" "$theme_file"
     fi
   '';
 
