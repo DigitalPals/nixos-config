@@ -23,7 +23,7 @@
     # Lumen desktop shell fork. This is pinned to the release tag whose source
     # includes the Nix package and local packaging workflow.
     lumen = {
-      url = "github:DigitalPals/Lumen/v0.7.4";
+      url = "github:DigitalPals/Lumen/v0.7.6";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -38,7 +38,9 @@
     };
 
     hermes-agent = {
-      url = "github:NousResearch/hermes-agent";
+      # Keep the last known-good desktop package until upstream fixes the
+      # Node 41.9.1 headers fixed-output hash.
+      url = "github:NousResearch/hermes-agent/590a19332e898fc9bda55a31999926572d8fbc26";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
