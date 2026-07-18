@@ -26,6 +26,11 @@ in
         set -gx PATH ~/.local/bin $PATH
       end
 
+      # Add ~/.kimi-code/bin (Kimi Code CLI) to PATH if not already present
+      if not contains ~/.kimi-code/bin $PATH
+        set -gx PATH ~/.kimi-code/bin $PATH
+      end
+
       # VISUAL for programs that distinguish from EDITOR
       set -gx VISUAL nvim
 
