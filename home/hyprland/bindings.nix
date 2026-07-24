@@ -44,7 +44,7 @@
   bind(mainMod .. " + S", hl.dsp.exec_cmd("spotify"))
   bind(mainMod .. " + SHIFT + SLASH", hl.dsp.exec_cmd("1password"))
   bind(mainMod .. " + D", hl.dsp.exec_cmd(terminal .. " -e lazydocker"))
-  bind(mainMod .. " + T", hl.dsp.exec_cmd(browser .. " --app=https://web.telegram.org/a/"))
+  bind(mainMod .. " + T", hl.dsp.exec_cmd("t3code-desktop"))
   bind(mainMod .. " + SHIFT + T", hl.dsp.exec_cmd(terminal .. " -e btop"))
   bind(mainMod .. " + W", hl.dsp.exec_cmd(browser .. " --app=https://web.whatsapp.com/"))
   bind(mainMod .. " + Y", hl.dsp.exec_cmd(browser .. " --app=https://youtube.com/"))
