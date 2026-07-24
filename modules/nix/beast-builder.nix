@@ -1,10 +1,10 @@
 # The Beast Nix remote builder
 #
-# The builder is a high-CPU Proxmox LXC on The Beast:
-#   - host/IP: beast-nix-builder / 10.10.0.230
+# The builder is the Debian installation on The Beast:
+#   - host/IP: beast-nix-builder / 10.10.0.7
 #   - SSH user: nixremote
 #   - Nix protocol: ssh-ng
-#   - capacity: 64 logical CPUs, 128 GiB RAM, 400 GiB rootfs
+#   - capacity: 64 logical CPUs, 188 GiB RAM, 1.7 TiB rootfs
 #
 # Authentication is intentionally not declared here because private keys should
 # not live in this public repo. Ensure the rebuilding root user can SSH to the
@@ -13,7 +13,7 @@
 { lib, ... }:
 
 {
-  networking.hosts."10.10.0.230" = [
+  networking.hosts."10.10.0.7" = [
     "beast-nix-builder"
     "nix-builder"
   ];
@@ -22,9 +22,9 @@
     hostNames = [
       "beast-nix-builder"
       "nix-builder"
-      "10.10.0.230"
+      "10.10.0.7"
     ];
-    publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICqIQ8DwY927HF+O1wrrsx6J8P+Rmns5ArqQo3Sg00vr";
+    publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINWna6AVYq2FbQGSv4gMST55kULZkzyw552+CJ5Sq5iv";
   };
 
   nix = {

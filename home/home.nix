@@ -13,6 +13,15 @@ let
   papirusAppIcon = name: "${pkgs.papirus-icon-theme}/share/icons/Papirus/64x64/apps/${name}.svg";
   devIcon = name: papirusAppIcon "distributor-logo-${name}";
   localSendIcon = "${pkgs.localsend}/share/icons/hicolor/256x256/apps/localsend.png";
+  t3codeWithSecureStorage = pkgs.symlinkJoin {
+    name = "t3code-${pkgs.t3code.version}";
+    paths = [ pkgs.t3code ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram "$out/bin/t3code-desktop" \
+        --add-flags "--password-store=gnome-libsecret"
+    '';
+  };
 in
 {
   imports = [
@@ -38,6 +47,13 @@ in
 
   # Let Home Manager manage itself
   programs.home-manager.enable = true;
+
+  # Electron does not recognize Hyprland as a desktop with secure storage, so
+  # explicitly use the GNOME Keyring Secret Service already enabled by NixOS.
+  programs.t3code = {
+    enable = true;
+    package = t3codeWithSecureStorage;
+  };
 
   # Git configuration
   programs.git = {
