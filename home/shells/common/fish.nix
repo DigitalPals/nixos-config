@@ -85,6 +85,10 @@ in
       la = "ls -A";
       l = "ls -CF";
 
+      # AI coding tools
+      codex = "codex --dangerously-bypass-approvals-and-sandbox";
+      claude = "claude --dangerously-skip-permissions";
+
       # Navigation
       ".." = "cd ..";
       "..." = "cd ../..";

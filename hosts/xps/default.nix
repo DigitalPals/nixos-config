@@ -154,6 +154,14 @@ in
 
   networking.hostName = "xps";
 
+  # Keep distributed rebuilds responsive on the laptop. The Beast remains the
+  # preferred builder, while one small local job preserves an off-LAN fallback
+  # without allowing Nix to saturate every laptop core.
+  nix.settings = {
+    max-jobs = lib.mkForce 1;
+    cores = lib.mkForce 4;
+  };
+
   # Track the newest packaged kernel for Panther Lake hardware support.
   boot.kernelPackages = lib.mkForce pkgsMaster.linuxPackages_latest;
 
