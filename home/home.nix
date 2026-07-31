@@ -446,13 +446,14 @@ in
   # Distrobox can export Terminal=true desktop files for these boxes. Replace
   # stale exports declaratively so they do not point at an old terminal or
   # distrobox store path.
-  home.activation.removeStaleDistroboxDevDesktopEntries =
+  home.activation.removeStaleUserDesktopEntries =
     lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
       $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
         "$HOME/.local/share/applications/dev-fedora.desktop" \
         "$HOME/.local/share/applications/dev-arch.desktop" \
         "$HOME/.local/share/applications/dev-debian.desktop" \
-        "$HOME/.local/share/applications/nvim-foot.desktop"
+        "$HOME/.local/share/applications/nvim-foot.desktop" \
+        "$HOME/.local/share/applications/hermes-desktop.desktop"
     '';
 
   xdg.dataFile."nautilus-python/extensions/localsend.py".source = ./nautilus-localsend.py;
