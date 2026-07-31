@@ -38,10 +38,11 @@
     };
 
     hermes-agent = {
-      # Keep the last known-good desktop package until upstream fixes the
-      # Node 41.9.1 headers fixed-output hash.
-      url = "github:NousResearch/hermes-agent/590a19332e898fc9bda55a31999926572d8fbc26";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # Match the Hermes Agent checkout on thebeast. This includes Desktop's
+      # SSH backend mode, which starts and tunnels `hermes serve` on demand.
+      # Keep its own pinned nixpkgs: the Desktop build pins Electron's header
+      # hash and breaks if our newer nixpkgs selects a different Electron.
+      url = "github:NousResearch/hermes-agent/720cdd1d1440845957248d152e53f0ed890b2a05";
     };
 
     rust-overlay = {

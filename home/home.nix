@@ -334,40 +334,16 @@ in
         exec ${pkgs.nodejs}/bin/npx --yes --prefer-online --package @kitlangton/ghui -- ghui "$@"
       '';
     };
-    # Hermes Desktop launcher for a private remote backend. The hosted gateway
-    # uses the desktop's OAuth/basic cookie session, so keep the URL in the
-    # native connection config instead of forcing token auth via env vars.
+    # Hermes Desktop launcher for the Hermes Agent on thebeast. SSH mode keeps
+    # the backend on remote loopback, starts it on demand, and tunnels it over
+    # the existing key-authenticated SSH connection.
     ".local/bin/hermes-desktop-remote" = {
       executable = true;
       text = ''
         #!/usr/bin/env bash
         set -euo pipefail
 
-        config_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/hermes-desktop"
-        url_file="$config_dir/remote-url"
         connection_config="''${XDG_CONFIG_HOME:-$HOME/.config}/Hermes/connection.json"
-
-        if [ -n "''${HERMES_DESKTOP_REMOTE_URL:-}" ]; then
-          remote_url="''${HERMES_DESKTOP_REMOTE_URL}"
-        elif [ -r "$url_file" ]; then
-          remote_url="$(${pkgs.gnused}/bin/sed -e 's/[[:space:]]//g' "$url_file")"
-        else
-          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Missing remote URL: $url_file" || true
-          exit 1
-        fi
-
-        if [ -z "$remote_url" ]; then
-          ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Remote URL file is empty: $url_file" || true
-          exit 1
-        fi
-
-        case "$remote_url" in
-          http://*|https://*) ;;
-          *)
-            ${pkgs.libnotify}/bin/notify-send "Hermes Desktop" "Remote URL must start with http:// or https://: $url_file" || true
-            exit 1
-            ;;
-        esac
 
         ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$connection_config")"
         tmp="$(${pkgs.coreutils}/bin/mktemp)"
@@ -376,22 +352,38 @@ in
         }
         trap cleanup EXIT
 
-        if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq --arg url "$remote_url" '
+        if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq '
           if type == "object" then . else {} end
-          | .mode = "remote"
-          | .remote = ((.remote // {}) | .url = $url | .authMode = "oauth" | del(.token))
+          | .mode = "ssh"
+          | .remote = ((.remote // {})
+              | .mode = "ssh"
+              | .host = "10.10.0.7"
+              | .user = "john"
+              | .port = 22
+              | .remoteHermesPath = "/home/john/.hermes/hermes-agent/venv/bin/hermes"
+              | del(.url, .authMode))
           | .profiles = (.profiles // {})
         ' "$connection_config" > "$tmp"; then
           :
         else
-          ${pkgs.jq}/bin/jq -n --arg url "$remote_url" \
-            '{mode: "remote", remote: {url: $url, authMode: "oauth"}, profiles: {}}' > "$tmp"
+          ${pkgs.jq}/bin/jq -n '{
+            mode: "ssh",
+            remote: {
+              mode: "ssh",
+              host: "10.10.0.7",
+              user: "john",
+              port: 22,
+              remoteHermesPath: "/home/john/.hermes/hermes-agent/venv/bin/hermes"
+            },
+            profiles: {}
+          }' > "$tmp"
         fi
 
         ${pkgs.coreutils}/bin/install -m 0600 "$tmp" "$connection_config"
         unset HERMES_DESKTOP_REMOTE_URL HERMES_DESKTOP_REMOTE_TOKEN
 
-        exec ${pkgs.hermes-desktop}/bin/hermes-desktop "$@"
+        exec ${pkgs.hermes-desktop}/bin/hermes-desktop \
+          --password-store=gnome-libsecret "$@"
       '';
     };
     # TUI desktop launcher wrappers
@@ -466,19 +458,7 @@ in
   xdg.dataFile."nautilus-python/extensions/localsend.py".source = ./nautilus-localsend.py;
 
   home.activation.ensureHermesDesktopRemoteFiles = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    config_dir="$HOME/.config/hermes-desktop"
-    url_file="$config_dir/remote-url"
     connection_config="$HOME/.config/Hermes/connection.json"
-    remote_url="https://hermes-next.risk-bull.ts.net"
-
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$config_dir"
-
-    if [ ! -e "$url_file" ] || [ "$(${pkgs.gnused}/bin/sed -e 's/[[:space:]]//g' "$url_file")" != "$remote_url" ]; then
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/printf '%s\n' "$remote_url" \
-        | $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 /dev/stdin "$url_file"
-    else
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 0600 "$url_file"
-    fi
 
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$connection_config")"
     tmp="$(${pkgs.coreutils}/bin/mktemp)"
@@ -487,16 +467,31 @@ in
     }
     trap cleanup EXIT
 
-    if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq --arg url "$remote_url" '
+    if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq '
       if type == "object" then . else {} end
-      | .mode = "remote"
-      | .remote = ((.remote // {}) | .url = $url | .authMode = "oauth" | del(.token))
+      | .mode = "ssh"
+      | .remote = ((.remote // {})
+          | .mode = "ssh"
+          | .host = "10.10.0.7"
+          | .user = "john"
+          | .port = 22
+          | .remoteHermesPath = "/home/john/.hermes/hermes-agent/venv/bin/hermes"
+          | del(.url, .authMode))
       | .profiles = (.profiles // {})
     ' "$connection_config" > "$tmp"; then
       :
     else
-      ${pkgs.jq}/bin/jq -n --arg url "$remote_url" \
-        '{mode: "remote", remote: {url: $url, authMode: "oauth"}, profiles: {}}' > "$tmp"
+      ${pkgs.jq}/bin/jq -n '{
+        mode: "ssh",
+        remote: {
+          mode: "ssh",
+          host: "10.10.0.7",
+          user: "john",
+          port: 22,
+          remoteHermesPath: "/home/john/.hermes/hermes-agent/venv/bin/hermes"
+        },
+        profiles: {}
+      }' > "$tmp"
     fi
 
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 "$tmp" "$connection_config"
@@ -615,7 +610,7 @@ in
     name = "Hermes Desktop";
     exec = "${config.home.homeDirectory}/.local/bin/hermes-desktop-remote";
     icon = "${pkgs.hermes-desktop}/share/hermes-desktop/dist/hermes.png";
-    comment = "Open Hermes Desktop connected to the remote LXC agent";
+    comment = "Open Hermes Desktop connected to Hermes Agent on thebeast over SSH";
     categories = [ "Development" "Utility" ];
   };
 
