@@ -13,13 +13,75 @@ let
   papirusAppIcon = name: "${pkgs.papirus-icon-theme}/share/icons/Papirus/64x64/apps/${name}.svg";
   devIcon = name: papirusAppIcon "distributor-logo-${name}";
   localSendIcon = "${pkgs.localsend}/share/icons/hicolor/256x256/apps/localsend.png";
-  t3codeWithSecureStorage = pkgs.symlinkJoin {
-    name = "t3code-${pkgs.t3code.version}";
-    paths = [ pkgs.t3code ];
-    nativeBuildInputs = [ pkgs.makeWrapper ];
-    postBuild = ''
-      wrapProgram "$out/bin/t3code-desktop" \
-        --add-flags "--password-store=gnome-libsecret"
+  t3codeNightlyUpdater = pkgs.writeShellApplication {
+    name = "t3code-update";
+    runtimeInputs = with pkgs; [ coreutils curl jq ];
+    text = ''
+      install_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/t3code-nightly"
+      appimage="$install_dir/T3-Code-Nightly-x86_64.AppImage"
+      api_url="https://api.github.com/repos/pingdotgg/t3code/releases?per_page=20"
+
+      release_json="$(curl --fail --silent --show-error --location \
+        --header "Accept: application/vnd.github+json" "$api_url")"
+      release="$(
+        jq --exit-status --compact-output '
+          first(
+            .[]
+            | select(.prerelease and (.tag_name | contains("-nightly.")))
+            | . as $release
+            | $release.assets[]
+            | select(.name | endswith("-x86_64.AppImage"))
+            | {
+                version: $release.tag_name,
+                url: .browser_download_url
+              }
+          )
+        ' <<<"$release_json"
+      )" || {
+        echo "No T3Code nightly x86_64 AppImage found in the latest releases." >&2
+        exit 1
+      }
+
+      version="$(jq --raw-output .version <<<"$release")"
+      download_url="$(jq --raw-output .url <<<"$release")"
+      current_version=""
+      if [[ -r "$install_dir/version" ]]; then
+        current_version="$(<"$install_dir/version")"
+      fi
+
+      if [[ "$current_version" == "$version" && -x "$appimage" ]]; then
+        echo "T3Code Nightly is already up to date ($version)."
+        exit 0
+      fi
+
+      mkdir --parents "$install_dir"
+      temporary="$(mktemp "$install_dir/.T3-Code-Nightly.XXXXXX")"
+      cleanup() {
+        rm --force "$temporary"
+      }
+      trap cleanup EXIT
+
+      echo "Downloading T3Code Nightly $version..."
+      curl --fail --location --progress-bar --output "$temporary" "$download_url"
+      chmod 0755 "$temporary"
+      mv --force "$temporary" "$appimage"
+      printf '%s\n' "$version" > "$install_dir/version"
+      trap - EXIT
+      echo "Installed T3Code Nightly $version."
+    '';
+  };
+  t3codeNightlyLauncher = pkgs.writeShellApplication {
+    name = "t3code-desktop";
+    runtimeInputs = [ pkgs.appimage-run ];
+    text = ''
+      appimage="''${XDG_DATA_HOME:-$HOME/.local/share}/t3code-nightly/T3-Code-Nightly-x86_64.AppImage"
+      if [[ ! -x "$appimage" ]]; then
+        echo "T3Code Nightly is not installed yet; downloading it now..."
+        ${t3codeNightlyUpdater}/bin/t3code-update
+      fi
+
+      exec appimage-run "$appimage" \
+        --password-store=gnome-libsecret "$@"
     '';
   };
 in
@@ -47,13 +109,6 @@ in
 
   # Let Home Manager manage itself
   programs.home-manager.enable = true;
-
-  # Electron does not recognize Hyprland as a desktop with secure storage, so
-  # explicitly use the GNOME Keyring Secret Service already enabled by NixOS.
-  programs.t3code = {
-    enable = true;
-    package = t3codeWithSecureStorage;
-  };
 
   # Git configuration
   programs.git = {
@@ -491,6 +546,15 @@ in
     ];
   };
 
+  xdg.desktopEntries.t3code-nightly = {
+    name = "T3Code Nightly";
+    exec = "t3code-desktop %U";
+    icon = papirusAppIcon "visual-studio-code";
+    comment = "A minimal GUI for coding agents";
+    categories = [ "Development" ];
+    terminal = false;
+  };
+
   xdg.desktopEntries."dev-fedora" = {
     name = "Dev Fedora";
     exec = "kitty -e ${config.home.homeDirectory}/.local/bin/dev-fedora-shell";
@@ -581,6 +645,9 @@ in
 
   # User packages
   home.packages = with pkgs; [
+    t3codeNightlyLauncher
+    t3codeNightlyUpdater
+
     # XDG portal for GTK apps (dark mode, file dialogs)
     xdg-desktop-portal-gtk
 
