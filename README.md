@@ -2,6 +2,9 @@
 
 A declarative NixOS configuration for single-user workstations using Flakes and Disko, featuring Hyprland with Lumen Desktop Shell.
 
+The Fedora 44 installation of the Dell XPS is managed separately, without Nix,
+by the Ansible configuration and rollout commands in [`fedora/`](fedora/README.md).
+
 ## Features
 
 - **Declarative disk partitioning** with [Disko](https://github.com/nix-community/disko)

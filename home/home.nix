@@ -334,58 +334,6 @@ in
         exec ${pkgs.nodejs}/bin/npx --yes --prefer-online --package @kitlangton/ghui -- ghui "$@"
       '';
     };
-    # Hermes Desktop launcher for the Hermes Agent on thebeast. SSH mode keeps
-    # the backend on remote loopback, starts it on demand, and tunnels it over
-    # the existing key-authenticated SSH connection.
-    ".local/bin/hermes-desktop-remote" = {
-      executable = true;
-      text = ''
-        #!/usr/bin/env bash
-        set -euo pipefail
-
-        connection_config="''${XDG_CONFIG_HOME:-$HOME/.config}/Hermes/connection.json"
-
-        ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$connection_config")"
-        tmp="$(${pkgs.coreutils}/bin/mktemp)"
-        cleanup() {
-          ${pkgs.coreutils}/bin/rm -f "$tmp"
-        }
-        trap cleanup EXIT
-
-        if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq '
-          if type == "object" then . else {} end
-          | .mode = "ssh"
-          | .remote = ((.remote // {})
-              | .mode = "ssh"
-              | .host = "10.10.0.7"
-              | .user = "john"
-              | .port = 22
-              | .remoteHermesPath = "/home/john/.hermes/hermes-agent/venv/bin/hermes"
-              | del(.url, .authMode))
-          | .profiles = (.profiles // {})
-        ' "$connection_config" > "$tmp"; then
-          :
-        else
-          ${pkgs.jq}/bin/jq -n '{
-            mode: "ssh",
-            remote: {
-              mode: "ssh",
-              host: "10.10.0.7",
-              user: "john",
-              port: 22,
-              remoteHermesPath: "/home/john/.hermes/hermes-agent/venv/bin/hermes"
-            },
-            profiles: {}
-          }' > "$tmp"
-        fi
-
-        ${pkgs.coreutils}/bin/install -m 0600 "$tmp" "$connection_config"
-        unset HERMES_DESKTOP_REMOTE_URL HERMES_DESKTOP_REMOTE_TOKEN
-
-        exec ${pkgs.hermes-desktop}/bin/hermes-desktop \
-          --password-store=gnome-libsecret "$@"
-      '';
-    };
     # TUI desktop launcher wrappers
     ".local/bin/tui-btop" = {
       executable = true;
@@ -452,51 +400,10 @@ in
         "$HOME/.local/share/applications/dev-fedora.desktop" \
         "$HOME/.local/share/applications/dev-arch.desktop" \
         "$HOME/.local/share/applications/dev-debian.desktop" \
-        "$HOME/.local/share/applications/nvim-foot.desktop" \
-        "$HOME/.local/share/applications/hermes-desktop.desktop"
+        "$HOME/.local/share/applications/nvim-foot.desktop"
     '';
 
   xdg.dataFile."nautilus-python/extensions/localsend.py".source = ./nautilus-localsend.py;
-
-  home.activation.ensureHermesDesktopRemoteFiles = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    connection_config="$HOME/.config/Hermes/connection.json"
-
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$connection_config")"
-    tmp="$(${pkgs.coreutils}/bin/mktemp)"
-    cleanup() {
-      ${pkgs.coreutils}/bin/rm -f "$tmp"
-    }
-    trap cleanup EXIT
-
-    if [ -r "$connection_config" ] && ${pkgs.jq}/bin/jq '
-      if type == "object" then . else {} end
-      | .mode = "ssh"
-      | .remote = ((.remote // {})
-          | .mode = "ssh"
-          | .host = "10.10.0.7"
-          | .user = "john"
-          | .port = 22
-          | .remoteHermesPath = "/home/john/.hermes/hermes-agent/venv/bin/hermes"
-          | del(.url, .authMode))
-      | .profiles = (.profiles // {})
-    ' "$connection_config" > "$tmp"; then
-      :
-    else
-      ${pkgs.jq}/bin/jq -n '{
-        mode: "ssh",
-        remote: {
-          mode: "ssh",
-          host: "10.10.0.7",
-          user: "john",
-          port: 22,
-          remoteHermesPath: "/home/john/.hermes/hermes-agent/venv/bin/hermes"
-        },
-        profiles: {}
-      }' > "$tmp"
-    fi
-
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 0600 "$tmp" "$connection_config"
-  '';
 
   # Desktop entry overrides for Wayland
   xdg.desktopEntries."1password" = {
@@ -607,14 +514,6 @@ in
     categories = [ "Development" "System" ];
   };
 
-  xdg.desktopEntries."hermes-desktop" = {
-    name = "Hermes Desktop";
-    exec = "${config.home.homeDirectory}/.local/bin/hermes-desktop-remote";
-    icon = "${pkgs.hermes-desktop}/share/hermes-desktop/dist/hermes.png";
-    comment = "Open Hermes Desktop connected to Hermes Agent on thebeast over SSH";
-    categories = [ "Development" "Utility" ];
-  };
-
   xdg.desktopEntries."localsend-share-clipboard" = {
     name = "Share Clipboard";
     exec = "${config.home.homeDirectory}/.local/bin/localsend-share clipboard";
@@ -675,8 +574,6 @@ in
     playerctl
 
     # Applications
-    codex-desktop
-    hermes-desktop
     spotify
     lazydocker
     btop

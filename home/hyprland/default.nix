@@ -6,7 +6,6 @@ let
   lockCommand = "${pkgs.hyprlock}/bin/hyprlock --config ${config.xdg.configHome}/hypr/hyprlock.conf --immediate-render --no-fade-in";
   launcherCommand = "walker --width 640 --maxheight 460";
   terminalCommand = "${pkgs.kitty}/bin/kitty";
-  hermesDesktopCommand = "${config.home.homeDirectory}/.local/bin/hermes-desktop-remote";
 
   # Import config generators
   monitorsConfig = import ./monitors.nix { inherit hostname lib; };
@@ -35,7 +34,7 @@ let
     exec "$portal_binary" "$@"
   '';
   bindingsConfig = import ./bindings.nix {
-    inherit brightnessControl hermesDesktopCommand launcherCommand lockCommand portalLauncher terminalCommand;
+    inherit brightnessControl launcherCommand lockCommand portalLauncher terminalCommand;
     homeDirectory = config.home.homeDirectory;
   };
   externalMonitorFunctions = ''

@@ -32,19 +32,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    codex-desktop-linux = {
-      url = "github:ilysenko/codex-desktop-linux";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    hermes-agent = {
-      # Match the Hermes Agent checkout on thebeast. This includes Desktop's
-      # SSH backend mode, which starts and tunnels `hermes serve` on demand.
-      # Keep its own pinned nixpkgs: the Desktop build pins Electron's header
-      # hash and breaks if our newer nixpkgs selects a different Electron.
-      url = "github:NousResearch/hermes-agent/720cdd1d1440845957248d152e53f0ed890b2a05";
-    };
-
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -76,8 +63,6 @@
       };
       lumen = inputs.lumen.packages.${system}.lumen;
       mdview = inputs.mdview.packages.${system}.mdview;
-      codex-desktop = inputs.codex-desktop-linux.packages.${system}.default;
-      hermes-desktop = inputs.hermes-agent.packages.${system}.desktop;
 
       # 1Password republished the 8.12.21 Linux tarball before nixpkgs caught up.
       _1password-gui =
@@ -242,8 +227,6 @@
       icamerasrcIpu75xa = pkgs.icamerasrcIpu75xa;
       lumen = pkgs.lumen;
       mdview = pkgs.mdview;
-      codex-desktop = pkgs.codex-desktop;
-      hermes-desktop = pkgs.hermes-desktop;
       default = forge;
     };
 
